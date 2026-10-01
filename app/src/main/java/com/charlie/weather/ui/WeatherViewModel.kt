@@ -1,0 +1,225 @@
+package com.charlie.weather.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.charlie.weather.data.CachedWeather
+import com.charlie.weather.data.City
+import com.charlie.weather.data.CityStore
+import com.charlie.weather.data.LocationProvider
+import com.charlie.weather.data.Weather
+import com.charlie.weather.data.WeatherApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+data class CityWeatherUi(
+    val weather: Weather? = null,
+    val loading: Boolean = false,
+    val error: String? = null,
+)
+
+class WeatherViewModel(app: Application) : AndroidViewModel(app) {
+    private val store = CityStore(app)
+    private val locationProvider = LocationProvider(app)
+
+    private var locationCity: City? = store.loadLocationCity()
+    private var savedCities: List<City> = store.loadCities()
+
+    private val _cities = MutableStateFlow(listOfNotNull(locationCity) + savedCities)
+    val cities: StateFlow<List<City>> = _cities.asStateFlow()
+
+    private val _weather = MutableStateFlow<Map<String, CityWeatherUi>>(emptyMap())
+    val weather: StateFlow<Map<String, CityWeatherUi>> = _weather.asStateFlow()
+
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<List<City>>(emptyList())
+    val searchResults: StateFlow<List<City>> = _searchResults.asStateFlow()
+
+    private val _searching = MutableStateFlow(false)
+    val searching: StateFlow<Boolean> = _searching.asStateFlow()
+
+    private var searchJob: Job? = null
+    private var locationJob: Job? = null
+
+    init {
+        _weather.value = _cities.value.associate { city ->
+            city.id to CityWeatherUi(weather = store.loadCache(city.id)?.toWeather())
+        }
+    }
+
+    fun hasLocationPermission() = locationProvider.hasPermission()
+
+    fun onLocationPermissionResult(granted: Boolean) {
+        if (granted) {
+            updateLocation(force = false)
+        } else {
+            if (locationCity != null) {
+                locationCity = null
+                store.saveLocationCity(null)
+                publishCities()
+            }
+            ensureDefaultCity()
+        }
+    }
+
+    /** 開啟 App 或回到前景時呼叫；資料超過 10 分鐘才會重新抓取。 */
+    fun refreshAll(force: Boolean = false) {
+        if (locationProvider.hasPermission()) updateLocation(force)
+        savedCities.forEach { refresh(it, force) }
+    }
+
+    fun refresh(city: City, force: Boolean = false) {
+        if (city.isCurrentLocation && force && locationProvider.hasPermission()) {
+            updateLocation(force = true)
+            return
+        }
+        fetch(city, force)
+    }
+
+    private fun fetch(city: City, force: Boolean) {
+        val state = _weather.value[city.id]
+        if (state?.loading == true) return
+        val cached = state?.weather
+        if (!force && cached != null && System.currentTimeMillis() - cached.fetchedAtMillis < STALE_MS) return
+
+        updateState(city.id) { it.copy(loading = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val (forecast, airQuality) = coroutineScope {
+                    val f = async { WeatherApi.fetchForecastJson(city.latitude, city.longitude) }
+                    val a = async { WeatherApi.fetchAirQualityJson(city.latitude, city.longitude) }
+                    f.await() to a.await()
+                }
+                val now = System.currentTimeMillis()
+                val weather = withContext(Dispatchers.Default) { WeatherApi.parse(forecast, airQuality, now) }
+                store.saveCache(city.id, CachedWeather(forecast, airQuality, now))
+                updateState(city.id) { CityWeatherUi(weather = weather) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateState(city.id) { it.copy(loading = false, error = "無法更新天氣資料，請檢查網路連線") }
+            }
+        }
+    }
+
+    private fun updateLocation(force: Boolean) {
+        if (locationJob?.isActive == true) return
+        locationJob = viewModelScope.launch {
+            locationCity?.let { updateState(it.id) { s -> s.copy(loading = s.weather == null || force) } }
+            val location = locationProvider.currentLocation()
+            if (location == null) {
+                locationCity?.let { updateState(it.id) { s -> s.copy(loading = false) } }
+                locationCity?.let { fetch(it, force) } ?: ensureDefaultCity()
+                return@launch
+            }
+            val previous = locationCity
+            val movedFar = previous == null ||
+                distanceKm(previous.latitude, previous.longitude, location.latitude, location.longitude) > 1.0
+            val name = if (movedFar || previous?.name == DEFAULT_LOCATION_NAME) {
+                locationProvider.placeName(location.latitude, location.longitude) ?: previous?.name ?: DEFAULT_LOCATION_NAME
+            } else {
+                previous!!.name
+            }
+            val city = City(LOCATION_ID, name, DEFAULT_LOCATION_NAME, location.latitude, location.longitude, isCurrentLocation = true)
+            locationCity = city
+            store.saveLocationCity(city)
+            publishCities()
+            updateState(city.id) { it.copy(loading = false) }
+            fetch(city, force || movedFar)
+        }
+    }
+
+    private fun ensureDefaultCity() {
+        if (_cities.value.isEmpty()) addCity(DEFAULT_CITY)
+    }
+
+    fun onQueryChange(value: String) {
+        _query.value = value
+        searchJob?.cancel()
+        if (value.isBlank()) {
+            _searchResults.value = emptyList()
+            _searching.value = false
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(350)
+            _searching.value = true
+            _searchResults.value = try {
+                WeatherApi.searchCities(value.trim())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyList()
+            }
+            _searching.value = false
+        }
+    }
+
+    /** 新增城市並回傳它在頁面中的索引。 */
+    fun addCity(city: City): Int {
+        clearSearch()
+        val existing = _cities.value.indexOfFirst { it.id == city.id }
+        if (existing >= 0) return existing
+        savedCities = savedCities + city
+        store.saveCities(savedCities)
+        publishCities()
+        if (_weather.value[city.id] == null) updateState(city.id) { it }
+        fetch(city, force = false)
+        return _cities.value.indexOfFirst { it.id == city.id }
+    }
+
+    fun removeCity(city: City) {
+        if (city.isCurrentLocation) return
+        savedCities = savedCities.filterNot { it.id == city.id }
+        store.saveCities(savedCities)
+        store.removeCache(city.id)
+        _weather.update { it - city.id }
+        publishCities()
+    }
+
+    fun clearSearch() {
+        searchJob?.cancel()
+        _query.value = ""
+        _searchResults.value = emptyList()
+        _searching.value = false
+    }
+
+    private fun publishCities() {
+        _cities.value = listOfNotNull(locationCity) + savedCities
+    }
+
+    private fun updateState(id: String, transform: (CityWeatherUi) -> CityWeatherUi) {
+        _weather.update { it + (id to transform(it[id] ?: CityWeatherUi())) }
+    }
+
+    private fun CachedWeather.toWeather(): Weather? =
+        runCatching { WeatherApi.parse(forecastJson, airQualityJson, fetchedAtMillis) }.getOrNull()
+
+    private fun distanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2).let { it * it } +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLon / 2).let { it * it }
+        return 2 * r * Math.asin(Math.sqrt(a))
+    }
+
+    companion object {
+        const val LOCATION_ID = "current_location"
+        const val DEFAULT_LOCATION_NAME = "我的位置"
+        private const val STALE_MS = 10 * 60_000L
+        val DEFAULT_CITY = City("geo_1668341", "臺北市", "臺灣", 25.0478, 121.5319)
+    }
+}
