@@ -60,6 +60,29 @@ jobs:
           name: MyWeather-1.0.${{ github.run_number }}
           path: dist/*.apk
 
+      - name: 發佈到 Firebase App Distribution（App Tester）
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && inputs.release)
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_TESTERS: ${{ secrets.FIREBASE_TESTERS }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] || [ -z "$FIREBASE_APP_ID" ]; then
+            echo "::notice::尚未設定 FIREBASE_SERVICE_ACCOUNT / FIREBASE_APP_ID，略過 App Tester 發佈。"
+            exit 0
+          fi
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          TESTER_ARGS=()
+          if [ -n "$FIREBASE_TESTERS" ]; then TESTER_ARGS=(--testers "$FIREBASE_TESTERS"); fi
+          npx --yes firebase-tools@latest appdistribution:distribute dist/*.apk \
+            --app "$FIREBASE_APP_ID" \
+            "${TESTER_ARGS[@]}" \
+            --release-notes "v1.0.${VERSION_CODE}：$(git log -1 --pretty=%s)"
+          rm -f "$RUNNER_TEMP/firebase-sa.json"
+
       - name: 發佈到 GitHub Release
         if: >-
           (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -73,4 +96,4 @@ jobs:
           files: dist/*.apk
           body: |
             自動建置：${{ github.sha }}（${{ github.ref_name }}）
-            直接安裝 APK，或用 Obtainium 自動更新。
+            也可透過 Firebase App Tester 安裝更新。

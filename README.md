@@ -24,8 +24,8 @@
 | 事件 | 結果 |
 | --- | --- |
 | push 任何分支／PR | 建置 APK，上傳為 Actions artifact |
-| push 到 `main` | 另外發佈 GitHub Release（tag 為 `v1.0.<run_number>`） |
-| 手動執行（workflow_dispatch） | 可選擇是否發佈 Release |
+| push 到 `main` | 發佈到 Firebase App Tester，並發佈 GitHub Release（tag 為 `v1.0.<run_number>`） |
+| 手動執行（workflow_dispatch） | 可選擇是否發佈到 App Tester 與 Release |
 
 版本號就是 GitHub Actions 的 run number，新版可以直接覆蓋安裝。
 
@@ -49,14 +49,35 @@ base64 -w0 my-weather.jks   # macOS 用：base64 -i my-weather.jks
 
 還沒設定時，CI 會改用臨時的 debug 金鑰，APK 可以安裝，但每次更新都得先解除安裝。
 
-### 2. 手機自動更新（推薦用 Obtainium）
+### 2. 手機自動更新：Firebase App Tester
 
-1. 在手機安裝 [Obtainium](https://github.com/ImranR98/Obtainium/releases)（開源的 App 更新器）。
-2. 因為這個 repo 是 **private**，請到 GitHub → Settings → Developer settings → Fine-grained tokens，
-   建立一個只對 `weather_android` 開放 **Contents: Read-only** 權限的 token。
-3. 在 Obtainium → 設定 → GitHub 憑證，貼上 token。
-4. 在 Obtainium → 新增 App，輸入 `https://github.com/charlie5041/weather_android`，新增後安裝。
-5. 之後每次 push 到 `main`，Obtainium 就會通知更新，點一下即可安裝（也能設定背景自動檢查）。
+每次 push 到 `main`，CI 會把 APK 上傳到 Firebase App Distribution，手機上的 **App Tester** 會收到通知，點一下就能更新。
+
+**Firebase 設定（只需做一次）**
+
+1. 到 [Firebase Console](https://console.firebase.google.com/) 建立專案（不需要 Google Analytics）。
+2. 專案總覽 → 新增應用程式 → Android，套件名稱填 `com.charlie.weather`，其他欄位可以略過。
+   完成後在「專案設定 → 一般」複製 **App ID**（格式像 `1:1234567890:android:abcdef...`）。
+3. 左側選單 → Release & Monitor → **App Distribution** → 開始使用。
+4. 建立服務帳戶：專案設定 → 服務帳戶 → 「管理服務帳戶權限」（會開啟 Google Cloud Console）
+   → 建立服務帳戶，角色選 **Firebase App Distribution Admin** → 建立後到「金鑰」分頁 → 新增金鑰 → JSON，下載檔案。
+
+**GitHub Secrets**（repo → Settings → Secrets and variables → Actions）
+
+| Secret | 內容 |
+| --- | --- |
+| `FIREBASE_APP_ID` | 第 2 步複製的 App ID |
+| `FIREBASE_SERVICE_ACCOUNT` | 第 4 步下載的 JSON 檔「整份內容」 |
+| `FIREBASE_TESTERS` | 要收到更新的 Google 帳號 email，多個用逗號分隔 |
+
+**手機端**
+
+1. 第一次發佈後，手機上的 Google 帳號會收到 Firebase 邀請信，點「開始使用」接受邀請。
+2. 依照指示安裝 **App Tester**（Firebase 的測試版安裝 App）並登入同一個帳號。
+3. 之後每次有新版，App Tester 會推播通知，點「下載」→「安裝」即可。
+   vivo 第一次會詢問是否允許 App Tester 安裝應用程式，請允許。
+
+（GitHub Release 仍然會同步發佈，也可以直接從 Release 頁面下載 APK。）
 
 ## 本機建置
 
