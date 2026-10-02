@@ -13,6 +13,7 @@ import com.charlie.weather.data.CwaAlert
 import com.charlie.weather.data.CwaSummary
 import com.charlie.weather.data.DailyForecast
 import com.charlie.weather.data.HourlyForecast
+import com.charlie.weather.data.PlaceSearch
 import com.charlie.weather.data.Weather
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -20,6 +21,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.File
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.math.PI
@@ -69,6 +71,26 @@ class ScreenshotTest {
             ),
             query = "",
             results = emptyList(),
+            searching = false,
+            onQueryChange = {},
+            onAdd = {},
+            onSelect = {},
+            onRemove = {},
+            onMove = { _, _ -> },
+            onOpenSettings = {},
+            onClose = {},
+        )
+    }
+
+    @Test
+    fun searchSingleLetter() = capture("07_search_t") {
+        val taiwan = PlaceSearch.parse(File("src/main/assets/taiwan_places.json").readText())
+        val world = PlaceSearch.parseWorld(File("src/main/assets/world_cities.json").readText())
+        CityListScreen(
+            cities = emptyList(),
+            weather = emptyMap(),
+            query = "t",
+            results = PlaceSearch.search("t", taiwan).map { it.toCity() } + PlaceSearch.searchWorld("t", world).map { it.toCity() },
             searching = false,
             onQueryChange = {},
             onAdd = {},

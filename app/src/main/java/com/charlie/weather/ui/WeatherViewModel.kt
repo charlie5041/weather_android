@@ -8,6 +8,7 @@ import com.charlie.weather.data.CwaParser
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.PlaceSearch
 import com.charlie.weather.data.TaiwanPlace
+import com.charlie.weather.data.WorldCity
 import com.charlie.weather.data.Weather
 import com.charlie.weather.data.WeatherApi
 import com.charlie.weather.data.WeatherRepository
@@ -152,6 +153,12 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         }.getOrDefault(emptyList())
     }
 
+    private val worldCities: List<WorldCity> by lazy {
+        runCatching {
+            getApplication<Application>().assets.open("world_cities.json").bufferedReader().use { PlaceSearch.parseWorld(it.readText()) }
+        }.getOrDefault(emptyList())
+    }
+
     /** 先即時顯示內建台灣地名的模糊搜尋結果，再合併線上搜尋（台／臺兩種寫法、縮寫與機場代碼都查）。 */
     fun onQueryChange(value: String) {
         _query.value = value
@@ -163,10 +170,20 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         }
         val alias = PlaceSearch.expandAlias(value)
         // 縮寫或機場代碼（例如 TPE、KHH）先用展開後的名稱查內建清單
-        val local = (alias?.let { PlaceSearch.search(it, taiwanPlaces) }.orEmpty() + PlaceSearch.search(value, taiwanPlaces))
+        val taiwan = (alias?.let { PlaceSearch.search(it, taiwanPlaces) }.orEmpty() + PlaceSearch.search(value, taiwanPlaces))
             .distinct()
             .map { it.toCity() }
+        // 內建世界城市：輸入一個字母也能列出符合的城市
+        val world = (alias?.let { PlaceSearch.searchWorld(it, worldCities, limit = 5) }.orEmpty() + PlaceSearch.searchWorld(value, worldCities))
+            .distinct()
+            .map { it.toCity() }
+        val local = taiwan + world
         _searchResults.value = local
+        // 線上搜尋至少需要兩個字元
+        if (value.trim().length < 2 && alias == null) {
+            _searching.value = false
+            return
+        }
         searchJob = viewModelScope.launch {
             delay(350)
             _searching.value = true

@@ -1,6 +1,7 @@
 package com.charlie.weather.data
 
 import org.json.JSONArray
+import java.text.Normalizer
 
 /** 內建的台灣縣市與鄉鎮清單（取自中央氣象署鄉鎮預報），用於離線模糊搜尋。 */
 data class TaiwanPlace(val county: String, val township: String, val latitude: Double, val longitude: Double) {
@@ -10,7 +11,26 @@ data class TaiwanPlace(val county: String, val township: String, val latitude: D
     fun toCity() = City(
         id = if (isCounty) "tw_$county" else "tw_${county}_$township",
         name = name,
-        subtitle = if (isCounty) "臺灣" else county,
+        subtitle = if (isCounty) PlaceSearch.countyEnglish(county)?.let { "$it · 臺灣" } ?: "臺灣" else county,
+        latitude = latitude,
+        longitude = longitude,
+    )
+}
+
+/** 內建的世界主要城市（GeoNames，人口 30 萬以上；由 tools/gen_world_cities.py 產生）。 */
+data class WorldCity(
+    val english: String,
+    val chinese: String,
+    val country: String,
+    val latitude: Double,
+    val longitude: Double,
+    val population: Long,
+    val popular: Boolean,
+) {
+    fun toCity() = City(
+        id = "wc_${english}_${"%.2f".format(java.util.Locale.US, latitude)}",
+        name = chinese.ifEmpty { english },
+        subtitle = if (chinese.isEmpty()) country else "$english · $country",
         latitude = latitude,
         longitude = longitude,
     )
@@ -26,9 +46,26 @@ object PlaceSearch {
         }
     }
 
-    /** 統一「台/臺」並去掉空白，讓「台中」可以找到「臺中市」。 */
+    /** 縣市英文名（依常用程度排序，搜尋同分時照這個順序）。 */
+    private val countyEnglishNames = linkedMapOf(
+        "臺北市" to "Taipei", "新北市" to "New Taipei", "桃園市" to "Taoyuan", "臺中市" to "Taichung",
+        "臺南市" to "Tainan", "高雄市" to "Kaohsiung", "基隆市" to "Keelung", "新竹市" to "Hsinchu",
+        "新竹縣" to "Hsinchu County", "宜蘭縣" to "Yilan", "花蓮縣" to "Hualien", "臺東縣" to "Taitung",
+        "苗栗縣" to "Miaoli", "彰化縣" to "Changhua", "南投縣" to "Nantou", "雲林縣" to "Yunlin",
+        "嘉義市" to "Chiayi", "嘉義縣" to "Chiayi County", "屏東縣" to "Pingtung", "澎湖縣" to "Penghu",
+        "金門縣" to "Kinmen", "連江縣" to "Matsu",
+    )
+    private val countyOrder = countyEnglishNames.keys.withIndex().associate { it.value to it.index }
+
+    fun countyEnglish(county: String): String? = countyEnglishNames[county]
+
+    /** 統一「台/臺」、大小寫並去掉空白，讓「台中」可以找到「臺中市」。 */
     fun normalize(text: String): String =
-        text.trim().replace('台', '臺').replace(" ", "").replace("　", "")
+        text.trim().replace('台', '臺').replace(" ", "").replace("　", "").lowercase()
+
+    /** 去掉重音符號並轉小寫：São Paulo → sao paulo */
+    private fun fold(text: String): String =
+        Normalizer.normalize(text, Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "").lowercase().trim()
 
     /** 去掉行政區後綴：臺中市 → 臺中、北屯區 → 北屯 */
     private fun base(name: String): String =
@@ -50,13 +87,25 @@ object PlaceSearch {
             val keys = buildList {
                 add(name)
                 add(base(name))
+
                 if (!p.isCounty) {
                     add(p.county + name)
                     add(base(p.county) + name)
                     add(base(p.county) + base(name))
                 }
             }
+            // 英文名只比對開頭或單字開頭（避免單一字母命中一堆）
+            val english = if (p.isCounty) countyEnglishNames[p.county]?.lowercase() else null
+            val englishScore = english?.let { en ->
+                when {
+                    en.replace(" ", "") == q -> 0
+                    en.replace(" ", "").startsWith(q) -> 1
+                    en.split(' ').any { it.startsWith(q) } -> 2
+                    else -> null
+                }
+            }
             val score = when {
+                englishScore != null -> englishScore
                 keys.any { it == q || it == qBase } -> 0
                 keys.any { it.startsWith(q) } -> 1
                 keys.any { q in it } -> 2
@@ -64,9 +113,42 @@ object PlaceSearch {
                 !p.isCounty && q.contains(base(p.county)) && q.contains(base(name)) -> 3
                 else -> return@mapNotNull null
             }
-            Triple(p, score, if (p.isCounty) 0 else 1)
+            Triple(p, score, if (p.isCounty) countyOrder[p.county] ?: 50 else 100)
         }
             .sortedWith(compareBy({ it.second }, { it.third }))
+            .take(limit)
+            .map { it.first }
+    }
+
+    fun parseWorld(json: String): List<WorldCity> {
+        val arr = JSONArray(json)
+        return (0 until arr.length()).map { i ->
+            val c = arr.getJSONArray(i)
+            WorldCity(c.getString(0), c.getString(1), c.getString(2), c.getDouble(3), c.getDouble(4), c.getLong(5), c.optInt(6) == 1)
+        }
+    }
+
+    /**
+     * 世界城市搜尋，輸入一個字母也有結果：
+     * 英文名開頭相同 > 英文名中某個單字開頭相同（york → New York）> 中文名包含；
+     * 同分時熱門城市優先，再依人口排序。
+     */
+    fun searchWorld(query: String, cities: List<WorldCity>, limit: Int = 20): List<WorldCity> {
+        val q = fold(query)
+        if (q.isEmpty()) return emptyList()
+        val qZh = normalize(query)
+        return cities.mapNotNull { c ->
+            val en = fold(c.english)
+            val zh = normalize(c.chinese)
+            val score = when {
+                en.startsWith(q) || (zh.isNotEmpty() && zh.startsWith(qZh)) -> 0
+                en.split(' ', '-').any { it.startsWith(q) } -> 1
+                zh.isNotEmpty() && qZh in zh -> 1
+                else -> return@mapNotNull null
+            }
+            c to score
+        }
+            .sortedWith(compareBy<Pair<WorldCity, Int>> { it.second }.thenByDescending { it.first.popular }.thenByDescending { it.first.population })
             .take(limit)
             .map { it.first }
     }

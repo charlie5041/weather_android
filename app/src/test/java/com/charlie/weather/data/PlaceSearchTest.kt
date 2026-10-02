@@ -13,6 +13,13 @@ class PlaceSearchTest {
 
     private fun names(query: String) = PlaceSearch.search(query, places).map { it.county + it.township }
 
+    private val world = PlaceSearch.parseWorld(
+        File("src/main/assets/world_cities.json").takeIf { it.exists() }?.readText()
+            ?: File("app/src/main/assets/world_cities.json").readText(),
+    )
+
+    private fun worldNames(query: String) = PlaceSearch.searchWorld(query, world).map { it.english }
+
     @Test
     fun containsAllCountiesAndTownships() {
         assertEquals(22, places.count { it.isCounty })
@@ -66,5 +73,39 @@ class PlaceSearchTest {
         val tpe = PlaceSearch.expandAlias("TPE")!!
         assertEquals("桃園市", names(tpe).first())
         assertEquals("高雄市", names(PlaceSearch.expandAlias("khh")!!).first())
+    }
+
+    @Test
+    fun singleLetterListsCities() {
+        // 台灣縣市的英文名
+        assertEquals(listOf("臺北市", "桃園市", "臺中市", "臺南市", "臺東縣", "新北市"), names("t"))
+        // 世界城市：熱門城市優先
+        val t = worldNames("t")
+        assertEquals("Tokyo", t.first())
+        assertEquals(20, t.size)
+        assertTrue(t.all { it.lowercase().startsWith("t") })
+        assertTrue(worldNames("K").first() in setOf("Kobe", "Kyoto", "Kuala Lumpur"))
+    }
+
+    @Test
+    fun worldSearchByEnglishChineseAndAccents() {
+        assertEquals("Tokyo", worldNames("tok").first())
+        assertEquals("Tokyo", worldNames("東京").first())
+        assertEquals("New York City", worldNames("york").first())
+        assertEquals("New York City", worldNames("紐約").first())
+        assertEquals("London", worldNames("倫敦").first())
+        assertEquals("São Paulo", worldNames("sao paulo").first())
+        assertEquals("Sydney", worldNames("雪梨").first())
+        val tokyo = PlaceSearch.searchWorld("tokyo", world).first().toCity()
+        assertEquals("東京", tokyo.name)
+        assertEquals("Tokyo · 日本", tokyo.subtitle)
+    }
+
+    @Test
+    fun taiwanCountyEnglishNames() {
+        assertEquals("臺北市", names("Taipei").first())
+        assertEquals("新北市", names("new taipei").first())
+        assertEquals("高雄市", names("kaoh").first())
+        assertEquals("Taipei · 臺灣", PlaceSearch.search("taipei", places).first().toCity().subtitle)
     }
 }
