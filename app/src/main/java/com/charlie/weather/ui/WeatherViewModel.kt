@@ -152,7 +152,7 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         }.getOrDefault(emptyList())
     }
 
-    /** 先即時顯示內建台灣地名的模糊搜尋結果，再合併線上搜尋（台／臺兩種寫法都查）。 */
+    /** 先即時顯示內建台灣地名的模糊搜尋結果，再合併線上搜尋（台／臺兩種寫法、縮寫與機場代碼都查）。 */
     fun onQueryChange(value: String) {
         _query.value = value
         searchJob?.cancel()
@@ -161,13 +161,19 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
             _searching.value = false
             return
         }
-        val local = PlaceSearch.search(value, taiwanPlaces).map { it.toCity() }
+        val alias = PlaceSearch.expandAlias(value)
+        // 縮寫或機場代碼（例如 TPE、KHH）先用展開後的名稱查內建清單
+        val local = (alias?.let { PlaceSearch.search(it, taiwanPlaces) }.orEmpty() + PlaceSearch.search(value, taiwanPlaces))
+            .distinct()
+            .map { it.toCity() }
         _searchResults.value = local
         searchJob = viewModelScope.launch {
             delay(350)
             _searching.value = true
+            // 縮寫展開後的名稱放最前面，讓 NYC → New York 排在第一
+            val queries = (listOfNotNull(alias) + PlaceSearch.variants(value)).distinct()
             val online = coroutineScope {
-                PlaceSearch.variants(value).map { q ->
+                queries.map { q ->
                     async {
                         try {
                             WeatherApi.searchCities(q)

@@ -55,4 +55,16 @@ class PlaceSearchTest {
         assertEquals(listOf("台中", "臺中"), PlaceSearch.variants("台中"))
         assertEquals(listOf("Tokyo"), PlaceSearch.variants("Tokyo"))
     }
+
+    @Test
+    fun abbreviationsAndAirportCodes() {
+        assertEquals("New York", PlaceSearch.expandAlias("nyc"))
+        assertEquals("Los Angeles", PlaceSearch.expandAlias("LA"))
+        assertEquals("Tokyo", PlaceSearch.expandAlias(" NRT "))
+        assertEquals(null, PlaceSearch.expandAlias("Tokyo"))
+        // 台灣機場代碼對應到內建地名
+        val tpe = PlaceSearch.expandAlias("TPE")!!
+        assertEquals("桃園市", names(tpe).first())
+        assertEquals("高雄市", names(PlaceSearch.expandAlias("khh")!!).first())
+    }
 }
