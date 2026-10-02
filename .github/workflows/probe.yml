@@ -1,0 +1,27 @@
+name: probe-cwa
+on:
+  push:
+    branches: ["claude/**"]
+    paths: [".github/workflows/probe.yml"]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          UA="Mozilla/5.0"
+          for page in https://www.cwa.gov.tw/V8/C/W/OBS_Sat.html https://www.cwa.gov.tw/V8/C/W/OBS_Radar.html; do
+            echo "== $page"; curl -sL -A "$UA" "$page" | grep -oE '[^"'"'"' ]*(satellite|radar|Sat|js)[^"'"'"' ]*\.(js|jpg|png)[^"'"'"' ]*' | sort -u | head -40
+          done
+          for js in $(curl -sL -A "$UA" https://www.cwa.gov.tw/V8/C/W/OBS_Sat.html | grep -oE '/Data/js/[^"]+\.js[^"]*' | sort -u); do
+            echo "== JS $js"; curl -sL -A "$UA" "https://www.cwa.gov.tw$js" | head -c 3000; echo
+          done
+          for js in $(curl -sL -A "$UA" https://www.cwa.gov.tw/V8/C/W/OBS_Sat.html | grep -oE '/V8/assets/js/[^"]+\.js[^"]*' | sort -u | head -15); do
+            echo "== V8JS $js"; curl -sL -A "$UA" "https://www.cwa.gov.tw$js" | grep -oE '.{0,120}(satellite|Data/sat|TWI_|LCC_).{0,160}' | head -15
+          done
+          for m in 20 30 40 50 60; do
+            T=$(TZ=Asia/Taipei date -d "-$m min" +%Y-%m-%d-%H)-$(printf %02d $(( ($(TZ=Asia/Taipei date -d "-$m min" +%-M)/10)*10 )))
+            for p in TWI_IR1_CR_800 TWI_VIS_TRGB_1375 TWI_IR1_MB_800 LCC_IR1_CR_2750 LCC_VIS_TRGB_2750 TWI_VIS_Gray_1350; do
+              u="https://www.cwa.gov.tw/Data/satellite/$p/$p-$T.jpg"
+              echo "$(curl -s -o /dev/null -w '%{http_code} %{size_download}' -A "$UA" "$u") $u"
+            done
+          done
