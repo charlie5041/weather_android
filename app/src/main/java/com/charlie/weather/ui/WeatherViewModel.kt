@@ -211,6 +211,17 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         publishCities()
     }
 
+    /** 依 cities 的索引移動城市；目前位置固定在第一個，不能移動。 */
+    fun moveCity(from: Int, to: Int) {
+        val offset = if (locationCity != null) 1 else 0
+        val f = from - offset
+        val t = to - offset
+        if (f !in savedCities.indices || t !in savedCities.indices || f == t) return
+        savedCities = savedCities.toMutableList().apply { add(t, removeAt(f)) }
+        store.saveCities(savedCities)
+        publishCities()
+    }
+
     fun clearSearch() {
         searchJob?.cancel()
         _query.value = ""

@@ -1,9 +1,8 @@
 package com.charlie.weather.ui
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,33 +21,44 @@ import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Weather
 
@@ -63,10 +73,9 @@ fun CityListScreen(
     onAdd: (City) -> Unit,
     onSelect: (Int) -> Unit,
     onRemove: (City) -> Unit,
+    onMove: (from: Int, to: Int) -> Unit,
     onClose: () -> Unit,
 ) {
-    var pendingDelete by remember { mutableStateOf<City?>(null) }
-
     Column(
         Modifier
             .fillMaxSize()
@@ -114,43 +123,148 @@ fun CityListScreen(
         if (query.isNotBlank()) {
             SearchResults(results, searching, onAdd)
         } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(top = 4.dp),
-            ) {
-                itemsIndexed(cities, key = { _, c -> c.id }) { index, city ->
-                    CityRow(
-                        city = city,
-                        weather = weather[city.id]?.weather,
-                        onClick = { onSelect(index) },
-                        onLongClick = { if (!city.isCurrentLocation) pendingDelete = city },
-                    )
-                }
-                item {
-                    Text(
-                        "長按城市可刪除",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                    )
-                    Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+            ReorderableCityList(cities, weather, onSelect, onRemove, onMove)
+        }
+    }
+}
+
+/**
+ * 城市列表：
+ * - 長按後上下拖曳可調整順序（目前位置固定在最上方）
+ * - 向左滑可刪除
+ */
+@Composable
+private fun ReorderableCityList(
+    cities: List<City>,
+    weather: Map<String, CityWeatherUi>,
+    onSelect: (Int) -> Unit,
+    onRemove: (City) -> Unit,
+    onMove: (from: Int, to: Int) -> Unit,
+) {
+    val listState = rememberLazyListState()
+    val haptics = LocalHapticFeedback.current
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val currentCities by rememberUpdatedState(cities)
+    val currentOnMove by rememberUpdatedState(onMove)
+
+    fun movable(key: Any?) = currentCities.any { it.id == key && !it.isCurrentLocation }
+
+    LazyColumn(
+        state = listState,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(top = 4.dp),
+        modifier = Modifier.pointerInput(Unit) {
+            detectDragGesturesAfterLongPress(
+                onDragStart = { start ->
+                    val y = start.y.toInt() + listState.layoutInfo.viewportStartOffset
+                    val item = listState.layoutInfo.visibleItemsInfo
+                        .firstOrNull { y in it.offset until it.offset + it.size }
+                    if (item != null && movable(item.key)) {
+                        draggingId = item.key as String
+                        dragOffset = 0f
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                },
+                onDrag = { change, amount ->
+                    val id = draggingId ?: return@detectDragGesturesAfterLongPress
+                    change.consume()
+                    dragOffset += amount.y
+                    val items = listState.layoutInfo.visibleItemsInfo
+                    val current = items.firstOrNull { it.key == id } ?: return@detectDragGesturesAfterLongPress
+                    val center = current.offset + dragOffset + current.size / 2f
+                    val target = items.firstOrNull {
+                        it.key != id && movable(it.key) && center > it.offset && center < it.offset + it.size
+                    }
+                    if (target != null) {
+                        currentOnMove(current.index, target.index)
+                        // 卡片已換到新位置，修正位移讓它維持在手指下方
+                        dragOffset -= (target.offset - current.offset)
+                    }
+                },
+                onDragEnd = {
+                    draggingId = null
+                    dragOffset = 0f
+                },
+                onDragCancel = {
+                    draggingId = null
+                    dragOffset = 0f
+                },
+            )
+        },
+    ) {
+        itemsIndexed(cities, key = { _, c -> c.id }) { index, city ->
+            val dragging = city.id == draggingId
+            val itemModifier = if (dragging) {
+                Modifier
+                    .zIndex(1f)
+                    .graphicsLayer {
+                        translationY = dragOffset
+                        scaleX = 1.03f
+                        scaleY = 1.03f
+                    }
+            } else {
+                Modifier.animateItem()
+            }
+            Box(itemModifier) {
+                if (city.isCurrentLocation) {
+                    CityRow(city, weather[city.id]?.weather, onClick = { onSelect(index) })
+                } else {
+                    SwipeToDeleteRow(onDelete = { onRemove(city) }) {
+                        CityRow(city, weather[city.id]?.weather, onClick = { onSelect(index) })
+                    }
                 }
             }
         }
+        item(key = "hint") {
+            Column {
+                Text(
+                    "長按拖曳可調整順序，向左滑可刪除",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                )
+                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+            }
+        }
     }
+}
 
-    pendingDelete?.let { city ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("刪除「${city.name}」？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    onRemove(city)
-                    pendingDelete = null
-                }) { Text("刪除", color = Color(0xFFFF453A)) }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
-        )
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDeleteRow(onDelete: () -> Unit, content: @Composable () -> Unit) {
+    val currentOnDelete by rememberUpdatedState(onDelete)
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                currentOnDelete()
+                true
+            } else {
+                false
+            }
+        },
+        positionalThreshold = { distance -> distance * 0.4f },
+    )
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = false,
+        backgroundContent = {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xFFFF3B30))
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.Delete, contentDescription = "刪除", tint = Color.White)
+                    Text("刪除", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        },
+    ) {
+        content()
     }
 }
 
@@ -184,16 +298,15 @@ private fun SearchResults(results: List<City>, searching: Boolean, onAdd: (City)
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CityRow(city: City, weather: Weather?, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun CityRow(city: City, weather: Weather?, onClick: () -> Unit) {
     val colors = weather?.let { backgroundColors(it.current.weatherCode, it.current.isDay) } ?: backgroundColors(1, true)
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(Brush.verticalGradient(colors))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .clickable(onClick = onClick)
             .padding(16.dp),
     ) {
         Column(Modifier.weight(1f)) {
