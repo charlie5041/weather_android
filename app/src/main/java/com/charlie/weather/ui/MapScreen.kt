@@ -2,6 +2,9 @@ package com.charlie.weather.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Rect
+import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -98,7 +101,12 @@ private sealed interface MapProjection {
 
 private const val CWA_WEB = "https://www.cwa.gov.tw"
 private val TaiwanSatellite = MapProjection.Mercator(115.976888855, 126.02300114, 19.100625745, 28.29937425)
-private val TaiwanRadar = MapProjection.LatLon(118.0, 124.0, 20.5, 26.5)
+/** 雷達圖（較大範圍）原始為 115–126.5°E、17.75–29.25°N，裁切成台灣周邊 117.5–124.5°E、20.5–27.5°N。 */
+private val RadarCrop = CropFraction(left = 2.5 / 11.5, top = 1.75 / 11.5, right = 9.5 / 11.5, bottom = 8.75 / 11.5)
+private val TaiwanRadar = MapProjection.LatLon(117.5, 124.5, 20.5, 27.5)
+
+/** 以比例表示的裁切範圍（0..1）。 */
+private data class CropFraction(val left: Double, val top: Double, val right: Double, val bottom: Double)
 
 private sealed interface MapProduct {
     val title: String
@@ -112,6 +120,9 @@ private sealed interface MapProduct {
         override val projection: MapProjection?,
         val frameCount: Int,
         val maxDimension: Int,
+        val crop: CropFraction?,
+        /** 開啟時預設放大倍率（以目前城市為中心） */
+        val initialZoom: Float,
         val url: (LocalDateTime) -> String,
         val fallbackS3Id: String,
         val fallbackExtension: String,
@@ -137,9 +148,11 @@ private val products = listOf(
         note = "雷達整合回波：顏色越暖代表雨勢越大。",
         projection = TaiwanRadar,
         frameCount = 12,
-        maxDimension = 1000,
+        maxDimension = 1100,
+        crop = RadarCrop,
+        initialZoom = 1.8f,
         url = { "$CWA_WEB/Data/radar/CV1_3600_${stamp.format(it)}.png" },
-        fallbackS3Id = "O-A0058-003",
+        fallbackS3Id = "O-A0058-001",
         fallbackExtension = "png",
     ),
     MapProduct.Animated(
@@ -148,6 +161,8 @@ private val products = listOf(
         projection = TaiwanSatellite,
         frameCount = 18,
         maxDimension = 800,
+        crop = null,
+        initialZoom = 1f,
         url = { "$CWA_WEB/Data/satellite/TWI_IR1_CR_800/TWI_IR1_CR_800-${dashed.format(it)}.jpg" },
         fallbackS3Id = "O-C0042-002",
         fallbackExtension = "jpg",
@@ -158,6 +173,8 @@ private val products = listOf(
         projection = TaiwanSatellite,
         frameCount = 12,
         maxDimension = 900,
+        crop = null,
+        initialZoom = 1f,
         url = { "$CWA_WEB/Data/satellite/TWI_VIS_Gray_1350/TWI_VIS_Gray_1350-${dashed.format(it)}.jpg" },
         fallbackS3Id = "O-C0042-008",
         fallbackExtension = "jpg",
@@ -185,18 +202,38 @@ private object FrameCache {
     }
 }
 
-private fun decode(bytes: ByteArray, maxDimension: Int): ImageBitmap {
+private fun decode(bytes: ByteArray, maxDimension: Int, crop: CropFraction? = null): ImageBitmap {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    val rect = crop?.let {
+        Rect(
+            (it.left * bounds.outWidth).toInt(),
+            (it.top * bounds.outHeight).toInt(),
+            (it.right * bounds.outWidth).toInt(),
+            (it.bottom * bounds.outHeight).toInt(),
+        )
+    } ?: Rect(0, 0, bounds.outWidth, bounds.outHeight)
     var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxDimension) sample *= 2
-    val bitmap = BitmapFactory.decodeByteArray(
-        bytes, 0, bytes.size,
-        BitmapFactory.Options().apply {
-            inSampleSize = sample
-            inPreferredConfig = Bitmap.Config.RGB_565
-        },
-    ) ?: throw IOException("無法解碼圖片")
+    while (maxOf(rect.width(), rect.height()) / sample > maxDimension) sample *= 2
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = sample
+        inPreferredConfig = Bitmap.Config.RGB_565
+    }
+    val bitmap = if (crop != null) {
+        val decoder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            BitmapRegionDecoder.newInstance(bytes, 0, bytes.size)
+        } else {
+            @Suppress("DEPRECATION")
+            BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false)
+        }
+        try {
+            decoder?.decodeRegion(rect, options)
+        } finally {
+            decoder?.recycle()
+        }
+    } else {
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    } ?: throw IOException("無法解碼圖片")
     return bitmap.asImageBitmap()
 }
 
@@ -219,7 +256,7 @@ private suspend fun loadFrames(product: MapProduct, onProgress: (List<Frame>) ->
             for (batch in times.chunked(4)) {
                 val results = batch.map { t ->
                     async {
-                        runCatching { t to Frame(decode(httpBytes(product.url(t)), product.maxDimension), t) }.getOrNull()
+                        runCatching { t to Frame(decode(httpBytes(product.url(t)), product.maxDimension, product.crop), t) }.getOrNull()
                     }
                 }.awaitAll().filterNotNull()
                 results.forEach { (t, f) -> loaded[t] = f }
@@ -230,7 +267,7 @@ private suspend fun loadFrames(product: MapProduct, onProgress: (List<Frame>) ->
                 if (loaded.size >= product.frameCount) break
             }
             if (loaded.isEmpty()) {
-                val image = decode(httpBytes("${CwaRepository.BASE_URL}/Observation/${product.fallbackS3Id}.${product.fallbackExtension}"), product.maxDimension)
+                val image = decode(httpBytes("${CwaRepository.BASE_URL}/Observation/${product.fallbackS3Id}.${product.fallbackExtension}"), product.maxDimension, product.crop)
                 listOf(Frame(image, s3Time(product.fallbackS3Id)))
             } else {
                 loaded.values.toList().takeLast(product.frameCount)
@@ -398,9 +435,6 @@ fun MapScreen(city: City?, onClose: () -> Unit) {
 
 @Composable
 private fun ZoomableMap(image: ImageBitmap, product: MapProduct, city: City?) {
-    var scale by remember(product.title) { mutableFloatStateOf(1f) }
-    var offset by remember(product.title) { mutableStateOf(Offset.Zero) }
-
     BoxWithConstraints(Modifier.fillMaxSize().clip(RoundedCornerShape(0.dp))) {
         val density = LocalDensity.current
         val boxW = with(density) { maxWidth.toPx() }
@@ -411,11 +445,20 @@ private fun ZoomableMap(image: ImageBitmap, product: MapProduct, city: City?) {
         val drawH = drawW / imageRatio
         val left = (boxW - drawW) / 2
         val top = (boxH - drawH) / 2
+        val point = city?.let { product.projection?.project(it.latitude, it.longitude) }
 
         fun clamp(o: Offset, s: Float): Offset {
             val maxX = ((drawW * s - boxW) / 2).coerceAtLeast(0f)
             val maxY = ((drawH * s - boxH) / 2).coerceAtLeast(0f)
             return Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
+        }
+
+        val initialZoom = (product as? MapProduct.Animated)?.initialZoom ?: 1f
+        var scale by remember(product.title) { mutableFloatStateOf(initialZoom) }
+        var offset by remember(product.title) {
+            // 以目前城市為中心放大
+            val target = point?.let { Offset(left + it.x * drawW, top + it.y * drawH) } ?: Offset(boxW / 2, boxH / 2)
+            mutableStateOf(clamp((Offset(boxW / 2, boxH / 2) - target) * initialZoom, initialZoom))
         }
 
         Box(
@@ -449,7 +492,6 @@ private fun ZoomableMap(image: ImageBitmap, product: MapProduct, city: City?) {
                 },
         ) {
             Image(image, contentDescription = product.title, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-            val point = city?.let { product.projection?.project(it.latitude, it.longitude) }
             if (point != null) {
                 Canvas(Modifier.fillMaxSize()) {
                     val center = Offset(left + point.x * drawW, top + point.y * drawH)
