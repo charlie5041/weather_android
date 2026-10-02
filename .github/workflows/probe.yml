@@ -34,5 +34,8 @@ jobs:
                   g=np.asarray(im.convert('L'),dtype=float)
                   ex=np.abs(np.diff(g,axis=1)).sum(axis=0); ey=np.abs(np.diff(g,axis=0)).sum(axis=1)
                   print('  ',name,'edge centroid x=%.3f y=%.3f'%((ex*np.arange(len(ex))).sum()/ex.sum()/len(ex),(ey*np.arange(len(ey))).sum()/ey.sum()/len(ey)))
-          cmp('web_radar.png','s3_radar.png'); cmp('web_sat.jpg','s3_sat.jpg'); cmp('web_vis.jpg','s3_vis.jpg')
+          import base64, io
+          for f in ['web_radar.png','s3_radar.png','web_sat.jpg','s3_sat.jpg','web_vis.jpg','s3_vis.jpg']:
+              im=Image.open(f).convert('RGB').resize((360,360)); b=io.BytesIO(); im.save(b,'JPEG',quality=70)
+              print('B64', f, base64.b64encode(b.getvalue()).decode())
           PY
