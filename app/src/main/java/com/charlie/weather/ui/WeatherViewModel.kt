@@ -4,13 +4,19 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.charlie.weather.data.City
+import com.charlie.weather.data.CwaParser
 import com.charlie.weather.data.LocationProvider
+import com.charlie.weather.data.PlaceSearch
+import com.charlie.weather.data.TaiwanPlace
 import com.charlie.weather.data.Weather
 import com.charlie.weather.data.WeatherApi
 import com.charlie.weather.data.WeatherRepository
 import com.charlie.weather.widget.WeatherWidget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -140,6 +146,13 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         if (_cities.value.isEmpty()) addCity(DEFAULT_CITY)
     }
 
+    private val taiwanPlaces: List<TaiwanPlace> by lazy {
+        runCatching {
+            getApplication<Application>().assets.open("taiwan_places.json").bufferedReader().use { PlaceSearch.parse(it.readText()) }
+        }.getOrDefault(emptyList())
+    }
+
+    /** 先即時顯示內建台灣地名的模糊搜尋結果，再合併線上搜尋（台／臺兩種寫法都查）。 */
     fun onQueryChange(value: String) {
         _query.value = value
         searchJob?.cancel()
@@ -148,16 +161,29 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
             _searching.value = false
             return
         }
+        val local = PlaceSearch.search(value, taiwanPlaces).map { it.toCity() }
+        _searchResults.value = local
         searchJob = viewModelScope.launch {
             delay(350)
             _searching.value = true
-            _searchResults.value = try {
-                WeatherApi.searchCities(value.trim())
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                emptyList()
+            val online = coroutineScope {
+                PlaceSearch.variants(value).map { q ->
+                    async {
+                        try {
+                            WeatherApi.searchCities(q)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+                }.awaitAll().flatten()
             }
+            // 去掉和內建地名重複（5 公里內）的線上結果
+            val extra = online.distinctBy { it.id }.filter { c ->
+                local.none { CwaParser.distanceKm(it.latitude, it.longitude, c.latitude, c.longitude) < 5.0 }
+            }
+            _searchResults.value = local + extra
             _searching.value = false
         }
     }

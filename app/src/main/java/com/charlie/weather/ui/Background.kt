@@ -15,6 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -26,6 +28,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.random.Random
@@ -54,11 +57,11 @@ fun WeatherBackground(code: Int, isDay: Boolean, modifier: Modifier = Modifier) 
         }
         // 雲層：多雲少量白雲；陰天、雨、雪、雷雨較多較暗的雲
         when {
-            code == 2 -> CloudLayer(count = 3, color = Color.White, alpha = if (isDay) 0.35f else 0.18f, seed = 11)
+            code == 2 -> CloudLayer(count = 3, color = Color.White, alpha = if (isDay) 0.22f else 0.12f, seed = 11)
             code == 3 || rain || snow || thunder -> {
                 val tint = if (rain || thunder) Color(0xFFB8C2CC) else Color.White
-                CloudLayer(count = 4, color = tint, alpha = if (isDay) 0.22f else 0.12f, seed = 21, scale = 1.3f, speed = 0.6f)
-                CloudLayer(count = 3, color = tint, alpha = if (isDay) 0.28f else 0.16f, seed = 22, scale = 1.7f, speed = 1f)
+                CloudLayer(count = 4, color = tint, alpha = if (isDay) 0.16f else 0.1f, seed = 21, scale = 1.3f, speed = 0.6f)
+                CloudLayer(count = 3, color = tint, alpha = if (isDay) 0.2f else 0.12f, seed = 22, scale = 1.7f, speed = 1f)
             }
         }
         if (fog) FogEffect()
@@ -116,7 +119,8 @@ private fun CloudLayer(count: Int, color: Color, alpha: Float, seed: Int, scale:
         animationSpec = infiniteRepeatable(tween((90_000 / speed).toInt(), easing = LinearEasing)),
         label = "cloudProgress",
     )
-    Canvas(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }) {
+    // 模糊讓雲的邊緣柔和（Android 12 以上有效）
+    Canvas(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }.blur(18.dp, BlurredEdgeTreatment.Unbounded)) {
         clouds.forEach { c ->
             val w = c.width * size.width
             val travel = size.width + w * 2
