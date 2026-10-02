@@ -44,14 +44,14 @@ jobs:
             echo "::warning::尚未設定 KEYSTORE_BASE64 secret，改用暫時的 debug 金鑰簽章；手機上將無法直接覆蓋更新。詳見 README。"
           fi
 
-      - name: 建置 Release APK
+      - name: 單元測試並建置 Release APK
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --stacktrace
+          ./gradlew testReleaseUnitTest assembleRelease --stacktrace
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/MyWeather-1.0.${VERSION_CODE}.apk"
 

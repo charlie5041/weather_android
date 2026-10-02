@@ -29,6 +29,8 @@ data class CurrentConditions(
     val windGusts: Double,
     val visibility: Double,
     val uvIndex: Double,
+    /** 氣象署的天氣描述（例如「多雲時晴」）；沒有時以天氣代碼產生 */
+    val description: String? = null,
 )
 
 data class HourlyForecast(
@@ -50,6 +52,7 @@ data class DailyForecast(
     val sunrise: LocalDateTime?,
     val sunset: LocalDateTime?,
     val uvIndexMax: Double,
+    val description: String? = null,
 )
 
 data class AirQuality(
@@ -65,6 +68,8 @@ data class Weather(
     val utcOffsetSeconds: Int,
     val airQuality: AirQuality?,
     val fetchedAtMillis: Long,
+    /** 有套用中央氣象署資料時才有值 */
+    val cwa: CwaSummary? = null,
 ) {
     /** 城市當地的現在時間 */
     fun localNow(): LocalDateTime = LocalDateTime.now(ZoneOffset.ofTotalSeconds(utcOffsetSeconds))

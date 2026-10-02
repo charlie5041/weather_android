@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.charlie.weather.data.AirQuality
+import com.charlie.weather.data.CwaAlert
 import com.charlie.weather.data.Weather
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
@@ -139,11 +140,11 @@ private fun hourlySummary(w: Weather): String {
         .take(12)
         .firstOrNull { (it.precipitationProbability ?: 0) >= 50 && WeatherCodes.isRain(it.weatherCode) }
     val rainText = when {
-        WeatherCodes.isRain(w.current.weatherCode) -> "目前正在下雨。"
+        WeatherCodes.isRain(w.current.weatherCode) -> "目前${w.current.conditionText()}。"
         upcomingRain != null -> "預計約${hourLabel(upcomingRain.time)}起可能下雨。"
         else -> ""
     }
-    return "今日${WeatherCodes.description(today.weatherCode)}，最高溫 ${today.temperatureMax.deg()}。$rainText" +
+    return "今日${today.description ?: WeatherCodes.description(today.weatherCode)}，最高溫 ${today.temperatureMax.deg()}。$rainText" +
         "風速最高 ${w.current.windGusts.roundOr()} km/h。"
 }
 
@@ -276,6 +277,36 @@ fun GradientIndicatorBar(colors: List<Color>, fraction: Float, modifier: Modifie
         val center = Offset(fraction.coerceIn(0f, 1f) * size.width, size.height / 2)
         drawCircle(Color.Black.copy(alpha = 0.35f), radius = size.height + 1.5.dp.toPx(), center = center)
         drawCircle(Color.White, radius = size.height, center = center)
+    }
+}
+
+// ---------------- 天氣特報 ----------------
+
+@Composable
+fun AlertsCard(alerts: List<CwaAlert>, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFFB3261E).copy(alpha = 0.55f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("⚠️", fontSize = 11.sp)
+            Spacer(Modifier.width(6.dp))
+            Text("中央氣象署天氣特報", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.Medium)
+        }
+        Spacer(Modifier.height(6.dp))
+        alerts.forEach { alert ->
+            Text(alert.title, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+            val range = listOfNotNull(
+                alert.start?.let { "${it.monthValue}/${it.dayOfMonth} ${timeLabel(it)}" },
+                alert.end?.let { "${it.monthValue}/${it.dayOfMonth} ${timeLabel(it)}" },
+            ).joinToString(" 至 ")
+            if (range.isNotEmpty()) {
+                Text(range, fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f))
+            }
+            Spacer(Modifier.height(4.dp))
+        }
     }
 }
 

@@ -30,6 +30,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -58,6 +60,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
     val searching by vm.searching.collectAsStateWithLifecycle()
 
     var showList by rememberSaveable { mutableStateOf(false) }
+    var showMap by rememberSaveable { mutableStateOf(false) }
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
 
@@ -96,6 +99,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                     currentPage = pagerState.currentPage,
                     firstIsLocation = cities.firstOrNull()?.isCurrentLocation == true,
                     onList = { showList = true },
+                    onMap = { showMap = true },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
@@ -128,7 +132,15 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                     },
                 )
             }
+            AnimatedVisibility(
+                visible = showMap,
+                enter = fadeIn() + scaleIn(initialScale = 1.08f),
+                exit = fadeOut() + scaleOut(targetScale = 1.08f),
+            ) {
+                MapScreen(city = cities.getOrNull(pagerState.currentPage), onClose = { showMap = false })
+            }
         }
+        BackHandler(enabled = showMap) { showMap = false }
         BackHandler(enabled = showList) {
             vm.clearSearch()
             showList = false
@@ -142,6 +154,7 @@ private fun BottomBar(
     currentPage: Int,
     firstIsLocation: Boolean,
     onList: () -> Unit,
+    onMap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -153,7 +166,9 @@ private fun BottomBar(
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Spacer(Modifier.size(48.dp))
+        IconButton(onClick = onMap) {
+            Text("🗺️", fontSize = 20.sp)
+        }
         Row(
             Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),

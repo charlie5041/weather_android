@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.charlie.weather.data.City
@@ -89,6 +90,9 @@ fun CityWeatherPage(city: City, ui: CityWeatherUi, onRefresh: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item { Header(city, w) }
+                w.cwa?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts ->
+                    item { AlertsCard(alerts, Modifier.fillMaxWidth()) }
+                }
                 item { HourlyCard(w, Modifier.fillMaxWidth()) }
                 item { DailyCard(w, Modifier.fillMaxWidth()) }
                 w.airQuality?.let { aq -> item { AirQualityCard(aq, Modifier.fillMaxWidth()) } }
@@ -139,7 +143,7 @@ fun CityWeatherPage(city: City, ui: CityWeatherUi, onRefresh: () -> Unit) {
             ) {
                 Text(city.name, fontSize = 26.sp, color = Color.White, style = TextShadow)
                 Text(
-                    "${w.current.temperature.deg()} | ${WeatherCodes.description(w.current.weatherCode)}",
+                    "${w.current.temperature.deg()} | ${w.current.conditionText()}",
                     fontSize = 16.sp,
                     color = Color.White.copy(alpha = 0.85f),
                     style = TextShadow,
@@ -182,7 +186,7 @@ private fun Header(city: City, w: Weather) {
             modifier = Modifier.padding(start = 24.dp),
             style = TextShadow,
         )
-        Text(WeatherCodes.description(w.current.weatherCode), fontSize = 20.sp, color = Color.White.copy(alpha = 0.9f), style = TextShadow)
+        Text(w.current.conditionText(), fontSize = 20.sp, color = Color.White.copy(alpha = 0.9f), style = TextShadow)
         w.today?.let { today ->
             Row {
                 Text("最高 ${today.temperatureMax.deg()}", fontSize = 20.sp, color = Color.White, style = TextShadow)
@@ -196,14 +200,24 @@ private fun Header(city: City, w: Weather) {
 @Composable
 private fun Footer(w: Weather, error: String?) {
     val updated = Instant.ofEpochMilli(w.fetchedAtMillis).atZone(ZoneId.systemDefault()).toLocalDateTime()
-    Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (error != null) {
-            Text("離線中 · 顯示先前的資料", fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f))
+    val cwa = w.cwa
+    val lines = buildList {
+        if (error != null) add("離線中 · 顯示先前的資料")
+        if (cwa?.stationName != null) {
+            val distance = cwa.stationDistanceKm?.let { " · 距離 %.1f 公里".format(it) }.orEmpty()
+            val time = cwa.observedAt?.let { " · 觀測於 ${timeLabel(it)}" }.orEmpty()
+            add("目前天氣：中央氣象署 ${cwa.stationName} 測站$distance$time")
         }
-        Text(
-            "資料來源：Open-Meteo（ECMWF、JMA、GFS 等）· 更新於 ${timeLabel(updated)}",
-            fontSize = 12.sp,
-            color = Color.White.copy(alpha = 0.6f),
-        )
+        if (cwa?.township != null) {
+            add("預報：中央氣象署 ${cwa.county.orEmpty()}${cwa.township} 鄉鎮預報；第 8 天起的預報與空氣品質為 Open-Meteo")
+        } else {
+            add("資料來源：Open-Meteo（ECMWF、JMA、GFS 等）")
+        }
+        add("更新於 ${timeLabel(updated)}")
+    }
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        lines.forEach {
+            Text(it, fontSize = 12.sp, color = Color.White.copy(alpha = 0.65f), textAlign = TextAlign.Center)
+        }
     }
 }

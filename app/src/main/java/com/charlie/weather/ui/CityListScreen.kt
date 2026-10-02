@@ -213,7 +213,7 @@ private fun CityRow(city: City, weather: Weather?, onClick: () -> Unit, onLongCl
             )
             Spacer(Modifier.height(18.dp))
             Text(
-                weather?.let { WeatherCodes.description(it.current.weatherCode) } ?: "",
+                weather?.current?.conditionText() ?: "",
                 fontSize = 14.sp,
                 color = Color.White,
                 fontWeight = FontWeight.Medium,

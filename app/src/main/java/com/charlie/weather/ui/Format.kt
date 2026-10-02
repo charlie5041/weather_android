@@ -99,3 +99,5 @@ fun temperatureColor(t: Double): Color {
 }
 
 val PrecipBlue = Color(0xFF8ED1FC)
+
+fun com.charlie.weather.data.CurrentConditions.conditionText(): String = description ?: WeatherCodes.description(weatherCode)
