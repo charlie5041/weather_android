@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import com.charlie.weather.sync.WeatherNotifier
+import com.charlie.weather.sync.WeatherSyncWorker
 import com.charlie.weather.ui.WeatherApp
 
 class MainActivity : ComponentActivity() {
@@ -15,6 +17,8 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
+        WeatherNotifier.createChannels(this)
+        WeatherSyncWorker.schedule(this)
         setContent { WeatherApp() }
     }
 }

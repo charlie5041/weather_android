@@ -2,6 +2,7 @@ package com.charlie.weather.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.charlie.weather.data.AirQuality
 import com.charlie.weather.data.CwaAlert
 import com.charlie.weather.data.Weather
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 import kotlin.math.PI
@@ -59,12 +61,14 @@ fun GlassCard(
     icon: String,
     modifier: Modifier = Modifier,
     divider: Boolean = false,
+    onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
         modifier
             .clip(RoundedCornerShape(18.dp))
             .background(Color.Black.copy(alpha = 0.16f))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -89,9 +93,10 @@ fun InfoCard(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     footer: String? = null,
+    onClick: (() -> Unit)? = null,
     visual: (@Composable () -> Unit)? = null,
 ) {
-    GlassCard(title, icon, modifier.heightIn(min = 160.dp)) {
+    GlassCard(title, icon, modifier.heightIn(min = 160.dp), onClick = onClick) {
         Text(value, fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Medium)
         subtitle?.let { Text(it, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium) }
         if (visual != null) {
@@ -149,12 +154,13 @@ private fun hourlySummary(w: Weather): String {
 }
 
 @Composable
-fun HourlyCard(w: Weather, modifier: Modifier = Modifier) {
+fun HourlyCard(w: Weather, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
     val entries = buildHourEntries(w)
     Column(
         modifier
             .clip(RoundedCornerShape(18.dp))
             .background(Color.Black.copy(alpha = 0.16f))
+            .clickable(onClick = onClick)
             .padding(vertical = 12.dp),
     ) {
         Text(
@@ -190,7 +196,7 @@ fun HourlyCard(w: Weather, modifier: Modifier = Modifier) {
 // ---------------- 10 日預報 ----------------
 
 @Composable
-fun DailyCard(w: Weather, modifier: Modifier = Modifier) {
+fun DailyCard(w: Weather, modifier: Modifier = Modifier, onDayClick: (LocalDate) -> Unit = {}) {
     val days = w.daily
     if (days.isEmpty()) return
     val minAll = days.minOf { it.temperatureMin }
@@ -198,7 +204,10 @@ fun DailyCard(w: Weather, modifier: Modifier = Modifier) {
     GlassCard("${days.size} 日天氣預報", "📅", modifier, divider = false) {
         days.forEachIndexed { i, d ->
             HorizontalDivider(color = DividerColor)
-            Row(Modifier.fillMaxWidth().height(50.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().height(50.dp).clickable { onDayClick(d.date) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     if (i == 0) "今天" else weekdayLabel(d.date.dayOfWeek),
                     modifier = Modifier.width(48.dp),
@@ -358,7 +367,7 @@ private fun uvLevel(uv: Double) = when {
 }
 
 @Composable
-fun UvCard(w: Weather, modifier: Modifier = Modifier) {
+fun UvCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val uv = w.current.uvIndex.takeUnless { it.isNaN() } ?: 0.0
     val max = w.today?.uvIndexMax?.takeUnless { it.isNaN() }
     InfoCard(
@@ -367,6 +376,7 @@ fun UvCard(w: Weather, modifier: Modifier = Modifier) {
         value = uv.roundToInt().toString(),
         subtitle = uvLevel(uv),
         modifier = modifier,
+        onClick = onClick,
         footer = when {
             max == null -> null
             max >= 6 && w.current.isDay -> "今日最高 ${max.roundToInt()}（${uvLevel(max)}），外出請做好防曬。"
@@ -444,9 +454,9 @@ private fun SunPathGraph(sunriseFraction: Float, sunsetFraction: Float, nowFract
 // ---------------- 風 ----------------
 
 @Composable
-fun WindCard(w: Weather, modifier: Modifier = Modifier) {
+fun WindCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val c = w.current
-    GlassCard("風", "💨", modifier) {
+    GlassCard("風", "💨", modifier, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 WindRow("風", "${c.windSpeed.roundOr()} km/h")
@@ -524,7 +534,7 @@ private fun Compass(direction: Int, speed: Double, modifier: Modifier = Modifier
 // ---------------- 其他小卡 ----------------
 
 @Composable
-fun PrecipitationCard(w: Weather, modifier: Modifier = Modifier) {
+fun PrecipitationCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val today = w.today?.precipitationSum ?: 0.0
     val next24 = w.hourly.filter { it.time.isAfter(w.current.time) }.take(24).sumOf { it.precipitation }
     InfoCard(
@@ -533,6 +543,7 @@ fun PrecipitationCard(w: Weather, modifier: Modifier = Modifier) {
         value = "${formatMm(today)} 毫米",
         subtitle = "今日",
         modifier = modifier,
+        onClick = onClick,
         footer = if (next24 < 0.1) "未來 24 小時預計不會下雨。" else "預計未來 24 小時降雨 ${formatMm(next24)} 毫米。",
     )
 }
@@ -540,7 +551,7 @@ fun PrecipitationCard(w: Weather, modifier: Modifier = Modifier) {
 private fun formatMm(v: Double) = if (v < 10) "%.1f".format(v) else v.roundToInt().toString()
 
 @Composable
-fun FeelsLikeCard(w: Weather, modifier: Modifier = Modifier) {
+fun FeelsLikeCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val c = w.current
     val diff = c.apparentTemperature - c.temperature
     InfoCard(
@@ -548,6 +559,7 @@ fun FeelsLikeCard(w: Weather, modifier: Modifier = Modifier) {
         icon = "🌡️",
         value = c.apparentTemperature.deg(),
         modifier = modifier,
+        onClick = onClick,
         footer = when {
             diff.isNaN() -> null
             diff <= -2 && c.windSpeed > 15 -> "風使體感溫度較低。"
@@ -560,12 +572,13 @@ fun FeelsLikeCard(w: Weather, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun HumidityCard(w: Weather, modifier: Modifier = Modifier) {
+fun HumidityCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     InfoCard(
         title = "濕度",
         icon = "💦",
         value = "${w.current.humidity}%",
         modifier = modifier,
+        onClick = onClick,
         footer = "目前露點為 ${w.current.dewPoint.deg()}。",
     )
 }

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -81,6 +82,7 @@ fun CityListScreen(
     onSelect: (Int) -> Unit,
     onRemove: (City) -> Unit,
     onMove: (from: Int, to: Int) -> Unit,
+    onOpenSettings: () -> Unit,
     onClose: () -> Unit,
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
@@ -103,6 +105,9 @@ fun CityListScreen(
                         fontWeight = if (editing) FontWeight.SemiBold else FontWeight.Normal,
                     )
                 }
+            }
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Filled.Settings, contentDescription = "設定", tint = Color.White)
             }
             IconButton(onClick = onClose) {
                 Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White)

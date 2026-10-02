@@ -47,13 +47,19 @@ import androidx.compose.ui.unit.sp
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Weather
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 private val TextShadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.25f), Offset(0f, 2f), 8f))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CityWeatherPage(city: City, ui: CityWeatherUi, onRefresh: () -> Unit) {
+fun CityWeatherPage(
+    city: City,
+    ui: CityWeatherUi,
+    onRefresh: () -> Unit,
+    onOpenDetail: (DetailMetric, LocalDate?) -> Unit = { _, _ -> },
+) {
     val w = ui.weather
     val code = w?.current?.weatherCode ?: 1
     val isDay = w?.current?.isDay ?: true
@@ -93,25 +99,25 @@ fun CityWeatherPage(city: City, ui: CityWeatherUi, onRefresh: () -> Unit) {
                 w.cwa?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts ->
                     item { AlertsCard(alerts, Modifier.fillMaxWidth()) }
                 }
-                item { HourlyCard(w, Modifier.fillMaxWidth()) }
-                item { DailyCard(w, Modifier.fillMaxWidth()) }
+                item { HourlyCard(w, Modifier.fillMaxWidth()) { onOpenDetail(DetailMetric.TEMPERATURE, null) } }
+                item { DailyCard(w, Modifier.fillMaxWidth()) { date -> onOpenDetail(DetailMetric.TEMPERATURE, date) } }
                 w.airQuality?.let { aq -> item { AirQualityCard(aq, Modifier.fillMaxWidth()) } }
                 item {
                     CardRow(
-                        { UvCard(w, it) },
+                        { UvCard(w, it) { onOpenDetail(DetailMetric.UV, null) } },
                         { SunCard(w, it) },
                     )
                 }
-                item { WindCard(w, Modifier.fillMaxWidth()) }
+                item { WindCard(w, Modifier.fillMaxWidth()) { onOpenDetail(DetailMetric.WIND, null) } }
                 item {
                     CardRow(
-                        { PrecipitationCard(w, it) },
-                        { FeelsLikeCard(w, it) },
+                        { PrecipitationCard(w, it) { onOpenDetail(DetailMetric.PRECIPITATION, null) } },
+                        { FeelsLikeCard(w, it) { onOpenDetail(DetailMetric.FEELS_LIKE, null) } },
                     )
                 }
                 item {
                     CardRow(
-                        { HumidityCard(w, it) },
+                        { HumidityCard(w, it) { onOpenDetail(DetailMetric.HUMIDITY, null) } },
                         { VisibilityCard(w, it) },
                     )
                 }

@@ -55,8 +55,10 @@ fun Weather.withCwa(cwa: CwaData?, now: LocalDateTime = localNow()): Weather {
 
     val hourly = if (forecast == null) hourly else hourly.map { h ->
         val block = forecast.blockAt(h.time)
+        val temperature = forecast.hourlyTemperature[h.time] ?: h.temperature
         h.copy(
-            temperature = forecast.hourlyTemperature[h.time] ?: h.temperature,
+            temperature = temperature,
+            apparentTemperature = h.apparentTemperature + (temperature - h.temperature),
             precipitationProbability = block?.precipitationProbability ?: h.precipitationProbability,
             weatherCode = block?.wmoCode() ?: h.weatherCode,
         )

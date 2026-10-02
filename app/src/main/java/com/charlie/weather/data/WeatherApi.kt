@@ -24,7 +24,8 @@ object WeatherApi {
     private const val CURRENT_VARS = "temperature_2m,relative_humidity_2m,apparent_temperature,is_day," +
         "precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m," +
         "wind_gusts_10m,visibility,dew_point_2m,uv_index"
-    private const val HOURLY_VARS = "temperature_2m,weather_code,precipitation_probability,precipitation,is_day"
+    private const val HOURLY_VARS = "temperature_2m,weather_code,precipitation_probability,precipitation,is_day," +
+        "relative_humidity_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,uv_index"
     private const val DAILY_VARS = "weather_code,temperature_2m_max,temperature_2m_min," +
         "precipitation_probability_max,precipitation_sum,sunrise,sunset,uv_index_max"
 
@@ -89,6 +90,11 @@ object WeatherApi {
         val hPop = h.getJSONArray("precipitation_probability")
         val hPrecip = h.getJSONArray("precipitation")
         val hDay = h.getJSONArray("is_day")
+        val hHumidity = h.optJSONArray("relative_humidity_2m") ?: JSONArray()
+        val hApparent = h.optJSONArray("apparent_temperature") ?: JSONArray()
+        val hWind = h.optJSONArray("wind_speed_10m") ?: JSONArray()
+        val hGusts = h.optJSONArray("wind_gusts_10m") ?: JSONArray()
+        val hUv = h.optJSONArray("uv_index") ?: JSONArray()
         val hourly = (0 until hTime.length()).mapNotNull { i ->
             if (hTemp.isNull(i)) return@mapNotNull null
             HourlyForecast(
@@ -98,6 +104,11 @@ object WeatherApi {
                 precipitationProbability = hPop.intOrNull(i),
                 precipitation = hPrecip.dbl(i).takeUnless { it.isNaN() } ?: 0.0,
                 isDay = hDay.intOr(i, 1) == 1,
+                humidity = hHumidity.intOrNull(i),
+                apparentTemperature = hApparent.dbl(i),
+                windSpeed = hWind.dbl(i),
+                windGusts = hGusts.dbl(i),
+                uvIndex = hUv.dbl(i),
             )
         }
 

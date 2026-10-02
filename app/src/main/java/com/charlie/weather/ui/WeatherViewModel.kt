@@ -3,26 +3,20 @@ package com.charlie.weather.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.charlie.weather.data.CachedWeather
 import com.charlie.weather.data.City
-import com.charlie.weather.data.CityStore
-import com.charlie.weather.data.CwaRepository
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.Weather
 import com.charlie.weather.data.WeatherApi
-import com.charlie.weather.data.withCwa
+import com.charlie.weather.data.WeatherRepository
+import com.charlie.weather.widget.WeatherWidget
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 data class CityWeatherUi(
     val weather: Weather? = null,
@@ -31,9 +25,9 @@ data class CityWeatherUi(
 )
 
 class WeatherViewModel(app: Application) : AndroidViewModel(app) {
-    private val store = CityStore(app)
+    private val repository = WeatherRepository.get(app)
+    private val store = repository.store
     private val locationProvider = LocationProvider(app)
-    private val cwaRepository = CwaRepository(app.cacheDir)
 
     private var locationCity: City? = store.loadLocationCity()
     private var savedCities: List<City> = store.loadCities()
@@ -57,17 +51,11 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     private var locationJob: Job? = null
 
     init {
-        _weather.value = _cities.value.associate { city ->
-            city.id to CityWeatherUi(weather = store.loadCache(city.id)?.toWeather())
-        }
-        // 啟動時用磁碟上快取的氣象署資料補上（不連網）
+        // 啟動時先用磁碟快取（含氣象署資料）立即顯示，不連網
         _cities.value.forEach { city ->
-            val cached = _weather.value[city.id]?.weather ?: return@forEach
             viewModelScope.launch {
-                val cwa = runCatching { cwaRepository.load(city.latitude, city.longitude, allowNetwork = false) }.getOrNull()
-                    ?: return@launch
-                val merged = withContext(Dispatchers.Default) { cached.withCwa(cwa) }
-                updateState(city.id) { state -> if (state.weather === cached) state.copy(weather = merged) else state }
+                val cached = repository.cached(city) ?: return@launch
+                updateState(city.id) { state -> if (state.weather == null) state.copy(weather = cached) else state }
             }
         }
     }
@@ -110,24 +98,9 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         updateState(city.id) { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
-                val (forecast, airQuality, cwa) = coroutineScope {
-                    val f = async { WeatherApi.fetchForecastJson(city.latitude, city.longitude) }
-                    val a = async { WeatherApi.fetchAirQualityJson(city.latitude, city.longitude) }
-                    val c = async {
-                        try {
-                            cwaRepository.load(city.latitude, city.longitude, allowNetwork = true)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            null
-                        }
-                    }
-                    Triple(f.await(), a.await(), c.await())
-                }
-                val now = System.currentTimeMillis()
-                val weather = withContext(Dispatchers.Default) { WeatherApi.parse(forecast, airQuality, now).withCwa(cwa) }
-                store.saveCache(city.id, CachedWeather(forecast, airQuality, now))
+                val weather = repository.fetch(city)
                 updateState(city.id) { CityWeatherUi(weather = weather) }
+                if (repository.primaryCity()?.id == city.id) updateWidget(city, weather)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -230,15 +203,23 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun publishCities() {
+        val previousPrimary = _cities.value.firstOrNull()?.id
         _cities.value = listOfNotNull(locationCity) + savedCities
+        val primary = _cities.value.firstOrNull()
+        if (primary != null && primary.id != previousPrimary) {
+            _weather.value[primary.id]?.weather?.let { updateWidget(primary, it) }
+        }
+    }
+
+    private fun updateWidget(city: City, weather: Weather) {
+        viewModelScope.launch {
+            runCatching { WeatherWidget.update(getApplication(), city, weather) }
+        }
     }
 
     private fun updateState(id: String, transform: (CityWeatherUi) -> CityWeatherUi) {
         _weather.update { it + (id to transform(it[id] ?: CityWeatherUi())) }
     }
-
-    private fun CachedWeather.toWeather(): Weather? =
-        runCatching { WeatherApi.parse(forecastJson, airQualityJson, fetchedAtMillis) }.getOrNull()
 
     private fun distanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val r = 6371.0

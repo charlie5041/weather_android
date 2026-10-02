@@ -40,6 +40,11 @@ data class HourlyForecast(
     val precipitationProbability: Int?,
     val precipitation: Double,
     val isDay: Boolean,
+    val humidity: Int? = null,
+    val apparentTemperature: Double = Double.NaN,
+    val windSpeed: Double = Double.NaN,
+    val windGusts: Double = Double.NaN,
+    val uvIndex: Double = Double.NaN,
 )
 
 data class DailyForecast(

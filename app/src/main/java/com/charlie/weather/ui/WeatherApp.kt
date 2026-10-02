@@ -1,6 +1,15 @@
 package com.charlie.weather.ui
 
 import android.Manifest
+import android.os.Build
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import com.charlie.weather.data.AppSettings
+import com.charlie.weather.sync.WeatherNotifier
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -58,16 +67,36 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
     val searching by vm.searching.collectAsStateWithLifecycle()
 
     var showList by rememberSaveable { mutableStateOf(false) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    var detail by remember { mutableStateOf<DetailRequest?>(null) }
+    val context = LocalContext.current
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
 
+    // 通知權限（Android 13+）只在第一次啟動時詢問一次，之後可在設定頁開啟
+    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    fun askNotificationPermissionOnce() {
+        val settings = AppSettings(context)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !settings.askedNotificationPermission &&
+            !WeatherNotifier.canNotify(context)
+        ) {
+            settings.askedNotificationPermission = true
+            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { granted -> vm.onLocationPermissionResult(granted.values.any { it }) }
+    ) { granted ->
+        vm.onLocationPermissionResult(granted.values.any { it })
+        askNotificationPermissionOnce()
+    }
 
     LaunchedEffect(Unit) {
         if (!vm.hasLocationPermission()) {
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        } else {
+            askNotificationPermissionOnce()
         }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshAll() }
@@ -89,6 +118,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                         city = city,
                         ui = weather[city.id] ?: CityWeatherUi(loading = true),
                         onRefresh = { vm.refresh(city, force = true) },
+                        onOpenDetail = { metric, date -> detail = DetailRequest(city.id, metric, date) },
                     )
                 }
                 BottomBar(
@@ -123,17 +153,45 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                     },
                     onRemove = vm::removeCity,
                     onMove = vm::moveCity,
+                    onOpenSettings = { showSettings = true },
                     onClose = {
                         vm.clearSearch()
                         showList = false
                     },
                 )
             }
+            AnimatedVisibility(
+                visible = showSettings,
+                enter = slideInHorizontally { it },
+                exit = slideOutHorizontally { it },
+            ) {
+                SettingsScreen(primaryCityName = cities.firstOrNull()?.name, onClose = { showSettings = false })
+            }
+            val detailRequest = detail
+            val detailCity = detailRequest?.let { req -> cities.firstOrNull { it.id == req.cityId } }
+            val detailWeather = detailCity?.let { weather[it.id]?.weather }
+            AnimatedVisibility(
+                visible = detailRequest != null && detailWeather != null,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+            ) {
+                if (detailRequest != null && detailCity != null && detailWeather != null) {
+                    DetailScreen(
+                        city = detailCity,
+                        weather = detailWeather,
+                        initialMetric = detailRequest.metric,
+                        initialDate = detailRequest.date,
+                        onClose = { detail = null },
+                    )
+                }
+            }
         }
         BackHandler(enabled = showList) {
             vm.clearSearch()
             showList = false
         }
+        BackHandler(enabled = detail != null) { detail = null }
+        BackHandler(enabled = showSettings) { showSettings = false }
     }
 }
 
