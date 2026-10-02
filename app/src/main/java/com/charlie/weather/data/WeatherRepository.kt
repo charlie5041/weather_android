@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 /** App、背景更新與小工具共用的天氣資料來源（Open-Meteo + 中央氣象署）。 */
 class WeatherRepository private constructor(context: Context) {
     val store = CityStore(context)
+    private val settings = AppSettings(context)
     private val cwa = CwaRepository(context.cacheDir)
 
     /** 小工具與通知使用的城市：有定位時是「我的位置」，否則是列表第一個城市。 */
@@ -19,6 +20,7 @@ class WeatherRepository private constructor(context: Context) {
         val forecast = async { WeatherApi.fetchForecastJson(city.latitude, city.longitude) }
         val airQuality = async { WeatherApi.fetchAirQualityJson(city.latitude, city.longitude) }
         val cwaData = async {
+            if (!settings.useCwa) return@async null
             try {
                 cwa.load(city.latitude, city.longitude, allowNetwork = true)
             } catch (e: CancellationException) {
@@ -42,7 +44,7 @@ class WeatherRepository private constructor(context: Context) {
         val cache = store.loadCache(city.id) ?: return@withContext null
         val base = runCatching { WeatherApi.parse(cache.forecastJson, cache.airQualityJson, cache.fetchedAtMillis) }.getOrNull()
             ?: return@withContext null
-        val cwaData = runCatching { cwa.load(city.latitude, city.longitude, allowNetwork = false) }.getOrNull()
+        val cwaData = if (settings.useCwa) runCatching { cwa.load(city.latitude, city.longitude, allowNetwork = false) }.getOrNull() else null
         base.withCwa(cwaData)
     }
 

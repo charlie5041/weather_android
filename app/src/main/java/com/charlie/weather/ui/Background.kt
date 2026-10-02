@@ -4,6 +4,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -14,10 +15,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.random.Random
@@ -36,12 +44,153 @@ fun backgroundColors(code: Int, isDay: Boolean): List<Color> = when {
 @Composable
 fun WeatherBackground(code: Int, isDay: Boolean, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxSize().background(Brush.verticalGradient(backgroundColors(code, isDay)))) {
+        val rain = WeatherCodes.isRain(code)
+        val snow = WeatherCodes.isSnow(code)
+        val thunder = WeatherCodes.isThunder(code)
+        val fog = code == 45 || code == 48
         when {
-            WeatherCodes.isRain(code) -> RainEffect(heavy = code in listOf(65, 67, 82) || WeatherCodes.isThunder(code))
-            WeatherCodes.isSnow(code) -> SnowEffect()
-            !isDay && code <= 2 -> StarsEffect()
+            code <= 1 && isDay -> SunGlow()
+            code <= 2 && !isDay -> StarsEffect()
+        }
+        // 雲層：多雲少量白雲；陰天、雨、雪、雷雨較多較暗的雲
+        when {
+            code == 2 -> CloudLayer(count = 3, color = Color.White, alpha = if (isDay) 0.35f else 0.18f, seed = 11)
+            code == 3 || rain || snow || thunder -> {
+                val tint = if (rain || thunder) Color(0xFFB8C2CC) else Color.White
+                CloudLayer(count = 4, color = tint, alpha = if (isDay) 0.22f else 0.12f, seed = 21, scale = 1.3f, speed = 0.6f)
+                CloudLayer(count = 3, color = tint, alpha = if (isDay) 0.28f else 0.16f, seed = 22, scale = 1.7f, speed = 1f)
+            }
+        }
+        if (fog) FogEffect()
+        when {
+            rain -> RainEffect(heavy = code in listOf(65, 67, 82) || thunder)
+            snow -> SnowEffect()
+        }
+        if (thunder) LightningEffect()
+    }
+}
+
+/** 晴天右上角緩慢呼吸的太陽光暈 */
+@Composable
+private fun SunGlow() {
+    val pulse by rememberInfiniteTransition(label = "sun").animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(6000), RepeatMode.Reverse),
+        label = "sunPulse",
+    )
+    Canvas(Modifier.fillMaxSize()) {
+        val center = Offset(size.width * 0.85f, size.height * 0.06f)
+        val radius = size.width * 0.75f * pulse
+        drawCircle(
+            Brush.radialGradient(
+                listOf(Color(0xFFFFF4C2).copy(alpha = 0.45f), Color(0xFFFFE08A).copy(alpha = 0.12f), Color.Transparent),
+                center = center,
+                radius = radius,
+            ),
+            radius = radius,
+            center = center,
+        )
+    }
+}
+
+private class CloudSpec(val x: Float, val y: Float, val width: Float, val speed: Float)
+
+/** 一層往右緩慢飄動的雲；整層以 graphicsLayer 統一透明度，重疊處不會變深。 */
+@Composable
+private fun CloudLayer(count: Int, color: Color, alpha: Float, seed: Int, scale: Float = 1f, speed: Float = 1f) {
+    val clouds = remember(seed, count) {
+        val r = Random(seed)
+        List(count) {
+            CloudSpec(
+                x = r.nextFloat(),
+                y = 0.02f + r.nextFloat() * 0.22f,
+                width = (0.45f + r.nextFloat() * 0.35f) * scale,
+                speed = 0.6f + r.nextFloat() * 0.8f,
+            )
         }
     }
+    val progress by rememberInfiniteTransition(label = "clouds$seed").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween((90_000 / speed).toInt(), easing = LinearEasing)),
+        label = "cloudProgress",
+    )
+    Canvas(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }) {
+        clouds.forEach { c ->
+            val w = c.width * size.width
+            val travel = size.width + w * 2
+            val x = ((c.x + progress * c.speed) % 1f) * travel - w
+            drawCloud(Offset(x, c.y * size.height + w * 0.3f), w, color)
+        }
+    }
+}
+
+private fun DrawScope.drawCloud(center: Offset, w: Float, color: Color) {
+    drawRoundRect(
+        color,
+        topLeft = Offset(center.x - w * 0.45f, center.y - w * 0.06f),
+        size = Size(w * 0.9f, w * 0.22f),
+        cornerRadius = CornerRadius(w * 0.11f, w * 0.11f),
+    )
+    drawCircle(color, radius = w * 0.2f, center = Offset(center.x - w * 0.25f, center.y))
+    drawCircle(color, radius = w * 0.27f, center = Offset(center.x, center.y - w * 0.08f))
+    drawCircle(color, radius = w * 0.2f, center = Offset(center.x + w * 0.24f, center.y + w * 0.01f))
+}
+
+/** 霧：數條柔和的水平霧帶左右流動 */
+@Composable
+private fun FogEffect() {
+    val progress by rememberInfiniteTransition(label = "fog").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(40_000, easing = LinearEasing)),
+        label = "fogProgress",
+    )
+    // 先畫水平流動的霧，再用垂直漸層遮罩（DstIn）讓上下邊緣淡出
+    Canvas(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+        listOf(0.18f to 0.22f, 0.45f to 0.3f, 0.72f to 0.25f).forEachIndexed { i, (y, alpha) ->
+            val shift = (if (i % 2 == 0) progress else 1 - progress) * size.width
+            val bandHeight = size.height * 0.22f
+            val top = y * size.height - bandHeight / 2
+            val brush = Brush.horizontalGradient(
+                listOf(Color.Transparent, Color.White.copy(alpha = alpha), Color.Transparent, Color.White.copy(alpha = alpha), Color.Transparent),
+                startX = shift - size.width,
+                endX = shift + size.width,
+                tileMode = TileMode.Repeated,
+            )
+            drawRect(brush, topLeft = Offset(0f, top), size = Size(size.width, bandHeight))
+            drawRect(
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black, Color.Transparent), startY = top, endY = top + bandHeight),
+                topLeft = Offset(0f, top),
+                size = Size(size.width, bandHeight),
+                blendMode = BlendMode.DstIn,
+            )
+        }
+    }
+}
+
+/** 雷雨：每隔幾秒畫面閃白兩下 */
+@Composable
+private fun LightningEffect() {
+    val flash by rememberInfiniteTransition(label = "lightning").animateFloat(
+        initialValue = 0f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            keyframes {
+                durationMillis = 7000
+                0f at 0
+                0f at 3000
+                0.55f at 3060
+                0.08f at 3160
+                0.4f at 3240
+                0f at 3500
+                0f at 7000
+            },
+        ),
+        label = "flash",
+    )
+    Box(Modifier.fillMaxSize().graphicsLayer { alpha = flash }.background(Color.White))
 }
 
 private class Particle(val x: Float, val phase: Float, val speed: Float, val size: Float)

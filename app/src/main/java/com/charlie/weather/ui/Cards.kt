@@ -58,7 +58,6 @@ private val DividerColor = Color.White.copy(alpha = 0.18f)
 @Composable
 fun GlassCard(
     title: String,
-    icon: String,
     modifier: Modifier = Modifier,
     divider: Boolean = false,
     onClick: (() -> Unit)? = null,
@@ -71,11 +70,7 @@ fun GlassCard(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(icon, fontSize = 11.sp)
-            Spacer(Modifier.width(6.dp))
-            Text(title, fontSize = 12.sp, color = Secondary, fontWeight = FontWeight.Medium)
-        }
+        Text(title, fontSize = 12.sp, color = Secondary, fontWeight = FontWeight.Medium)
         if (divider) {
             HorizontalDivider(Modifier.padding(top = 10.dp), color = DividerColor)
         }
@@ -88,7 +83,6 @@ fun GlassCard(
 @Composable
 fun InfoCard(
     title: String,
-    icon: String,
     value: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
@@ -96,7 +90,7 @@ fun InfoCard(
     onClick: (() -> Unit)? = null,
     visual: (@Composable () -> Unit)? = null,
 ) {
-    GlassCard(title, icon, modifier.heightIn(min = 160.dp), onClick = onClick) {
+    GlassCard(title, modifier.heightIn(min = 160.dp), onClick = onClick) {
         Text(value, fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Medium)
         subtitle?.let { Text(it, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium) }
         if (visual != null) {
@@ -150,7 +144,7 @@ private fun hourlySummary(w: Weather): String {
         else -> ""
     }
     return "今日${today.description ?: WeatherCodes.description(today.weatherCode)}，最高溫 ${today.temperatureMax.deg()}。$rainText" +
-        "風速最高 ${w.current.windGusts.roundOr()} km/h。"
+        "陣風最高 ${windText(w.current.windGusts)}。"
 }
 
 @Composable
@@ -201,7 +195,7 @@ fun DailyCard(w: Weather, modifier: Modifier = Modifier, onDayClick: (LocalDate)
     if (days.isEmpty()) return
     val minAll = days.minOf { it.temperatureMin }
     val maxAll = days.maxOf { it.temperatureMax }
-    GlassCard("${days.size} 日天氣預報", "📅", modifier, divider = false) {
+    GlassCard("${days.size} 日天氣預報", modifier) {
         days.forEachIndexed { i, d ->
             HorizontalDivider(color = DividerColor)
             Row(
@@ -299,11 +293,7 @@ fun AlertsCard(alerts: List<CwaAlert>, modifier: Modifier = Modifier) {
             .background(Color(0xFFB3261E).copy(alpha = 0.55f))
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("⚠️", fontSize = 11.sp)
-            Spacer(Modifier.width(6.dp))
-            Text("中央氣象署天氣特報", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.Medium)
-        }
+        Text("中央氣象署天氣特報", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(6.dp))
         alerts.forEach { alert ->
             Text(alert.title, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
@@ -339,7 +329,7 @@ private fun aqiAdvice(aqi: Int) = when {
 
 @Composable
 fun AirQualityCard(aq: AirQuality, modifier: Modifier = Modifier) {
-    GlassCard("空氣品質", "🍃", modifier) {
+    GlassCard("空氣品質", modifier) {
         Text("${aq.usAqi}", fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Medium)
         Text(aqiCategory(aq.usAqi), fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(10.dp))
@@ -372,7 +362,6 @@ fun UvCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? = n
     val max = w.today?.uvIndexMax?.takeUnless { it.isNaN() }
     InfoCard(
         title = "紫外線指數",
-        icon = "☀️",
         value = uv.roundToInt().toString(),
         subtitle = uvLevel(uv),
         modifier = modifier,
@@ -400,14 +389,13 @@ fun SunCard(w: Weather, modifier: Modifier = Modifier) {
     val tomorrow = w.daily.getOrNull(1)
     val sunrise = today?.sunrise
     val sunset = today?.sunset
-    val (title, icon, time, footer) = when {
-        sunrise != null && now.isBefore(sunrise) -> Quad("日出", "🌅", sunrise, sunset?.let { "日落：${timeLabel(it)}" })
-        sunset != null && now.isBefore(sunset) -> Quad("日落", "🌇", sunset, sunrise?.let { "日出：${timeLabel(it)}" })
-        else -> Quad("日出", "🌅", tomorrow?.sunrise, tomorrow?.sunset?.let { "明日日落：${timeLabel(it)}" })
+    val (title, time, footer) = when {
+        sunrise != null && now.isBefore(sunrise) -> Triple("日出", sunrise, sunset?.let { "日落：${timeLabel(it)}" })
+        sunset != null && now.isBefore(sunset) -> Triple("日落", sunset, sunrise?.let { "日出：${timeLabel(it)}" })
+        else -> Triple("日出", tomorrow?.sunrise, tomorrow?.sunset?.let { "明日日落：${timeLabel(it)}" })
     }
     InfoCard(
         title = title,
-        icon = icon,
         value = time?.let { timeLabel(it) } ?: "--",
         modifier = modifier,
         footer = footer,
@@ -422,8 +410,6 @@ fun SunCard(w: Weather, modifier: Modifier = Modifier) {
         },
     )
 }
-
-private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 
 @Composable
 private fun SunPathGraph(sunriseFraction: Float, sunsetFraction: Float, nowFraction: Float) {
@@ -456,12 +442,12 @@ private fun SunPathGraph(sunriseFraction: Float, sunsetFraction: Float, nowFract
 @Composable
 fun WindCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val c = w.current
-    GlassCard("風", "💨", modifier, onClick = onClick) {
+    GlassCard("風", modifier, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                WindRow("風", "${c.windSpeed.roundOr()} km/h")
+                WindRow("風", windText(c.windSpeed))
                 HorizontalDivider(color = DividerColor)
-                WindRow("陣風", "${c.windGusts.roundOr()} km/h")
+                WindRow("陣風", windText(c.windGusts))
                 HorizontalDivider(color = DividerColor)
                 WindRow("風向", "${c.windDirection}° ${compassLabel(c.windDirection)}")
             }
@@ -525,8 +511,8 @@ private fun Compass(direction: Int, speed: Double, modifier: Modifier = Modifier
             drawCircle(Color(0xFF2B3A4E).copy(alpha = 0.92f), radius = r * 0.36f, center = center)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(speed.roundOr(), fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.SemiBold, lineHeight = 18.sp)
-            Text("km/h", fontSize = 9.sp, color = Color.White, lineHeight = 10.sp)
+            Text(windValue(speed), fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.SemiBold, lineHeight = 18.sp)
+            Text(Units.wind.label, fontSize = 9.sp, color = Color.White, lineHeight = 10.sp)
         }
     }
 }
@@ -539,7 +525,6 @@ fun PrecipitationCard(w: Weather, modifier: Modifier = Modifier, onClick: (() ->
     val next24 = w.hourly.filter { it.time.isAfter(w.current.time) }.take(24).sumOf { it.precipitation }
     InfoCard(
         title = "降雨量",
-        icon = "💧",
         value = "${formatMm(today)} 毫米",
         subtitle = "今日",
         modifier = modifier,
@@ -556,7 +541,6 @@ fun FeelsLikeCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Uni
     val diff = c.apparentTemperature - c.temperature
     InfoCard(
         title = "體感溫度",
-        icon = "🌡️",
         value = c.apparentTemperature.deg(),
         modifier = modifier,
         onClick = onClick,
@@ -575,7 +559,6 @@ fun FeelsLikeCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Uni
 fun HumidityCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     InfoCard(
         title = "濕度",
-        icon = "💦",
         value = "${w.current.humidity}%",
         modifier = modifier,
         onClick = onClick,
@@ -588,7 +571,6 @@ fun VisibilityCard(w: Weather, modifier: Modifier = Modifier) {
     val km = w.current.visibility / 1000.0
     InfoCard(
         title = "能見度",
-        icon = "👁️",
         value = when {
             km.isNaN() -> "--"
             km >= 10 -> "${km.roundToInt()} 公里"
@@ -610,7 +592,6 @@ fun PressureCard(w: Weather, modifier: Modifier = Modifier) {
     val p = w.current.pressure
     InfoCard(
         title = "氣壓",
-        icon = "🧭",
         value = p.roundOr(),
         subtitle = "hPa",
         modifier = modifier,
@@ -641,7 +622,6 @@ fun CloudCoverCard(w: Weather, modifier: Modifier = Modifier) {
     val cc = w.current.cloudCover
     InfoCard(
         title = "雲量",
-        icon = "☁️",
         value = "$cc%",
         modifier = modifier,
         footer = when {

@@ -11,6 +11,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.charlie.weather.data.WeatherRepository
+import com.charlie.weather.ui.Units
 import com.charlie.weather.widget.WeatherWidget
 import java.util.concurrent.TimeUnit
 
@@ -18,6 +19,7 @@ import java.util.concurrent.TimeUnit
 class WeatherSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        Units.load(applicationContext)
         val repo = WeatherRepository.get(applicationContext)
         val city = repo.primaryCity() ?: return Result.success()
         val weather = try {

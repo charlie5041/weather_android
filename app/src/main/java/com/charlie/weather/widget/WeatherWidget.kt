@@ -40,6 +40,7 @@ import com.charlie.weather.R
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Weather
 import com.charlie.weather.sync.WeatherSyncWorker
+import com.charlie.weather.ui.Units
 import com.charlie.weather.ui.WeatherCodes
 import com.charlie.weather.ui.deg
 import com.charlie.weather.ui.weekdayLabel
@@ -51,6 +52,7 @@ class WeatherWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(setOf(SMALL, MEDIUM, LARGE))
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        Units.load(context)
         val snapshot = WidgetSnapshotStore.load(context)
         provideContent { WidgetContent(snapshot) }
     }

@@ -2,7 +2,7 @@ name: Android CI/CD
 
 on:
   push:
-    branches: ["**"]
+    branches: ["**", "!ci-screenshots"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -44,16 +44,42 @@ jobs:
             echo "::warning::尚未設定 KEYSTORE_BASE64 secret，改用暫時的 debug 金鑰簽章；手機上將無法直接覆蓋更新。詳見 README。"
           fi
 
-      - name: 單元測試並建置 Release APK
+      - name: 設定 Firebase Crashlytics（若有提供 Secret）
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "已啟用 Crashlytics"
+          else
+            echo "::notice::尚未設定 GOOGLE_SERVICES_JSON，這次建置不含 Crashlytics。"
+          fi
+
+      - name: 單元測試、畫面截圖並建置 Release APK
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew testReleaseUnitTest assembleRelease --stacktrace
+          ./gradlew testDebugUnitTest assembleRelease --stacktrace
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/MyWeather-1.0.${VERSION_CODE}.apk"
+
+      - name: 發佈畫面截圖到 ci-screenshots 分支
+        if: github.event_name != 'pull_request'
+        run: |
+          shopt -s nullglob
+          shots=(app/build/screenshots/*.png)
+          if [ ${#shots[@]} -eq 0 ]; then echo "沒有截圖"; exit 0; fi
+          mkdir -p "$RUNNER_TEMP/shots" && cp "${shots[@]}" "$RUNNER_TEMP/shots/"
+          cd "$RUNNER_TEMP/shots"
+          echo "Screenshots for ${GITHUB_SHA} (${GITHUB_REF_NAME})" > README.md
+          git init -q -b ci-screenshots
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add . && git commit -qm "Screenshots for ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
+          git push -fq "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
 
       - uses: actions/upload-artifact@v5
         with:

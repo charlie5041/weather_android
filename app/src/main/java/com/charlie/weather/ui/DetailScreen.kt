@@ -68,13 +68,13 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-enum class DetailMetric(val title: String, val icon: String) {
-    TEMPERATURE("溫度", "🌡️"),
-    FEELS_LIKE("體感溫度", "🤚"),
-    PRECIPITATION("降雨", "💧"),
-    WIND("風", "💨"),
-    UV("紫外線指數", "☀️"),
-    HUMIDITY("濕度", "💦"),
+enum class DetailMetric(val title: String) {
+    TEMPERATURE("溫度"),
+    FEELS_LIKE("體感溫度"),
+    PRECIPITATION("降雨"),
+    WIND("風"),
+    UV("紫外線指數"),
+    HUMIDITY("濕度"),
 }
 
 data class DetailRequest(val cityId: String, val metric: DetailMetric, val date: LocalDate?)
@@ -156,10 +156,10 @@ private fun buildSeries(metric: DetailMetric, weather: Weather, date: LocalDate,
             val gust = hours.mapNotNull { it.windGusts.takeUnless { g -> g.isNaN() } }.maxOrNull()
             val max = p.maxOfOrNull { it.second } ?: 0.0
             Series(
-                p, ChartStyle.LINE, 0.0, maxOf(20.0, ceil((maxOf(max, 1.0) * 1.25) / 10) * 10), { WindColor }, { "${it.roundToInt()} km/h" },
-                headline = "${max.roundToInt()} km/h",
+                p, ChartStyle.LINE, 0.0, maxOf(20.0, ceil((maxOf(max, 1.0) * 1.25) / 10) * 10), { WindColor }, { windText(it) },
+                headline = windText(max),
                 subline = "最大平均風速",
-                description = gust?.let { "陣風最高約 ${it.roundToInt()} km/h。" } ?: "",
+                description = gust?.let { "陣風最高約 ${windText(it)}。" } ?: "",
             )
         }
         DetailMetric.UV -> {
@@ -211,7 +211,7 @@ fun DetailScreen(
     ) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("${metric.icon} ${metric.title}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(metric.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text(city.name, fontSize = 13.sp, color = Color.Gray)
             }
             IconButton(onClick = onClose) {
@@ -291,7 +291,7 @@ fun DetailScreen(
             items(DetailMetric.entries) { m ->
                 val active = m == metric
                 Text(
-                    "${m.icon} ${m.title}",
+                    m.title,
                     fontSize = 14.sp,
                     color = if (active) Color.Black else Color.White,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,

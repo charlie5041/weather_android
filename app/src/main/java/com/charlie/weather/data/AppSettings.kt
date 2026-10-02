@@ -23,6 +23,21 @@ class AppSettings(context: Context) {
         get() = prefs.getInt("morning_hour", 7)
         set(value) = prefs.edit().putInt("morning_hour", value).apply()
 
+    /** "C" 或 "F" */
+    var temperatureUnit: String
+        get() = prefs.getString("temperature_unit", "C") ?: "C"
+        set(value) = prefs.edit().putString("temperature_unit", value).apply()
+
+    /** "KMH"、"MS" 或 "BEAUFORT" */
+    var windUnit: String
+        get() = prefs.getString("wind_unit", "KMH") ?: "KMH"
+        set(value) = prefs.edit().putString("wind_unit", value).apply()
+
+    /** 在台灣使用中央氣象署的觀測與預報 */
+    var useCwa: Boolean
+        get() = prefs.getBoolean("use_cwa", true)
+        set(value) = prefs.edit().putBoolean("use_cwa", value).apply()
+
     var askedNotificationPermission: Boolean
         get() = prefs.getBoolean("asked_notification_permission", false)
         set(value) = prefs.edit().putBoolean("asked_notification_permission", value).apply()

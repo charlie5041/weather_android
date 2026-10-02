@@ -165,7 +165,11 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                 enter = slideInHorizontally { it },
                 exit = slideOutHorizontally { it },
             ) {
-                SettingsScreen(primaryCityName = cities.firstOrNull()?.name, onClose = { showSettings = false })
+                SettingsScreen(
+                    primaryCityName = cities.firstOrNull()?.name,
+                    onDataSourceChanged = { vm.refreshAll(force = true) },
+                    onClose = { showSettings = false },
+                )
             }
             val detailRequest = detail
             val detailCity = detailRequest?.let { req -> cities.firstOrNull { it.id == req.cityId } }

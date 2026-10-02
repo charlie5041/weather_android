@@ -51,7 +51,7 @@ object WeatherCodes {
     fun isCloudy(code: Int) = code == 3 || code == 45 || code == 48
 }
 
-fun Double.deg(): String = if (isNaN()) "--°" else "${roundToInt()}°"
+fun Double.deg(): String = if (isNaN()) "--°" else "${inTemperatureUnit().roundToInt()}°"
 
 fun Double.roundOr(fallback: String = "--"): String = if (isNaN()) fallback else roundToInt().toString()
 

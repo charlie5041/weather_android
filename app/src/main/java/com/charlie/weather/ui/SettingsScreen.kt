@@ -56,7 +56,7 @@ import com.charlie.weather.sync.WeatherSyncWorker
 private val SectionColor = Color(0xFF1C1C1E)
 
 @Composable
-fun SettingsScreen(primaryCityName: String?, onClose: () -> Unit) {
+fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val settings = remember { AppSettings(context) }
     var rain by remember { mutableStateOf(settings.rainAlerts) }
@@ -64,6 +64,7 @@ fun SettingsScreen(primaryCityName: String?, onClose: () -> Unit) {
     var morning by remember { mutableStateOf(settings.morningSummary) }
     var morningHour by remember { mutableIntStateOf(settings.morningHour) }
     var canNotify by remember { mutableStateOf(WeatherNotifier.canNotify(context)) }
+    var useCwa by remember { mutableStateOf(settings.useCwa) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
 
@@ -99,6 +100,33 @@ fun SettingsScreen(primaryCityName: String?, onClose: () -> Unit) {
                         openNotificationSettings(context)
                     }
                 }) { Text("開啟通知", color = Color(0xFF0A84FF), fontSize = 16.sp) }
+            }
+        }
+
+        SectionTitle("單位")
+        Section {
+            ChoiceRow("溫度", TemperatureUnit.entries, Units.temperature, { it.label }) {
+                Units.temperature = it
+                settings.temperatureUnit = it.name
+                WeatherSyncWorker.runNow(context)
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ChoiceRow("風速", WindUnit.entries, Units.wind, { if (it == WindUnit.BEAUFORT) "蒲福風級" else it.label }) {
+                Units.wind = it
+                settings.windUnit = it.name
+            }
+        }
+
+        SectionTitle("資料來源")
+        Section {
+            ToggleRow(
+                "使用中央氣象署資料",
+                "在台灣以最近測站實測、鄉鎮預報與天氣特報取代 Open-Meteo；關閉後全部使用 Open-Meteo",
+                useCwa,
+            ) {
+                useCwa = it
+                settings.useCwa = it
+                onDataSourceChanged()
             }
         }
 
@@ -186,6 +214,32 @@ private fun Section(content: @Composable ColumnScope.() -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         content = content,
     )
+}
+
+@Composable
+private fun <T> ChoiceRow(title: String, options: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Color.White, fontSize = 17.sp, modifier = Modifier.weight(1f))
+        Row(
+            Modifier.clip(RoundedCornerShape(9.dp)).background(Color(0xFF2C2C2E)).padding(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            options.forEach { option ->
+                val active = option == selected
+                Text(
+                    label(option),
+                    color = if (active) Color.Black else Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(if (active) Color.White else Color.Transparent)
+                        .clickable { onSelect(option) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
 }
 
 @Composable

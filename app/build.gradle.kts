@@ -6,6 +6,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Crashlytics：只有在 CI 從 Secrets 放入 google-services.json 時才啟用
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
+}
+
 // CI 會以 GitHub Actions 的 run number 當作版本號，讓每次建置都能覆蓋安裝更新
 val ciVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
 
@@ -41,9 +47,6 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
-        debug {
-            applicationIdSuffix = ".debug"
-        }
     }
 
     compileOptions {
@@ -53,6 +56,16 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                // Roborazzi：執行單元測試時輸出畫面截圖
+                it.systemProperty("roborazzi.test.record", "true")
+            }
+        }
     }
 }
 
@@ -78,8 +91,19 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-crashlytics")
 
     testImplementation("junit:junit:4.13.2")
     // Android 內建的 org.json 在 JVM 單元測試中只是空殼，改用真正的實作
     testImplementation("org.json:json:20240303")
+
+    // 畫面截圖測試（Robolectric + Roborazzi）
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.43.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.43.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
