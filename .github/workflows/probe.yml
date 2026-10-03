@@ -1,0 +1,26 @@
+name: probe-moenv
+on:
+  push:
+    branches: ["claude/**"]
+    paths: [".github/workflows/probe.yml"]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          KEY: ${{ secrets.MOENV_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then echo "NO KEY"; exit 1; fi
+          curl -s --max-time 60 -o r.json -w 'HTTP %{http_code} size %{size_download}\n' "https://data.moenv.gov.tw/api/v2/aqx_p_432?api_key=${KEY}&limit=1000&format=JSON"
+          head -c 300 r.json; echo
+          python3 - <<'PY'
+          import json
+          d=json.load(open('r.json'))
+          print('root type', type(d).__name__, list(d.keys())[:20] if isinstance(d,dict) else len(d))
+          recs = d if isinstance(d,list) else (d.get('records') or d.get('Records') or [])
+          print('records', len(recs))
+          if recs:
+              print('keys', list(recs[0].keys()))
+              for r in recs[:3]: print(json.dumps(r, ensure_ascii=False))
+              print('taipei', [ (r.get('sitename'), r.get('aqi'), r.get('status')) for r in recs if r.get('county') in ('臺北市','台北市')][:5])
+          PY
