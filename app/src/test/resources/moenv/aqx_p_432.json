@@ -1,0 +1,5 @@
+{"fields":[{"id":"sitename","type":"text","info":{"label":"測站名稱"}}],"resource_id":"aqx_p_432","__extras":{},"include_total":true,"total":"3","resource_format":"object","limit":"1000","offset":"0","_links":{},"records":[
+{"sitename":"中山","county":"臺北市","aqi":"42","pollutant":"","status":"良好","so2":"1.2","co":"0.31","o3":"30.1","o3_8hr":"28","pm10":"25","pm2.5":"11","no2":"12.4","nox":"14.1","no":"1.7","wind_speed":"2.1","wind_direc":"60","publishtime":"2026/10/03 10:00:00","co_8hr":"0.3","pm2.5_avg":"10","pm10_avg":"22","so2_avg":"1","longitude":"121.526528","latitude":"25.062361","siteid":"12"},
+{"sitename":"大同","county":"臺北市","aqi":"","pollutant":"","status":"設備維護","pm10":"-","pm2.5":"","publishtime":"2026/10/03 10:00:00","longitude":"121.513311","latitude":"25.063200","siteid":"13"},
+{"sitename":"左營","county":"高雄市","aqi":"78","pollutant":"細懸浮微粒","status":"普通","pm10":"48","pm2.5":"26","publishtime":"2026/10/03 10:00:00","longitude":"120.292917","latitude":"22.674861","siteid":"56"}
+]}

@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # 定期更新 workflow 中以 commit SHA 固定的 GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
