@@ -2,8 +2,11 @@ name: Android CI/CD
 
 on:
   push:
-    branches: ["**", "!ci-screenshots"]
+    branches: ["**"]
+    # 只改說明文件時不建置，省 Actions 分鐘數
+    paths-ignore: ["**.md", "LICENSE"]
   pull_request:
+    paths-ignore: ["**.md", "LICENSE"]
   workflow_dispatch:
     inputs:
       release:
@@ -12,7 +15,7 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-${{ github.ref }}
@@ -23,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION_CODE: ${{ github.run_number }}
+      # 只有 main 與手動執行才建置 release APK；其他分支只跑測試與截圖，省下 R8 的時間
+      BUILD_APK: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
@@ -63,25 +68,23 @@ jobs:
           MOENV_API_KEY: ${{ secrets.MOENV_API_KEY }}
         run: |
           chmod +x gradlew
+          if [ "$BUILD_APK" != true ]; then
+            ./gradlew testDebugUnitTest --stacktrace
+            exit 0
+          fi
           ./gradlew testDebugUnitTest assembleRelease --stacktrace
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/MyWeather-1.0.${VERSION_CODE}.apk"
 
-      - name: 發佈畫面截圖到 ci-screenshots 分支
-        if: github.event_name != 'pull_request'
-        run: |
-          shopt -s nullglob
-          shots=(app/build/screenshots/*.png)
-          if [ ${#shots[@]} -eq 0 ]; then echo "沒有截圖"; exit 0; fi
-          mkdir -p "$RUNNER_TEMP/shots" && cp "${shots[@]}" "$RUNNER_TEMP/shots/"
-          cd "$RUNNER_TEMP/shots"
-          echo "Screenshots for ${GITHUB_SHA} (${GITHUB_REF_NAME})" > README.md
-          git init -q -b ci-screenshots
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add . && git commit -qm "Screenshots for ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
-          git push -fq "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
-
+      # 畫面截圖只含測試用假資料，存成 artifact 方便檢查排版（保留 7 天）
+      - name: 上傳畫面截圖
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: screenshots
+          path: app/build/screenshots/*.png
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: 檢查 Firebase 服務帳戶金鑰
         id: firebase

@@ -26,11 +26,10 @@
 
 ## CI/CD
 
-`.github/workflows/android.yml` 在每次 push 時：
+`.github/workflows/android.yml` 在每次 push 時（只改 `.md` 文件時不跑）：
 
-1. 執行單元測試與畫面截圖測試（截圖推到 `ci-screenshots` 分支，方便檢查排版）
-2. 建置已簽章的 release APK
-3. push 到 `main` 或手動執行時，發佈到 **Firebase App Distribution**，測試者用 App Tester 安裝更新
+1. 執行單元測試與畫面截圖測試，截圖上傳為 Actions artifact（保留 7 天），方便檢查排版
+2. 只有 `main` 與手動執行時才建置已簽章的 release APK，並發佈到 **Firebase App Distribution**，測試者用 App Tester 安裝更新
 
 > 這是公開 repo，APK 內含 Firebase 設定與環境部 API 金鑰，因此**不發佈到 GitHub Release**，只透過 App Tester 給指定的測試者。
 
