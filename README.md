@@ -50,3 +50,7 @@ Fork 這個專案自行建置時，沒有這些 Secrets 也能編譯，只是會
 ```bash
 ./gradlew testDebugUnitTest assembleDebug   # 需要 JDK 17 與 Android SDK
 ```
+
+## 授權
+
+程式碼以 [MIT License](LICENSE) 授權。`app/src/main/assets/` 與測試資料中的內建資料，依上方「資料來源與授權」表格中各來源的授權條款使用（例如 GeoNames 需標示出處）。
