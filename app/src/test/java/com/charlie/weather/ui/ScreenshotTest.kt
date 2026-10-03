@@ -14,6 +14,7 @@ import com.charlie.weather.data.CwaSummary
 import com.charlie.weather.data.DailyForecast
 import com.charlie.weather.data.HourlyForecast
 import com.charlie.weather.data.PlaceSearch
+import com.charlie.weather.data.TyphoonParser
 import com.charlie.weather.data.Weather
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -52,8 +53,17 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "w400dp-h2900dp-xhdpi")
     fun weatherPageFull() = capture("01_weather_page_full") {
-        CityWeatherPage(location, CityWeatherUi(weather = sampleWeather(code = 2)), onRefresh = {})
+        CityWeatherPage(location, CityWeatherUi(weather = sampleWeather(code = 2, typhoon = true)), onRefresh = {})
     }
+
+    @Test
+    fun typhoonScreen() = capture("08_typhoon") {
+        TyphoonScreen(sampleTyphoons(), location, onClose = {})
+    }
+
+    private fun sampleTyphoons() = TyphoonParser.parse(
+        requireNotNull(javaClass.classLoader?.getResource("cwa/W-C0034-005.json")).readText(),
+    )
 
     @Test
     fun weatherPageThunder() = capture("02_weather_page_thunder") {
@@ -117,7 +127,7 @@ class ScreenshotTest {
         SettingsScreen(primaryCityName = "大安區", onDataSourceChanged = {}, onClose = {})
     }
 
-    private fun sampleWeather(code: Int, isDay: Boolean = true, alerts: Boolean = false): Weather {
+    private fun sampleWeather(code: Int, isDay: Boolean = true, alerts: Boolean = false, typhoon: Boolean = false): Weather {
         val offset = ZoneOffset.ofHours(8)
         val today = LocalDate.now(offset)
         val now = today.atTime(14, 20)
@@ -163,7 +173,7 @@ class ScreenshotTest {
             hourly = hourly,
             daily = daily,
             utcOffsetSeconds = 8 * 3600,
-            airQuality = AirQuality(usAqi = 52, pm25 = 14.0, pm10 = 30.0),
+            airQuality = AirQuality(usAqi = 52, pm25 = 14.0, pm10 = 30.0, stationName = "古亭", status = "普通", pollutant = "細懸浮微粒"),
             fetchedAtMillis = System.currentTimeMillis(),
             cwa = CwaSummary(
                 stationName = "臺北",
@@ -173,6 +183,7 @@ class ScreenshotTest {
                 county = "臺北市",
                 alerts = if (alerts) listOf(CwaAlert("大雷雨", "即時訊息", now, now.plusHours(2))) else emptyList(),
             ),
+            typhoons = if (typhoon) sampleTyphoons() else emptyList(),
         )
     }
 }

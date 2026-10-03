@@ -1,6 +1,7 @@
 package com.charlie.weather.data
 
 import android.content.Context
+import com.charlie.weather.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -29,6 +30,8 @@ class WeatherRepository private constructor(context: Context) {
                 null
             }
         }
+        val typhoons = async { typhoonsFor(city, allowNetwork = true) }
+        val moenv = async { moenvStation(city, allowNetwork = true) }
         val forecastJson = forecast.await()
         val airQualityJson = airQuality.await()
         val now = System.currentTimeMillis()
@@ -36,8 +39,49 @@ class WeatherRepository private constructor(context: Context) {
             WeatherApi.parse(forecastJson, airQualityJson, now).withCwa(cwaData.await())
         }
         store.saveCache(city.id, CachedWeather(forecastJson, airQualityJson, now))
-        weather
+        weather.withExtras(typhoons.await(), moenv.await())
     }
+
+    /** 東亞範圍內的城市才顯示颱風資訊。 */
+    private suspend fun typhoonsFor(city: City, allowNetwork: Boolean): List<Typhoon> {
+        if (!settings.useCwa || city.latitude !in -5.0..50.0 || city.longitude !in 95.0..165.0) return emptyList()
+        return try {
+            cwa.typhoons(allowNetwork)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** 台灣城市：最近的環境部空品測站（需要 MOENV_API_KEY）。 */
+    private suspend fun moenvStation(city: City, allowNetwork: Boolean): MoenvStation? {
+        val key = BuildConfig.MOENV_API_KEY
+        if (key.isBlank() || city.latitude !in 21.5..26.6 || city.longitude !in 118.0..122.6) return null
+        return try {
+            val url = "${MoenvParser.DATASET_URL}?api_key=$key&limit=1000&format=JSON"
+            cwa.cachedText("moenv_aqx_p_432.json", url, MOENV_TTL, allowNetwork)
+                ?.let { MoenvParser.nearest(MoenvParser.parse(it), city.latitude, city.longitude) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun Weather.withExtras(typhoons: List<Typhoon>, moenv: MoenvStation?): Weather = copy(
+        typhoons = typhoons,
+        airQuality = moenv?.let {
+            AirQuality(
+                usAqi = it.aqi ?: return@let null,
+                pm25 = it.pm25,
+                pm10 = it.pm10,
+                stationName = it.name,
+                status = it.status,
+                pollutant = it.pollutant,
+            )
+        } ?: airQuality,
+    )
 
     /** 只用磁碟快取（不連網）組出天氣資料。 */
     suspend fun cached(city: City): Weather? = withContext(Dispatchers.Default) {
@@ -45,10 +89,12 @@ class WeatherRepository private constructor(context: Context) {
         val base = runCatching { WeatherApi.parse(cache.forecastJson, cache.airQualityJson, cache.fetchedAtMillis) }.getOrNull()
             ?: return@withContext null
         val cwaData = if (settings.useCwa) runCatching { cwa.load(city.latitude, city.longitude, allowNetwork = false) }.getOrNull() else null
-        base.withCwa(cwaData)
+        base.withCwa(cwaData).withExtras(typhoonsFor(city, allowNetwork = false), moenvStation(city, allowNetwork = false))
     }
 
     companion object {
+        private const val MOENV_TTL = 30 * 60_000L
+
         @Volatile
         private var instance: WeatherRepository? = null
 

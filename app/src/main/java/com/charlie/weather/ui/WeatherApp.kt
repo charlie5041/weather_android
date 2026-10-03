@@ -69,6 +69,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
     var showList by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var detail by remember { mutableStateOf<DetailRequest?>(null) }
+    var typhoonCityId by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
@@ -119,6 +120,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                         ui = weather[city.id] ?: CityWeatherUi(loading = true),
                         onRefresh = { vm.refresh(city, force = true) },
                         onOpenDetail = { metric, date -> detail = DetailRequest(city.id, metric, date) },
+                        onOpenTyphoon = { typhoonCityId = city.id },
                     )
                 }
                 BottomBar(
@@ -189,12 +191,24 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                     )
                 }
             }
+            val typhoonCity = typhoonCityId?.let { id -> cities.firstOrNull { it.id == id } }
+            val typhoons = typhoonCity?.let { weather[it.id]?.weather?.typhoons }.orEmpty()
+            AnimatedVisibility(
+                visible = typhoonCity != null && typhoons.isNotEmpty(),
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+            ) {
+                if (typhoonCity != null && typhoons.isNotEmpty()) {
+                    TyphoonScreen(typhoons, typhoonCity, onClose = { typhoonCityId = null })
+                }
+            }
         }
         BackHandler(enabled = showList) {
             vm.clearSearch()
             showList = false
         }
         BackHandler(enabled = detail != null) { detail = null }
+        BackHandler(enabled = typhoonCityId != null) { typhoonCityId = null }
         BackHandler(enabled = showSettings) { showSettings = false }
     }
 }

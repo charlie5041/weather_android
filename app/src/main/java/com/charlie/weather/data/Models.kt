@@ -64,6 +64,11 @@ data class AirQuality(
     val usAqi: Int,
     val pm25: Double?,
     val pm10: Double?,
+    /** 環境部測站名稱；使用 Open-Meteo 時為 null */
+    val stationName: String? = null,
+    /** 環境部的狀態文字（良好、普通…） */
+    val status: String? = null,
+    val pollutant: String? = null,
 )
 
 data class Weather(
@@ -75,6 +80,8 @@ data class Weather(
     val fetchedAtMillis: Long,
     /** 有套用中央氣象署資料時才有值 */
     val cwa: CwaSummary? = null,
+    /** 中央氣象署發布中的颱風（東亞地區才有） */
+    val typhoons: List<Typhoon> = emptyList(),
 ) {
     /** 城市當地的現在時間 */
     fun localNow(): LocalDateTime = LocalDateTime.now(ZoneOffset.ofTotalSeconds(utcOffsetSeconds))

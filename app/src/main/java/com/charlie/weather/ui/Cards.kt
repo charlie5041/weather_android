@@ -331,7 +331,7 @@ private fun aqiAdvice(aqi: Int) = when {
 fun AirQualityCard(aq: AirQuality, modifier: Modifier = Modifier) {
     GlassCard("空氣品質", modifier) {
         Text("${aq.usAqi}", fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Medium)
-        Text(aqiCategory(aq.usAqi), fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium)
+        Text(aq.status ?: aqiCategory(aq.usAqi), fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(10.dp))
         GradientIndicatorBar(
             colors = listOf(Color(0xFF34C759), Color(0xFFFFCC00), Color(0xFFFF9500), Color(0xFFFF3B30), Color(0xFFAF52DE), Color(0xFF8E3A59)),
@@ -343,6 +343,15 @@ fun AirQualityCard(aq: AirQuality, modifier: Modifier = Modifier) {
             aq.pm10?.let { "PM10 ${it.roundToInt()} μg/m³" },
         ).joinToString("・")
         Text(aqiAdvice(aq.usAqi) + if (pm.isNotEmpty()) "\n$pm" else "", fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), lineHeight = 17.sp)
+        aq.pollutant?.let {
+            Text("主要污染物：$it", fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), lineHeight = 17.sp)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            aq.stationName?.let { "環境部 ${it}測站" } ?: "Open-Meteo（美國 AQI 標準）",
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.6f),
+        )
     }
 }
 

@@ -59,6 +59,7 @@ fun CityWeatherPage(
     ui: CityWeatherUi,
     onRefresh: () -> Unit,
     onOpenDetail: (DetailMetric, LocalDate?) -> Unit = { _, _ -> },
+    onOpenTyphoon: () -> Unit = {},
 ) {
     val w = ui.weather
     val code = w?.current?.weatherCode ?: 1
@@ -98,6 +99,9 @@ fun CityWeatherPage(
                 item { Header(city, w) }
                 w.cwa?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts ->
                     item { AlertsCard(alerts, Modifier.fillMaxWidth()) }
+                }
+                w.typhoons.forEach { typhoon ->
+                    item { TyphoonCard(typhoon, city, Modifier.fillMaxWidth(), onClick = onOpenTyphoon) }
                 }
                 item { HourlyCard(w, Modifier.fillMaxWidth()) { onOpenDetail(DetailMetric.TEMPERATURE, null) } }
                 item { DailyCard(w, Modifier.fillMaxWidth()) { date -> onOpenDetail(DetailMetric.TEMPERATURE, date) } }

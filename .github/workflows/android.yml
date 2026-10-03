@@ -60,6 +60,7 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          MOENV_API_KEY: ${{ secrets.MOENV_API_KEY }}
         run: |
           chmod +x gradlew
           ./gradlew testDebugUnitTest assembleRelease --stacktrace

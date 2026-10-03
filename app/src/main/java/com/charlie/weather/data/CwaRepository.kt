@@ -64,16 +64,20 @@ class CwaRepository(cacheDir: File) {
 
     private fun cacheFile(path: String) = File(dir, path.replace('/', '_'))
 
-    /** 取得檔案內容：快取未過期就直接用，否則下載；下載失敗時退回舊的快取。 */
-    private suspend fun file(path: String, ttl: Long, allowNetwork: Boolean): String? {
-        val lock = synchronized(locks) { locks.getOrPut(path) { Mutex() } }
-        return lock.withLock {
-            val f = cacheFile(path)
+    /** 取得開放資料檔案內容：快取未過期就直接用，否則下載；下載失敗時退回舊的快取。 */
+    private suspend fun file(path: String, ttl: Long, allowNetwork: Boolean): String? =
+        cachedText(path.replace('/', '_'), "$BASE_URL/$path", ttl, allowNetwork)
+
+    /** 任意網址的文字快取（也給環境部 AQI 使用）。 */
+    suspend fun cachedText(key: String, url: String, ttl: Long, allowNetwork: Boolean): String? = withContext(Dispatchers.IO) {
+        val lock = synchronized(locks) { locks.getOrPut(key) { Mutex() } }
+        lock.withLock {
+            val f = File(dir, key)
             val fresh = f.exists() && System.currentTimeMillis() - f.lastModified() < ttl
             if (fresh || !allowNetwork) return@withLock f.takeIf { it.exists() }?.readText()
             try {
-                val text = download("$BASE_URL/$path")
-                val tmp = File(dir, f.name + ".tmp")
+                val text = download(url)
+                val tmp = File(dir, "$key.tmp")
                 tmp.writeText(text)
                 if (!tmp.renameTo(f)) {
                     f.writeText(text)
@@ -85,6 +89,12 @@ class CwaRepository(cacheDir: File) {
             }
         }
     }
+
+    /** 中央氣象署發布中的颱風（無颱風時為空）。 */
+    suspend fun typhoons(allowNetwork: Boolean): List<Typhoon> =
+        file("Warning/W-C0034-005.json", TYPHOON_TTL, allowNetwork)
+            ?.let { runCatching { TyphoonParser.parse(it) }.getOrNull() }
+            .orEmpty()
 
     private fun download(url: String): String {
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -105,5 +115,6 @@ class CwaRepository(cacheDir: File) {
         private const val OBSERVATION_TTL = 10 * 60_000L
         private const val FORECAST_TTL = 60 * 60_000L
         private const val MAX_STATION_KM = 10.0
+        private const val TYPHOON_TTL = 30 * 60_000L
     }
 }

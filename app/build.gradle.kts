@@ -25,6 +25,8 @@ android {
         targetSdk = 35
         versionCode = ciVersionCode
         versionName = "1.0.$ciVersionCode"
+        // 環境部空品 API 金鑰（GitHub Secret MOENV_API_KEY）；沒有時改用 Open-Meteo 的空氣品質
+        buildConfigField("String", "MOENV_API_KEY", "\"${System.getenv("MOENV_API_KEY").orEmpty()}\"")
     }
 
     // 簽章金鑰由 CI 的 GitHub Secrets 提供；未設定時退回 debug 金鑰（可安裝，但無法覆蓋更新）
@@ -56,6 +58,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {
