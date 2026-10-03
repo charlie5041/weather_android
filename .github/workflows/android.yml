@@ -24,14 +24,14 @@ jobs:
     env:
       VERSION_CODE: ${{ github.run_number }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: gradle/actions/setup-gradle@v5
+      - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
 
       - name: 設定簽章金鑰
         env:
@@ -82,7 +82,7 @@ jobs:
           git add . && git commit -qm "Screenshots for ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
           git push -fq "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: MyWeather-1.0.${{ github.run_number }}
           path: dist/*.apk
@@ -105,10 +105,9 @@ jobs:
             echo "::error::FIREBASE_SERVICE_ACCOUNT 不是有效的服務帳戶 JSON。請把下載的 .json 檔『整份內容』（從 { 到 }）貼進 secret。"
             exit 1
           fi
-          echo "服務帳戶：$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | jq -r .client_email)（專案 $(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | jq -r .project_id)）"
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         if: steps.firebase.outputs.enabled == 'true'
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
@@ -121,7 +120,7 @@ jobs:
         run: |
           TESTER_ARGS=()
           if [ -n "$FIREBASE_TESTERS" ]; then TESTER_ARGS=(--testers "$FIREBASE_TESTERS"); fi
-          npx --yes firebase-tools@latest appdistribution:distribute dist/*.apk \
+          npx --yes firebase-tools@15.32.1 appdistribution:distribute dist/*.apk \
             --app "$FIREBASE_APP_ID" \
             "${TESTER_ARGS[@]}" \
             --release-notes "v1.0.${VERSION_CODE}：$(git log -1 --pretty=%s)"
@@ -130,7 +129,7 @@ jobs:
         if: >-
           (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
           (github.event_name == 'workflow_dispatch' && inputs.release)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: 我的天氣 v1.0.${{ github.run_number }}
