@@ -86,6 +86,25 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # 開發分支：把截圖縮圖以 base64 印在 log，方便在無法下載 artifact 的環境檢查排版
+      - name: 印出截圖縮圖
+        if: env.BUILD_APK != 'true'
+        run: |
+          shopt -s nullglob
+          shots=(app/build/screenshots/*.png)
+          [ ${#shots[@]} -eq 0 ] && exit 0
+          pip install -q pillow
+          python3 - "${shots[@]}" <<'PY'
+          import base64, io, sys
+          from PIL import Image
+          for path in sys.argv[1:]:
+              im = Image.open(path).convert("RGB")
+              im = im.resize((360, int(im.height * 360 / im.width)))
+              buf = io.BytesIO()
+              im.save(buf, "JPEG", quality=60)
+              print("SCREENSHOT_B64", path.rsplit("/", 1)[-1], base64.b64encode(buf.getvalue()).decode())
+          PY
+
       - name: 檢查 Firebase 服務帳戶金鑰
         id: firebase
         if: >-
