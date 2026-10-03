@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "同時發佈到 GitHub Release（讓手機自動更新）"
+        description: "同時發佈到 Firebase App Tester"
         type: boolean
         default: true
 
@@ -82,10 +82,6 @@ jobs:
           git add . && git commit -qm "Screenshots for ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
           git push -fq "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
 
-      - uses: actions/upload-artifact@v5
-        with:
-          name: MyWeather-1.0.${{ github.run_number }}
-          path: dist/*.apk
 
       - name: 檢查 Firebase 服務帳戶金鑰
         id: firebase
@@ -125,18 +121,3 @@ jobs:
             --app "$FIREBASE_APP_ID" \
             "${TESTER_ARGS[@]}" \
             --release-notes "v1.0.${VERSION_CODE}：$(git log -1 --pretty=%s)"
-
-      - name: 發佈到 GitHub Release
-        if: >-
-          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-          (github.event_name == 'workflow_dispatch' && inputs.release)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: 我的天氣 v1.0.${{ github.run_number }}
-          target_commitish: ${{ github.sha }}
-          make_latest: true
-          files: dist/*.apk
-          body: |
-            自動建置：${{ github.sha }}（${{ github.ref_name }}）
-            也可透過 Firebase App Tester 安裝更新。

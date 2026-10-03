@@ -186,7 +186,13 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
         val version = remember {
             runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
         }
-        Text("版本 ${version ?: "-"} · 資料來源：中央氣象署、Open-Meteo", color = Color.Gray, fontSize = 12.sp)
+        Text(
+            "版本 ${version ?: "-"}\n資料來源：中央氣象署、環境部（政府資料開放授權條款）、Open-Meteo（CC BY 4.0）、" +
+                "GeoNames（CC BY 4.0）、Natural Earth",
+            color = Color.Gray,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+        )
         Spacer(Modifier.height(8.dp))
         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
