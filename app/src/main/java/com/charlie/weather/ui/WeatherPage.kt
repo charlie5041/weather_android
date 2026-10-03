@@ -100,11 +100,11 @@ fun CityWeatherPage(
                 w.cwa?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts ->
                     item { AlertsCard(alerts, Modifier.fillMaxWidth()) }
                 }
+                item { HourlyCard(w, Modifier.fillMaxWidth()) { onOpenDetail(DetailMetric.TEMPERATURE, null) } }
+                item { DailyCard(w, Modifier.fillMaxWidth()) { date -> onOpenDetail(DetailMetric.TEMPERATURE, date) } }
                 w.typhoons.forEach { typhoon ->
                     item { TyphoonCard(typhoon, city, Modifier.fillMaxWidth(), onClick = onOpenTyphoon) }
                 }
-                item { HourlyCard(w, Modifier.fillMaxWidth()) { onOpenDetail(DetailMetric.TEMPERATURE, null) } }
-                item { DailyCard(w, Modifier.fillMaxWidth()) { date -> onOpenDetail(DetailMetric.TEMPERATURE, date) } }
                 w.airQuality?.let { aq -> item { AirQualityCard(aq, Modifier.fillMaxWidth()) } }
                 item {
                     CardRow(
