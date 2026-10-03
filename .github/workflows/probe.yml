@@ -10,6 +10,8 @@ jobs:
       - env:
           KEY: ${{ secrets.MOENV_API_KEY }}
         run: |
+          KEY="$(printf '%s' "$KEY" | tr -d '[:space:]')"
+          echo "key length ${#KEY}, chars: $(printf '%s' "$KEY" | tr -d 'A-Za-z0-9-' | wc -c) non-alnum"
           if [ -z "$KEY" ]; then echo "NO KEY"; exit 1; fi
           curl -s --max-time 60 -o r.json -w 'HTTP %{http_code} size %{size_download}\n' "https://data.moenv.gov.tw/api/v2/aqx_p_432?api_key=${KEY}&limit=1000&format=JSON"
           head -c 300 r.json; echo
