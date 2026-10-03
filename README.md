@@ -1,97 +1,56 @@
 # 我的天氣（iPhone 風格 Android 天氣 App）
 
-以 Kotlin + Jetpack Compose 打造、仿 iOS 天氣介面的 Android App。
+以 Kotlin + Jetpack Compose 打造、仿 iOS 天氣介面的 Android App，台灣地區整合中央氣象署與環境部資料。
 
 ## 功能
 
-- 背景漸層隨天氣與日夜變化，有下雨、下雪、星空動畫
-- 大字顯示目前溫度、天氣狀況、今日高低溫，往下捲動時標題自動收合
-- 24 小時逐時預報（含降雨機率與日出、日落時間點）
-- 10 日預報，附 iOS 風格的溫度區間色條與目前溫度圓點
-- 資訊卡：空氣品質（AQI、PM2.5、PM10）、紫外線、日出日落軌跡、風（指南針）、降雨量、體感溫度、濕度／露點、能見度、氣壓、雲量
-- 支援目前位置與多個城市，左右滑動切換；城市列表可搜尋新增、向左滑刪除，按「編輯」後拖曳 ≡ 調整順序
-- 下拉重新整理；離線時顯示上次快取的資料
-- **中央氣象署資料（台灣地區自動啟用）**：最近測站即時觀測、鄉鎮逐時／一週預報、天氣特報
+- 背景漸層隨天氣與日夜變化，有雲、雨、雪、霧、閃電、星空動畫
+- 目前溫度、24 小時逐時與 10 日預報；點卡片可看整天的逐時圖表（溫度、體感、降雨、風、紫外線、濕度）
+- 資訊卡：空氣品質、紫外線、日出日落、風（指南針）、降雨量、體感、濕度、能見度、氣壓、雲量
+- 天氣特報卡片、颱風路徑卡片與可縮放的颱風路徑圖
+- 目前位置與多城市；離線模糊搜尋（台／臺不分、英文名、縮寫與機場代碼）；iOS 風格編輯模式
+- 桌面小工具（小／中／大）、降雨提醒、天氣特報與每日早晨通知
+- 設定：°C/°F、風速單位、是否使用中央氣象署資料
 
-## 資料來源與準確度
+## 資料來源與授權
 
-| 資料 | 台灣地區 | 其他地區 |
+| 資料 | 來源 | 授權 |
 | --- | --- | --- |
-| 目前天氣 | 中央氣象署最近測站實測（10 公里內，每 10 分鐘更新） | Open-Meteo |
-| 逐時預報（3 天） | 中央氣象署鄉鎮預報：逐時溫度、3 小時降雨機率與天氣現象 | Open-Meteo |
-| 每日預報 | 前 7 天：中央氣象署鄉鎮一週預報；第 8～10 天：Open-Meteo | Open-Meteo |
-| 天氣特報 | 中央氣象署（所在縣市） | — |
-| 空氣品質、紫外線、日出日落 | Open-Meteo | Open-Meteo |
+| 台灣測站觀測、鄉鎮預報、天氣特報、颱風路徑 | [中央氣象署開放資料](https://opendata.cwa.gov.tw/) | [政府資料開放授權條款－第 1 版](https://data.gov.tw/license) |
+| 台灣測站空氣品質（AQI） | [環境部環境資料開放平臺](https://data.moenv.gov.tw/) | [政府資料開放授權條款－第 1 版](https://data.gov.tw/license) |
+| 全球天氣預報、空氣品質 | [Open-Meteo](https://open-meteo.com/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| 世界城市名稱與座標（`world_cities.json`） | [GeoNames](https://www.geonames.org/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| 東亞陸地輪廓（`east_asia_land.json`） | [Natural Earth](https://www.naturalearthdata.com/) | 公有領域 |
 
-氣象署資料取自[氣象資料開放平臺](https://opendata.cwa.gov.tw/)的公開檔案與氣象署網站圖資，**不需要申請授權碼**。
-[Open-Meteo](https://open-meteo.com/) 的 `best_match` 會依地區自動混合解析度最高的數值模式（ECMWF、JMA、GFS 等）。
+內建資料的產生腳本放在 `tools/`。
 
-氣象署資料的解析與合併邏輯有單元測試（`app/src/test`），CI 每次建置都會執行。
+## CI/CD
 
-## CI/CD：自動安裝到手機
+`.github/workflows/android.yml` 在每次 push 時：
 
-`.github/workflows/android.yml` 每次 push 都會建置 release APK：
+1. 執行單元測試與畫面截圖測試（截圖推到 `ci-screenshots` 分支，方便檢查排版）
+2. 建置已簽章的 release APK
+3. push 到 `main` 或手動執行時，發佈到 **Firebase App Distribution**，測試者用 App Tester 安裝更新
 
-| 事件 | 結果 |
+> 這是公開 repo，APK 內含 Firebase 設定與環境部 API 金鑰，因此**不發佈到 GitHub Release**，只透過 App Tester 給指定的測試者。
+
+### 需要的 GitHub Secrets
+
+| Secret | 用途 |
 | --- | --- |
-| push 任何分支／PR | 建置 APK，上傳為 Actions artifact |
-| push 到 `main` | 發佈到 Firebase App Tester，並發佈 GitHub Release（tag 為 `v1.0.<run_number>`） |
-| 手動執行（workflow_dispatch） | 可選擇是否發佈到 App Tester 與 Release |
+| `KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD` | APK 簽章（同一把金鑰才能覆蓋更新） |
+| `FIREBASE_APP_ID`、`FIREBASE_SERVICE_ACCOUNT`、`FIREBASE_TESTERS` | 發佈到 App Tester |
+| `GOOGLE_SERVICES_JSON` | Crashlytics（選用） |
+| `MOENV_API_KEY` | 環境部 AQI（選用；沒有時使用 Open-Meteo） |
 
-版本號就是 GitHub Actions 的 run number，新版可以直接覆蓋安裝。
-
-### 1. 設定簽章金鑰（只需做一次）
-
-Android 要求同一個 App 每次更新都用同一把金鑰簽章。請在自己電腦上產生金鑰（請妥善保存，不要 commit 進 repo）：
-
-```bash
-keytool -genkeypair -keystore my-weather.jks -alias weather -keyalg RSA -keysize 2048 -validity 10000
-base64 -w0 my-weather.jks   # macOS 用：base64 -i my-weather.jks
-```
-
-到 GitHub repo → Settings → Secrets and variables → Actions，新增：
-
-| Secret | 內容 |
-| --- | --- |
-| `KEYSTORE_BASE64` | 上面 base64 指令的輸出 |
-| `KEYSTORE_PASSWORD` | keystore 密碼 |
-| `KEY_ALIAS` | `weather` |
-| `KEY_PASSWORD` | key 密碼（PKCS12 時與 keystore 密碼相同） |
-
-還沒設定時，CI 會改用臨時的 debug 金鑰，APK 可以安裝，但每次更新都得先解除安裝。
-
-### 2. 手機自動更新：Firebase App Tester
-
-每次 push 到 `main`，CI 會把 APK 上傳到 Firebase App Distribution，手機上的 **App Tester** 會收到通知，點一下就能更新。
-
-**Firebase 設定（只需做一次）**
-
-1. 到 [Firebase Console](https://console.firebase.google.com/) 建立專案（不需要 Google Analytics）。
-2. 專案總覽 → 新增應用程式 → Android，套件名稱填 `com.charlie.weather`，其他欄位可以略過。
-   完成後在「專案設定 → 一般」複製 **App ID**（格式像 `1:1234567890:android:abcdef...`）。
-3. 左側選單 → Release & Monitor → **App Distribution** → 開始使用。
-4. 建立服務帳戶：專案設定 → 服務帳戶 → 「管理服務帳戶權限」（會開啟 Google Cloud Console）
-   → 建立服務帳戶，角色選 **Firebase App Distribution Admin** → 建立後到「金鑰」分頁 → 新增金鑰 → JSON，下載檔案。
-
-**GitHub Secrets**（repo → Settings → Secrets and variables → Actions）
-
-| Secret | 內容 |
-| --- | --- |
-| `FIREBASE_APP_ID` | 第 2 步複製的 App ID |
-| `FIREBASE_SERVICE_ACCOUNT` | 第 4 步下載的 JSON 檔「整份內容」 |
-| `FIREBASE_TESTERS` | 要收到更新的 Google 帳號 email，多個用逗號分隔 |
-
-**手機端**
-
-1. 第一次發佈後，手機上的 Google 帳號會收到 Firebase 邀請信，點「開始使用」接受邀請。
-2. 依照指示安裝 **App Tester**（Firebase 的測試版安裝 App）並登入同一個帳號。
-3. 之後每次有新版，App Tester 會推播通知，點「下載」→「安裝」即可。
-   vivo 第一次會詢問是否允許 App Tester 安裝應用程式，請允許。
-
-（GitHub Release 仍然會同步發佈，也可以直接從 Release 頁面下載 APK。）
+Fork 這個專案自行建置時，沒有這些 Secrets 也能編譯，只是會用臨時的 debug 金鑰簽章，也不會發佈。
 
 ## 本機建置
 
 ```bash
-./gradlew assembleDebug      # 需要 JDK 17 與 Android SDK
+./gradlew testDebugUnitTest assembleDebug   # 需要 JDK 17 與 Android SDK
 ```
+
+## 授權
+
+程式碼以 [MIT License](LICENSE) 授權。`app/src/main/assets/` 與測試資料中的內建資料，依上方「資料來源與授權」表格中各來源的授權條款使用（例如 GeoNames 需標示出處）。
