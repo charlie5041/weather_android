@@ -66,14 +66,15 @@ object WebMercator {
 }
 
 /**
- * 地圖圖磚：CARTO Voyager 底圖（OpenStreetMap 資料，配色接近一般導航地圖，免金鑰）。
- * 下載的 PNG 存在 cacheDir，30 天內重複使用，同一條通勤路線幾乎不用再下載。
+ * 地圖圖磚：OpenStreetMap 標準圖磚（沒有 Google 金鑰時使用）。
+ * 依 OSM 的圖磚使用規範帶上可辨識的 User-Agent，下載的 PNG 存在 cacheDir 30 天，
+ * 同一條通勤路線幾乎不用再下載。
  */
 class MapTileCache(cacheDir: File) {
     private val dir = File(cacheDir, "map_tiles").apply { mkdirs() }
     private val locks = mutableMapOf<MapTile, Mutex>()
 
-    fun url(tile: MapTile) = "https://basemaps.cartocdn.com/rastertiles/voyager/${tile.zoom}/${tile.x}/${tile.y}@2x.png"
+    fun url(tile: MapTile) = "https://tile.openstreetmap.org/${tile.zoom}/${tile.x}/${tile.y}.png"
 
     /** 圖磚的 PNG 內容；離線且沒有快取時為 null。 */
     suspend fun load(tile: MapTile): ByteArray? = withContext(Dispatchers.IO) {

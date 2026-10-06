@@ -7,12 +7,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
 
 /** App、背景更新與小工具共用的天氣資料來源（Open-Meteo + 中央氣象署）。 */
 class WeatherRepository private constructor(context: Context) {
     val store = CityStore(context)
     private val settings = AppSettings(context)
     private val cwa = CwaRepository(context.cacheDir)
+    private val googleRoutes = BuildConfig.GOOGLE_MAPS_API_KEY.takeIf { it.isNotBlank() }?.let {
+        GoogleRoutes(it, context.packageName, GoogleRoutes.certSha1(context))
+    }
+
+    /** 有 Google 金鑰：行車時間含路況，會隨出發時間改變 */
+    val trafficAwareRoutes: Boolean get() = googleRoutes != null
 
     /** 小工具與通知使用的城市：有定位時是「我的位置」，否則是列表第一個城市。 */
     fun primaryCity(): City? = store.loadLocationCity() ?: store.loadCities().firstOrNull()
@@ -45,10 +52,11 @@ class WeatherRepository private constructor(context: Context) {
 
     /**
      * 規劃 [from] 到 [to] 的路線，並取得沿途各取樣點的逐時預報（台灣套用氣象署鄉鎮預報與雨量站）。
-     * 預報一次查完，之後改出發時間只要用 [RoutePlanner.evaluate] 重新計算。
+     * 預報一次查完，之後改出發時間只要用 [RoutePlanner.evaluate] 重新計算
+     * （使用 Google 路況時，行車時間隨出發時間改變，需要重新查詢）。
      */
-    suspend fun routeData(from: City, to: City, mode: TravelMode): RouteData = coroutineScope {
-        val path = RouteApi.route(LatLon(from.latitude, from.longitude), LatLon(to.latitude, to.longitude), mode)
+    suspend fun routeData(from: City, to: City, mode: TravelMode, departure: LocalDateTime? = null): RouteData = coroutineScope {
+        val path = RouteApi.route(LatLon(from.latitude, from.longitude), LatLon(to.latitude, to.longitude), mode, departure, googleRoutes)
         val points = RoutePlanner.sample(path)
         val forecasts = async { WeatherApi.fetchForecastJsons(points.map { it.position }) }
         val cwaData = async {

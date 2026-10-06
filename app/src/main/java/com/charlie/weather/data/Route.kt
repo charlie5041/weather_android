@@ -23,13 +23,27 @@ enum class TravelMode(val label: String, val profile: String, val fallbackKmh: D
 
 data class LatLon(val latitude: Double, val longitude: Double)
 
-/** 規劃好的路線；[approximate] 為 true 表示路線服務無法使用，改用直線距離估計。 */
+/** 路線與行車時間的來源 */
+enum class RouteSource {
+    /** Google 地圖，含路況 */
+    GOOGLE,
+
+    /** OpenStreetMap 路網，不含路況 */
+    OSM,
+
+    /** 路線服務無法使用，以直線距離估計 */
+    ESTIMATE,
+}
+
+/** 規劃好的路線。 */
 data class RoutePath(
     val points: List<LatLon>,
     val distanceKm: Double,
     val durationMinutes: Double,
-    val approximate: Boolean = false,
-)
+    val source: RouteSource = RouteSource.OSM,
+) {
+    val approximate: Boolean get() = source == RouteSource.ESTIMATE
+}
 
 /** 路線上取樣的一個點；[fraction] 是從起點算起佔全程的比例（0–1）。 */
 data class RoutePoint(val position: LatLon, val fraction: Double, val distanceKm: Double)
@@ -70,16 +84,28 @@ data class RouteForecast(
     val summary: String get() = RoutePlanner.summary(this)
 }
 
-/** 路線規劃：OpenStreetMap 路網（FOSSGIS 的 OSRM 服務，免金鑰）；失敗時以直線估計。 */
+/**
+ * 路線規劃：有 Google 金鑰時用 Google 地圖（含路況）；否則或失敗時用 OpenStreetMap 路網
+ * （FOSSGIS 的 OSRM 服務，免金鑰）；都失敗時以直線估計。
+ */
 object RouteApi {
     private const val BASE_URL = "https://routing.openstreetmap.de"
 
-    suspend fun route(from: LatLon, to: LatLon, mode: TravelMode): RoutePath = try {
-        parse(get(url(from, to, mode))) ?: straightLine(from, to, mode)
-    } catch (e: IOException) {
-        straightLine(from, to, mode)
-    } catch (e: org.json.JSONException) {
-        straightLine(from, to, mode)
+    suspend fun route(
+        from: LatLon,
+        to: LatLon,
+        mode: TravelMode,
+        departure: LocalDateTime? = null,
+        google: GoogleRoutes? = null,
+    ): RoutePath {
+        google?.route(from, to, mode, departure)?.let { return it }
+        return try {
+            parse(get(url(from, to, mode))) ?: straightLine(from, to, mode)
+        } catch (e: IOException) {
+            straightLine(from, to, mode)
+        } catch (e: org.json.JSONException) {
+            straightLine(from, to, mode)
+        }
     }
 
     fun url(from: LatLon, to: LatLon, mode: TravelMode): String {
@@ -103,7 +129,7 @@ object RouteApi {
     /** 直線距離 × 1.3 估計實際道路距離。 */
     fun straightLine(from: LatLon, to: LatLon, mode: TravelMode): RoutePath {
         val km = CwaParser.distanceKm(from.latitude, from.longitude, to.latitude, to.longitude) * 1.3
-        return RoutePath(listOf(from, to), km, km / mode.fallbackKmh * 60, approximate = true)
+        return RoutePath(listOf(from, to), km, km / mode.fallbackKmh * 60, RouteSource.ESTIMATE)
     }
 
     private suspend fun get(url: String): String = withContext(Dispatchers.IO) {

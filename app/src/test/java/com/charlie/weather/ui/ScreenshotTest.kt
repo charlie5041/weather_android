@@ -93,7 +93,7 @@ class ScreenshotTest {
             androidx.compose.foundation.layout.Box(
                 androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).padding(16.dp),
             ) {
-                RouteResult(forecast)
+                RouteResult(forecast, googleMap = false)
             }
         }
     }

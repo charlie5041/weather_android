@@ -256,6 +256,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                             onSearch = vm::searchAddress,
                             onUseCurrentLocation = vm::currentAddress,
                             onLoad = vm::routeData,
+                            trafficAware = vm.trafficAwareRoutes,
                             onClose = { routeRequest = null },
                         )
                     }

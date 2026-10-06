@@ -21,8 +21,10 @@
 | 台灣測站空氣品質（AQI） | [環境部環境資料開放平臺](https://data.moenv.gov.tw/) | [政府資料開放授權條款－第 1 版](https://data.gov.tw/license) |
 | 全球天氣預報、空氣品質 | [Open-Meteo](https://open-meteo.com/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | 世界城市名稱與座標（`world_cities.json`） | [GeoNames](https://www.geonames.org/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| 路線規劃 | [FOSSGIS 路線服務](https://routing.openstreetmap.de/)（OpenStreetMap 資料） | [ODbL](https://www.openstreetmap.org/copyright) |
-| 路線地圖底圖 | [CARTO Basemaps](https://carto.com/basemaps/)（OpenStreetMap 資料） | [CARTO 使用條款](https://carto.com/legal/)、[ODbL](https://www.openstreetmap.org/copyright) |
+| 路線規劃（有金鑰時） | [Google Routes API](https://developers.google.com/maps/documentation/routes)，含路況 | [Google 地圖平台服務條款](https://cloud.google.com/maps-platform/terms) |
+| 路線規劃（沒有金鑰時） | [FOSSGIS 路線服務](https://routing.openstreetmap.de/)（OpenStreetMap 資料） | [ODbL](https://www.openstreetmap.org/copyright) |
+| 路線地圖（有金鑰時） | Google Maps SDK for Android | [Google 地圖平台服務條款](https://cloud.google.com/maps-platform/terms) |
+| 路線地圖（沒有金鑰時） | [OpenStreetMap 圖磚](https://operations.osmfoundation.org/policies/tiles/) | [ODbL](https://www.openstreetmap.org/copyright) |
 | 東亞陸地輪廓（`east_asia_land.json`） | [Natural Earth](https://www.naturalearthdata.com/) | 公有領域 |
 
 內建資料的產生腳本放在 `tools/`。
@@ -44,6 +46,13 @@
 | `FIREBASE_APP_ID`、`FIREBASE_SERVICE_ACCOUNT`、`FIREBASE_TESTERS` | 發佈到 App Tester |
 | `GOOGLE_SERVICES_JSON` | Crashlytics（選用） |
 | `MOENV_API_KEY` | 環境部 AQI（選用；沒有時使用 Open-Meteo） |
+| `GOOGLE_MAPS_API_KEY` | Google 地圖（選用）：路線降雨用 Google 地圖顯示，路線與行車時間含路況；沒有時使用 OpenStreetMap、未含路況 |
+
+`GOOGLE_MAPS_API_KEY` 的設定方式：在 Google Cloud 建立專案並啟用 **Maps SDK for Android**（顯示地圖，行動版免費）與 **Routes API**（路況與行車時間；需綁定帳單，個人使用通常在每月免費額度內），建立 API 金鑰後
+1. 「應用程式限制」選 **Android 應用程式**，加入套件名稱 `com.charlie.weather` 與 release 簽章金鑰的 SHA-1（`keytool -list -v -keystore release.jks`）
+2. 「API 限制」只勾選 **Maps SDK for Android** 與 **Routes API**
+
+金鑰會包含在 APK 內，上述限制可以避免被其他 App 盜用。
 
 Fork 這個專案自行建置時，沒有這些 Secrets 也能編譯，只是會用臨時的 debug 金鑰簽章，也不會發佈。
 
