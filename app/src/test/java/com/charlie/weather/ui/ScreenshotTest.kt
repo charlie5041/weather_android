@@ -63,7 +63,7 @@ class ScreenshotTest {
 
     @Test
     @Config(qualifiers = "w400dp-h1400dp-xhdpi")
-    fun routeResult() = capture("11_route") {
+    fun routeResult() {
         val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")
         val work = City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司")
         val dry = sampleWeather(code = 2)
@@ -82,10 +82,19 @@ class ScreenshotTest {
         val data = com.charlie.weather.data.RouteData(home, work, com.charlie.weather.data.TravelMode.SCOOTER, path, points, weathers)
         val now = dry.current.time
         val forecast = com.charlie.weather.data.RoutePlanner.evaluate(data, now, now)
-        androidx.compose.foundation.layout.Box(
-            androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).padding(16.dp),
-        ) {
-            RouteResult(forecast)
+        // 先把地圖圖磚載入記憶體（地圖寬 400 - 32 - 24 = 344dp、高 240dp），截圖才會有底圖；離線時只有路線
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        kotlinx.coroutines.runBlocking {
+            kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                routeViewport(path.points, 688f, 480f, 2f).tiles().forEach { (tile, _) -> RouteMapTiles.load(context, tile) }
+            }
+        }
+        capture("11_route") {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).padding(16.dp),
+            ) {
+                RouteResult(forecast)
+            }
         }
     }
 

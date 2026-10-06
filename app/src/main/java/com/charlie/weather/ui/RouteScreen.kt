@@ -1,6 +1,9 @@
 package com.charlie.weather.ui
 
 import android.content.ActivityNotFoundException
+import android.content.Context
+import android.graphics.BitmapFactory
+import android.util.LruCache
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Canvas
@@ -9,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,7 +55,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -62,29 +72,37 @@ import androidx.compose.ui.unit.sp
 import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
 import com.charlie.weather.data.CwaParser
+import com.charlie.weather.data.LatLon
+import com.charlie.weather.data.MapTile
+import com.charlie.weather.data.MapTileCache
+import com.charlie.weather.data.MapViewport
+import com.charlie.weather.data.WebMercator
 import com.charlie.weather.data.RouteData
 import com.charlie.weather.data.RouteForecast
 import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.data.RouteStop
 import com.charlie.weather.data.TravelMode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 import java.util.Locale
-import kotlin.math.cos
-import kotlin.math.max
+import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 private val RouteDry = Color(0xFF30D158)
 private val RouteMaybe = Color(0xFFFFD60A)
 private val RouteWet = Color(0xFF0A84FF)
 private val RouteHeavy = Color(0xFFBF5AF2)
+private val MapPlaceholder = Color(0xFFE8E6E1)
 
 private enum class Endpoint { FROM, TO }
 
 /** 起點、終點與出發時間；從通勤卡片開啟時會帶入住家、公司與通勤時間。 */
-data class RouteRequest(val from: City?, val to: City?, val departure: LocalDateTime? = null)
+data class RouteRequest(val from: City?, val to: City?, val departure: LocalDateTime? = null, val mode: TravelMode? = null)
 
 /**
  * 路線降雨：像地圖 App 一樣輸入起點與終點，沿路線每幾公里取一點，
@@ -102,7 +120,7 @@ fun RouteScreen(
     val openedAt = remember { LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES) }
     var from by remember { mutableStateOf(request.from) }
     var to by remember { mutableStateOf(request.to) }
-    var mode by remember { mutableStateOf(TravelMode.SCOOTER) }
+    var mode by remember { mutableStateOf(request.mode ?: TravelMode.SCOOTER) }
     var departure by remember { mutableStateOf(request.departure ?: openedAt) }
     var editing by remember { mutableStateOf<Endpoint?>(if (request.from != null && request.to == null) Endpoint.TO else null) }
     var data by remember { mutableStateOf<RouteData?>(null) }
@@ -323,7 +341,10 @@ fun RouteResult(forecast: RouteForecast, onDeparture: (LocalDateTime) -> Unit = 
         }
 
         Panel {
-            RouteMap(forecast, Modifier.fillMaxWidth().height(200.dp))
+            RouteMap(
+                forecast,
+                Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(10.dp)).clickable { openInGoogleMaps(context, data) },
+            )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 listOf(RouteDry to "不太會下", RouteMaybe to "可能", RouteWet to "會下雨", RouteHeavy to "大雨／正在下").forEach { (c, label) ->
@@ -356,29 +377,12 @@ fun RouteResult(forecast: RouteForecast, onDeparture: (LocalDateTime) -> Unit = 
             fontSize = 15.sp,
             modifier = Modifier
                 .padding(horizontal = 4.dp)
-                .clickable {
-                    val travel = when (data.mode) {
-                        TravelMode.SCOOTER -> "two-wheeler"
-                        TravelMode.CAR -> "driving"
-                        TravelMode.BIKE -> "bicycling"
-                        TravelMode.WALK -> "walking"
-                    }
-                    val uri = Uri.parse(
-                        "https://www.google.com/maps/dir/?api=1" +
-                            "&origin=${data.from.latitude},${data.from.longitude}" +
-                            "&destination=${data.to.latitude},${data.to.longitude}&travelmode=$travel",
-                    )
-                    try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                    } catch (e: ActivityNotFoundException) {
-                        // 沒有地圖或瀏覽器 App
-                    }
-                },
+                .clickable { openInGoogleMaps(context, data) },
         )
         Text(
             "沿路線約每 ${RoutePlanner.STEP_KM.toInt()} 公里取一點，依預估經過時間查逐時預報；即將經過的點會參考附近雨量站是否正在下雨。" +
                 (if (data.mode == TravelMode.SCOOTER) "機車以汽車路線估計，可能包含機車不能行駛的道路。" else "") +
-                "路線資料：© OpenStreetMap 貢獻者（FOSSGIS 路線服務）。",
+                "路線資料：© OpenStreetMap 貢獻者（FOSSGIS 路線服務）；地圖：© CARTO。點地圖可在 Google 地圖開啟。",
             color = Color.Gray,
             fontSize = 12.sp,
             lineHeight = 17.sp,
@@ -387,9 +391,56 @@ fun RouteResult(forecast: RouteForecast, onDeparture: (LocalDateTime) -> Unit = 
     }
 }
 
-/** 沒有底圖的路線形狀，依各段的降雨程度著色。 */
+private fun openInGoogleMaps(context: Context, data: RouteData) {
+    val travel = when (data.mode) {
+        TravelMode.SCOOTER -> "two-wheeler"
+        TravelMode.CAR -> "driving"
+        TravelMode.BIKE -> "bicycling"
+        TravelMode.WALK -> "walking"
+    }
+    val uri = Uri.parse(
+        "https://www.google.com/maps/dir/?api=1" +
+            "&origin=${data.from.latitude},${data.from.longitude}" +
+            "&destination=${data.to.latitude},${data.to.longitude}&travelmode=$travel",
+    )
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+    } catch (e: ActivityNotFoundException) {
+        // 沒有地圖或瀏覽器 App
+    }
+}
+
+/** 路線圖的縮放：一張圖磚佔 256dp（@2x 圖磚在高密度螢幕上剛好清晰），四周留邊界放起終點標記。 */
+internal fun routeViewport(points: List<LatLon>, widthPx: Float, heightPx: Float, density: Float): MapViewport =
+    WebMercator.fit(points, widthPx, heightPx, tilePx = 256 * density, padPx = 28 * density)
+
+/** 解碼後的圖磚放在記憶體，重開畫面或改出發時間時不必重新讀檔。 */
+internal object RouteMapTiles {
+    private val bitmaps = LruCache<MapTile, ImageBitmap>(48)
+
+    @Volatile
+    private var cache: MapTileCache? = null
+
+    private fun cache(context: Context) =
+        cache ?: synchronized(this) { cache ?: MapTileCache(context.applicationContext.cacheDir).also { cache = it } }
+
+    fun cached(tile: MapTile): ImageBitmap? = bitmaps.get(tile)
+
+    suspend fun load(context: Context, tile: MapTile): ImageBitmap? {
+        bitmaps.get(tile)?.let { return it }
+        val bytes = cache(context).load(tile) ?: return null
+        val bitmap = withContext(Dispatchers.Default) {
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        } ?: return null
+        bitmaps.put(tile, bitmap)
+        return bitmap
+    }
+}
+
+/** 地圖底圖加上依各段降雨程度著色的路線（類似導航 App 的路況顏色）。 */
 @Composable
 private fun RouteMap(forecast: RouteForecast, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     val path = forecast.data.path.points
     val stops = forecast.stops
     // 各頂點沿路線的比例，用來找最接近的取樣點顏色
@@ -402,40 +453,62 @@ private fun RouteMap(forecast: RouteForecast, modifier: Modifier = Modifier) {
         val total = cumulative.last().takeIf { it > 0 } ?: 1.0
         cumulative.map { it / total }
     }
-    Canvas(modifier) {
-        if (path.isEmpty()) return@Canvas
-        val scaleX = cos(Math.toRadians(path.map { it.latitude }.average()))
-        val xs = path.map { it.longitude * scaleX }
-        val ys = path.map { -it.latitude }
-        val minX = xs.min()
-        val minY = ys.min()
-        val spanX = max(xs.max() - minX, 1e-6)
-        val spanY = max(ys.max() - minY, 1e-6)
-        val pad = 16.dp.toPx()
-        val scale = minOf((size.width - pad * 2) / spanX, (size.height - pad * 2) / spanY)
-        val offX = (size.width - spanX * scale) / 2
-        val offY = (size.height - spanY * scale) / 2
-        fun at(x: Double, y: Double) = Offset((offX + (x - minX) * scale).toFloat(), (offY + (y - minY) * scale).toFloat())
-        fun colorAt(f: Double) = stops.minByOrNull { kotlin.math.abs(it.point.fraction - f) }?.let(::rainColor) ?: RouteDry
-
-        for (i in 1 until path.size) {
-            drawLine(
-                colorAt((fractions[i - 1] + fractions[i]) / 2),
-                at(xs[i - 1], ys[i - 1]),
-                at(xs[i], ys[i]),
-                strokeWidth = 6.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
+    BoxWithConstraints(modifier.background(MapPlaceholder)) {
+        val density = LocalDensity.current.density
+        val widthPx = constraints.maxWidth.toFloat()
+        val heightPx = constraints.maxHeight.toFloat()
+        if (path.isEmpty() || widthPx <= 0f || heightPx <= 0f) return@BoxWithConstraints
+        val viewport = remember(path, widthPx, heightPx, density) { routeViewport(path, widthPx, heightPx, density) }
+        val tiles = remember(viewport) { viewport.tiles() }
+        val images = remember(viewport) {
+            androidx.compose.runtime.mutableStateMapOf<MapTile, ImageBitmap>().apply {
+                tiles.forEach { (tile, _) -> RouteMapTiles.cached(tile)?.let { put(tile, it) } }
+            }
         }
-        stops.forEach { stop ->
-            val p = at(stop.point.position.longitude * scaleX, -stop.point.position.latitude)
-            drawCircle(Color.White, 4.dp.toPx(), p)
-            drawCircle(rainColor(stop), 2.5.dp.toPx(), p)
+        LaunchedEffect(viewport) {
+            tiles.filter { (tile, _) -> tile !in images }.forEach { (tile, _) ->
+                launch { RouteMapTiles.load(context, tile)?.let { images[tile] = it } }
+            }
         }
-        drawCircle(Color.White, 8.dp.toPx(), at(xs.first(), ys.first()))
-        drawCircle(RouteDry, 6.dp.toPx(), at(xs.first(), ys.first()))
-        drawCircle(Color.White, 8.dp.toPx(), at(xs.last(), ys.last()))
-        drawCircle(Color(0xFFFF453A), 6.dp.toPx(), at(xs.last(), ys.last()))
+        Canvas(Modifier.fillMaxSize()) {
+            val tileSize = ceil(viewport.tilePx).toInt() + 1
+            tiles.forEach { (tile, offset) ->
+                val image = images[tile] ?: return@forEach
+                drawImage(
+                    image,
+                    dstOffset = IntOffset(offset.first.roundToInt(), offset.second.roundToInt()),
+                    dstSize = IntSize(tileSize, tileSize),
+                    filterQuality = FilterQuality.Medium,
+                )
+            }
+            val pts = path.map { viewport.project(it).let { (x, y) -> Offset(x, y) } }
+            fun colorAt(f: Double) = stops.minByOrNull { kotlin.math.abs(it.point.fraction - f) }?.let(::rainColor) ?: RouteDry
+            // 先畫白色外框再畫彩色路線，在地圖上比較清楚
+            for (i in 1 until pts.size) {
+                drawLine(Color.White, pts[i - 1], pts[i], strokeWidth = 9.dp.toPx(), cap = StrokeCap.Round)
+            }
+            for (i in 1 until pts.size) {
+                drawLine(colorAt((fractions[i - 1] + fractions[i]) / 2), pts[i - 1], pts[i], strokeWidth = 5.dp.toPx(), cap = StrokeCap.Round)
+            }
+            stops.drop(1).dropLast(1).forEach { stop ->
+                val (x, y) = viewport.project(stop.point.position)
+                drawCircle(Color.White, 4.5.dp.toPx(), Offset(x, y))
+                drawCircle(rainColor(stop), 3.dp.toPx(), Offset(x, y))
+            }
+            drawCircle(Color.White, 9.dp.toPx(), pts.first())
+            drawCircle(RouteDry, 6.5.dp.toPx(), pts.first())
+            drawCircle(Color.White, 9.dp.toPx(), pts.last())
+            drawCircle(Color(0xFFFF453A), 6.5.dp.toPx(), pts.last())
+        }
+        Text(
+            "© OpenStreetMap © CARTO",
+            color = Color(0xFF555555),
+            fontSize = 9.sp,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .background(Color.White.copy(alpha = 0.7f))
+                .padding(horizontal = 4.dp, vertical = 1.dp),
+        )
     }
 }
 
@@ -542,7 +615,7 @@ private fun EndpointSearch(
                                 message = null
                                 val here = onUseCurrentLocation()
                                 busy = false
-                                if (here != null) onPick(here.toRouteCity("目前位置")) else message = "無法取得目前位置，請確認已允許定位權限。"
+                                if (here != null) onPick(here.toRouteCity("目前位置", id = WeatherViewModel.LOCATION_ID)) else message = "無法取得目前位置，請確認已允許定位權限。"
                             }
                         }
                         .padding(vertical = 8.dp),
@@ -582,8 +655,8 @@ private fun EndpointSearch(
     }
 }
 
-private fun AddressResult.toRouteCity(label: String? = null) = City(
-    id = "route_%.5f_%.5f".format(Locale.US, latitude, longitude),
+private fun AddressResult.toRouteCity(label: String? = null, id: String? = null) = City(
+    id = id ?: "route_%.5f_%.5f".format(Locale.US, latitude, longitude),
     name = area,
     subtitle = address,
     latitude = latitude,

@@ -4,6 +4,8 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 
+data class SavedRoute(val from: City, val to: City, val mode: TravelMode)
+
 data class CachedWeather(val forecastJson: String, val airQualityJson: String?, val fetchedAtMillis: Long)
 
 /** 以 SharedPreferences 保存城市清單與最近一次的天氣資料（開啟 App 時可立即顯示）。 */
@@ -57,6 +59,27 @@ class CityStore(context: Context) {
         prefs.edit().remove("cache_$cityId").apply()
     }
 
+    /** 上次在「路線降雨」查詢的起點、終點與交通方式 */
+    fun loadLastRoute(): SavedRoute? {
+        val raw = prefs.getString(KEY_LAST_ROUTE, null) ?: return null
+        return runCatching {
+            val o = JSONObject(raw)
+            SavedRoute(
+                from = o.getJSONObject("from").toCity(),
+                to = o.getJSONObject("to").toCity(),
+                mode = TravelMode.entries.firstOrNull { it.name == o.optString("mode") } ?: TravelMode.SCOOTER,
+            )
+        }.getOrNull()
+    }
+
+    fun saveLastRoute(route: SavedRoute) {
+        val o = JSONObject()
+            .put("from", route.from.toJson())
+            .put("to", route.to.toJson())
+            .put("mode", route.mode.name)
+        prefs.edit().putString(KEY_LAST_ROUTE, o.toString()).apply()
+    }
+
     private fun City.toJson() = JSONObject()
         .put("id", id)
         .put("name", name)
@@ -81,5 +104,6 @@ class CityStore(context: Context) {
     private companion object {
         const val KEY_CITIES = "cities"
         const val KEY_LOCATION = "location_city"
+        const val KEY_LAST_ROUTE = "last_route"
     }
 }

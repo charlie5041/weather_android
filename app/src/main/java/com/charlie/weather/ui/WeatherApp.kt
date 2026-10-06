@@ -143,7 +143,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                         // 通勤卡片顯示在第一頁與住家、公司頁
                         commute = commuteTrip?.takeIf { page == 0 || city.id == it.from.id || city.id == it.to.id },
                         onOpenCommuteRoute = {
-                            commuteTrip?.let { routeRequest = RouteRequest(it.from, it.to, it.departure) }
+                            commuteTrip?.let { routeRequest = RouteRequest(it.from, it.to, it.departure, vm.lastRoute()?.mode) }
                         },
                     )
                 }
@@ -153,8 +153,9 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                     firstIsLocation = cities.firstOrNull()?.isCurrentLocation == true,
                     onList = { showList = true },
                     onRoute = {
-                        // 從目前看的頁面出發（我的位置或某個地點），再選終點
-                        routeRequest = RouteRequest(cities.getOrNull(pagerState.currentPage), null)
+                        // 帶入上次查詢的路線；第一次使用時從目前看的頁面出發，再選終點
+                        routeRequest = vm.lastRoute()?.let { RouteRequest(it.from, it.to, mode = it.mode) }
+                            ?: RouteRequest(cities.getOrNull(pagerState.currentPage), null)
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
