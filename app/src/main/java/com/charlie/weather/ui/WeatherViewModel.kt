@@ -10,6 +10,7 @@ import com.charlie.weather.data.CwaParser
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.PlaceSearch
 import com.charlie.weather.data.RouteData
+import com.charlie.weather.data.SavedRoute
 import com.charlie.weather.data.TaiwanPlace
 import com.charlie.weather.data.TravelMode
 import com.charlie.weather.data.WorldCity
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
 
 data class CityWeatherUi(
     val weather: Weather? = null,
@@ -195,8 +197,24 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         return _cities.value.indexOfFirst { it.id == existingId }
     }
 
-    /** 路線沿途天氣（路線降雨畫面使用） */
-    suspend fun routeData(from: City, to: City, mode: TravelMode): RouteData = repository.routeData(from, to, mode)
+    /** 路線沿途天氣（路線降雨畫面使用）；查詢的路線會記下來，下次開啟時直接帶入。 */
+    suspend fun routeData(from: City, to: City, mode: TravelMode, departure: LocalDateTime): RouteData {
+        store.saveLastRoute(SavedRoute(from, to, mode))
+        return repository.routeData(from, to, mode, departure)
+    }
+
+    /** 行車時間含路況時，改出發時間要重新查詢路線 */
+    val trafficAwareRoutes: Boolean get() = repository.trafficAwareRoutes
+
+    /**
+     * 上次查詢的路線。起點或終點是「目前位置」或自訂地點時換成最新的座標
+     * （人移動了、或地點的地址改過）。
+     */
+    fun lastRoute(): SavedRoute? {
+        val saved = store.loadLastRoute() ?: return null
+        fun latest(city: City) = _cities.value.firstOrNull { it.id == city.id } ?: city
+        return saved.copy(from = latest(saved.from), to = latest(saved.to))
+    }
 
     private val taiwanPlaces: List<TaiwanPlace> by lazy {
         runCatching {

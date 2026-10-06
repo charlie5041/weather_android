@@ -9,7 +9,7 @@
 - 資訊卡：空氣品質、紫外線、日出日落、風（指南針）、降雨量、體感、濕度、能見度、氣壓、雲量
 - 天氣特報卡片、颱風路徑卡片與可縮放的颱風路徑圖
 - 目前位置與多城市；離線模糊搜尋（台／臺不分、英文名、縮寫與機場代碼）；iOS 風格編輯模式
-- 路線降雨：輸入起點與終點（或從通勤卡片開啟），沿路線每約 3 公里依預估經過時間查降雨機率，並建議較不會淋雨的出發時間
+- 路線降雨：輸入起點與終點（或從通勤卡片開啟），沿路線每約 3 公里依預估經過時間查降雨機率，並建議較不會淋雨的出發時間；路線畫在地圖上，並記住上次查詢的路線
 - 桌面小工具（小／中／大）、降雨提醒、天氣特報與每日早晨通知
 - 設定：°C/°F、風速單位、是否使用中央氣象署資料
 
@@ -21,7 +21,10 @@
 | 台灣測站空氣品質（AQI） | [環境部環境資料開放平臺](https://data.moenv.gov.tw/) | [政府資料開放授權條款－第 1 版](https://data.gov.tw/license) |
 | 全球天氣預報、空氣品質 | [Open-Meteo](https://open-meteo.com/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | 世界城市名稱與座標（`world_cities.json`） | [GeoNames](https://www.geonames.org/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| 路線規劃 | [FOSSGIS 路線服務](https://routing.openstreetmap.de/)（OpenStreetMap 資料） | [ODbL](https://www.openstreetmap.org/copyright) |
+| 路線規劃（有金鑰時） | [Google Routes API](https://developers.google.com/maps/documentation/routes)，含路況 | [Google 地圖平台服務條款](https://cloud.google.com/maps-platform/terms) |
+| 路線規劃（沒有金鑰時） | [FOSSGIS 路線服務](https://routing.openstreetmap.de/)（OpenStreetMap 資料） | [ODbL](https://www.openstreetmap.org/copyright) |
+| 路線地圖（有金鑰時） | Google Maps SDK for Android | [Google 地圖平台服務條款](https://cloud.google.com/maps-platform/terms) |
+| 路線地圖（沒有金鑰時） | [OpenStreetMap 圖磚](https://operations.osmfoundation.org/policies/tiles/) | [ODbL](https://www.openstreetmap.org/copyright) |
 | 東亞陸地輪廓（`east_asia_land.json`） | [Natural Earth](https://www.naturalearthdata.com/) | 公有領域 |
 
 內建資料的產生腳本放在 `tools/`。
@@ -43,6 +46,13 @@
 | `FIREBASE_APP_ID`、`FIREBASE_SERVICE_ACCOUNT`、`FIREBASE_TESTERS` | 發佈到 App Tester |
 | `GOOGLE_SERVICES_JSON` | Crashlytics（選用） |
 | `MOENV_API_KEY` | 環境部 AQI（選用；沒有時使用 Open-Meteo） |
+| `GOOGLE_MAPS_API_KEY` | Google 地圖（選用）：路線降雨用 Google 地圖顯示，路線與行車時間含路況；沒有時使用 OpenStreetMap、未含路況 |
+
+`GOOGLE_MAPS_API_KEY` 的設定方式：在 Google Cloud 建立專案並啟用 **Maps SDK for Android**（顯示地圖，行動版免費）與 **Routes API**（路況與行車時間；需綁定帳單，個人使用通常在每月免費額度內），建立 API 金鑰後
+1. 「應用程式限制」選 **Android 應用程式**，加入套件名稱 `com.charlie.weather` 與 release 簽章金鑰的 SHA-1（`keytool -list -v -keystore release.jks`）
+2. 「API 限制」只勾選 **Maps SDK for Android** 與 **Routes API**
+
+金鑰會包含在 APK 內，上述限制可以避免被其他 App 盜用。
 
 Fork 這個專案自行建置時，沒有這些 Secrets 也能編譯，只是會用臨時的 debug 金鑰簽章，也不會發佈。
 

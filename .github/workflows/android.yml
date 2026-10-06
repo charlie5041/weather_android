@@ -66,6 +66,7 @@ jobs:
           SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           MOENV_API_KEY: ${{ secrets.MOENV_API_KEY }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: |
           chmod +x gradlew
           if [ "$BUILD_APK" != true ]; then

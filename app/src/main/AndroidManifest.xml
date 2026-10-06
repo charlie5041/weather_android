@@ -13,6 +13,10 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Weather">
+        <!-- Google Maps SDK 金鑰（建置時由 GOOGLE_MAPS_API_KEY 帶入；沒有金鑰時路線圖改用 OpenStreetMap） -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${googleMapsApiKey}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

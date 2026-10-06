@@ -27,6 +27,10 @@ android {
         versionName = "1.0.$ciVersionCode"
         // 環境部空品 API 金鑰（GitHub Secret MOENV_API_KEY）；沒有時改用 Open-Meteo 的空氣品質
         buildConfigField("String", "MOENV_API_KEY", "\"${System.getenv("MOENV_API_KEY").orEmpty().filterNot { it.isWhitespace() }}\"")
+        // Google 金鑰（GitHub Secret GOOGLE_MAPS_API_KEY）：路線降雨用 Google 地圖顯示路線，行車時間含路況；沒有時用 OpenStreetMap
+        val googleMapsKey = System.getenv("GOOGLE_MAPS_API_KEY").orEmpty().filterNot { it.isWhitespace() }
+        buildConfigField("String", "GOOGLE_MAPS_API_KEY", "\"$googleMapsKey\"")
+        manifestPlaceholders["googleMapsApiKey"] = googleMapsKey
     }
 
     // 簽章金鑰由 CI 的 GitHub Secrets 提供；未設定時退回 debug 金鑰（可安裝，但無法覆蓋更新）
@@ -94,6 +98,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
+    // 路線降雨的地圖（有 Google 金鑰時）
+    implementation("com.google.maps.android:maps-compose:6.4.1")
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-crashlytics")
 
