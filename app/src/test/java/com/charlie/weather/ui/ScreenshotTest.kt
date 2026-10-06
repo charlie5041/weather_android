@@ -62,6 +62,34 @@ class ScreenshotTest {
     }
 
     @Test
+    @Config(qualifiers = "w400dp-h1400dp-xhdpi")
+    fun routeResult() = capture("11_route") {
+        val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")
+        val work = City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司")
+        val dry = sampleWeather(code = 2)
+        val wet = sampleWeather(code = 61)
+        val path = com.charlie.weather.data.RoutePath(
+            listOf(
+                com.charlie.weather.data.LatLon(25.08, 121.57),
+                com.charlie.weather.data.LatLon(25.07, 121.59),
+                com.charlie.weather.data.LatLon(25.05, 121.58),
+                com.charlie.weather.data.LatLon(25.03, 121.56),
+            ),
+            9.2, 26.0,
+        )
+        val points = com.charlie.weather.data.RoutePlanner.sample(path)
+        val weathers = points.mapIndexed { i, _ -> if (i >= points.size / 2) wet else dry }
+        val data = com.charlie.weather.data.RouteData(home, work, com.charlie.weather.data.TravelMode.SCOOTER, path, points, weathers)
+        val now = dry.current.time
+        val forecast = com.charlie.weather.data.RoutePlanner.evaluate(data, now, now)
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).padding(16.dp),
+        ) {
+            RouteResult(forecast)
+        }
+    }
+
+    @Test
     @Config(qualifiers = "w400dp-h420dp-xhdpi")
     fun commuteCard() = capture("10_commute") {
         val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")

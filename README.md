@@ -9,6 +9,7 @@
 - 資訊卡：空氣品質、紫外線、日出日落、風（指南針）、降雨量、體感、濕度、能見度、氣壓、雲量
 - 天氣特報卡片、颱風路徑卡片與可縮放的颱風路徑圖
 - 目前位置與多城市；離線模糊搜尋（台／臺不分、英文名、縮寫與機場代碼）；iOS 風格編輯模式
+- 路線降雨：輸入起點與終點（或從通勤卡片開啟），沿路線每約 3 公里依預估經過時間查降雨機率，並建議較不會淋雨的出發時間
 - 桌面小工具（小／中／大）、降雨提醒、天氣特報與每日早晨通知
 - 設定：°C/°F、風速單位、是否使用中央氣象署資料
 
@@ -20,6 +21,7 @@
 | 台灣測站空氣品質（AQI） | [環境部環境資料開放平臺](https://data.moenv.gov.tw/) | [政府資料開放授權條款－第 1 版](https://data.gov.tw/license) |
 | 全球天氣預報、空氣品質 | [Open-Meteo](https://open-meteo.com/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | 世界城市名稱與座標（`world_cities.json`） | [GeoNames](https://www.geonames.org/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| 路線規劃 | [FOSSGIS 路線服務](https://routing.openstreetmap.de/)（OpenStreetMap 資料） | [ODbL](https://www.openstreetmap.org/copyright) |
 | 東亞陸地輪廓（`east_asia_land.json`） | [Natural Earth](https://www.naturalearthdata.com/) | 公有領域 |
 
 內建資料的產生腳本放在 `tools/`。

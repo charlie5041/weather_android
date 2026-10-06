@@ -43,6 +43,41 @@ class WeatherRepository private constructor(context: Context) {
         weather.withExtras(typhoons.await(), moenv.await())
     }
 
+    /**
+     * 規劃 [from] 到 [to] 的路線，並取得沿途各取樣點的逐時預報（台灣套用氣象署鄉鎮預報與雨量站）。
+     * 預報一次查完，之後改出發時間只要用 [RoutePlanner.evaluate] 重新計算。
+     */
+    suspend fun routeData(from: City, to: City, mode: TravelMode): RouteData = coroutineScope {
+        val path = RouteApi.route(LatLon(from.latitude, from.longitude), LatLon(to.latitude, to.longitude), mode)
+        val points = RoutePlanner.sample(path)
+        val forecasts = async { WeatherApi.fetchForecastJsons(points.map { it.position }) }
+        val cwaData = async {
+            if (!settings.useCwa) return@async points.map<RoutePoint, CwaData?> { null }
+            // 第一個點先下載共用的檔案（測站、縣市預報、雨量站），其他點再並行使用快取
+            val first = cwaAt(points.first().position)
+            listOf(first) + points.drop(1).map { p -> async { cwaAt(p.position) } }.map { it.await() }
+        }
+        val now = System.currentTimeMillis()
+        val jsons = forecasts.await()
+        val cwas = cwaData.await()
+        val weathers = withContext(Dispatchers.Default) {
+            points.indices.map { i ->
+                jsons.getOrNull(i)?.let { json ->
+                    runCatching { WeatherApi.parse(json, null, now).withCwa(cwas.getOrNull(i)) }.getOrNull()
+                }
+            }
+        }
+        RouteData(from, to, mode, path, points, weathers)
+    }
+
+    private suspend fun cwaAt(p: LatLon): CwaData? = try {
+        cwa.load(p.latitude, p.longitude, allowNetwork = true)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
+
     /** 東亞範圍內的城市才顯示颱風資訊。 */
     private suspend fun typhoonsFor(city: City, allowNetwork: Boolean): List<Typhoon> {
         if (!settings.useCwa || city.latitude !in -5.0..50.0 || city.longitude !in 95.0..165.0) return emptyList()

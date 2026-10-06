@@ -1,5 +1,6 @@
 package com.charlie.weather.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,15 +28,29 @@ import java.time.LocalDateTime
 private val CommuteSecondary = Color.White.copy(alpha = 0.6f)
 private val CommuteRain = Color(0xFF64D2FF)
 
-/** 通勤時段預報：出發地（出發時）與目的地（約 1 小時後抵達時）的天氣。 */
+/** 通勤時段預報：出發地（出發時）與目的地（約 1 小時後抵達時）的天氣；可開啟沿途降雨。 */
 @Composable
-fun CommuteCard(trip: CommuteTrip, modifier: Modifier = Modifier, today: LocalDate = LocalDate.now()) {
+fun CommuteCard(
+    trip: CommuteTrip,
+    modifier: Modifier = Modifier,
+    today: LocalDate = LocalDate.now(),
+    onOpenRoute: (() -> Unit)? = null,
+) {
     GlassCard("${dayWord(trip.departure, today)} ${timeLabel(trip.departure)} ${trip.leg.label}通勤", modifier) {
         CommuteRow("出發", trip.from, trip.fromHour)
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Color.White.copy(alpha = 0.18f))
         CommuteRow("抵達", trip.to, trip.toHour)
         Spacer(Modifier.height(8.dp))
         Text(trip.advice, fontSize = 14.sp, color = Color.White, lineHeight = 19.sp)
+        if (onOpenRoute != null) {
+            Text(
+                "查看沿途降雨 ›",
+                fontSize = 14.sp,
+                color = CommuteRain,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 8.dp).clickable(onClick = onOpenRoute),
+            )
+        }
     }
 }
 
