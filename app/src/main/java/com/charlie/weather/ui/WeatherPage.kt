@@ -210,27 +210,9 @@ private fun Header(city: City, w: Weather) {
 @Composable
 private fun Footer(w: Weather, error: String?) {
     val updated = Instant.ofEpochMilli(w.fetchedAtMillis).atZone(ZoneId.systemDefault()).toLocalDateTime()
-    val cwa = w.cwa
     val lines = buildList {
         if (error != null) add("離線中 · 顯示先前的資料")
-        if (cwa?.stationName != null) {
-            val distance = cwa.stationDistanceKm?.let { " · 距離 %.1f 公里".format(it) }.orEmpty()
-            val time = cwa.observedAt?.let { " · 觀測於 ${timeLabel(it)}" }.orEmpty()
-            add("目前天氣：中央氣象署 ${cwa.stationName} 測站$distance$time")
-        }
-        cwa?.rain?.let { rain ->
-            add("即時雨量：${rain.stationName} 雨量站 · 距離 ${"%.1f".format(rain.distanceKm)} 公里（綜合附近 5 公里內雨量站）")
-        }
-        cwa?.temperatureBias?.let { bias ->
-            // 溫差換算：°F 的 1 度 = °C 的 5/9 度
-            val shown = if (Units.temperature == TemperatureUnit.F) bias * 9 / 5 else bias
-            add("未來 6 小時溫度已依實測修正 ${if (shown > 0) "+" else ""}${"%.1f".format(shown)}°，並逐漸回到預報")
-        }
-        if (cwa?.township != null) {
-            add("預報：中央氣象署 ${cwa.county.orEmpty()}${cwa.township} 鄉鎮預報；第 8 天起的預報與空氣品質為 Open-Meteo")
-        } else {
-            add("資料來源：Open-Meteo（ECMWF、JMA、GFS 等）")
-        }
+        add(if (w.cwa != null) "中央氣象署 · Open-Meteo" else "Open-Meteo")
         add("更新於 ${timeLabel(updated)}")
     }
     Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
