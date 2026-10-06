@@ -79,7 +79,7 @@ object WeatherNotifier {
         val pop = soon.precipitationProbability ?: 0
         notify(
             context, CHANNEL_RAIN, ID_RAIN,
-            title = "${city.name}：即將下雨",
+            title = "${city.displayName}：即將下雨",
             text = "約${hourLabel(soon.time)}起可能${WeatherCodes.description(soon.weatherCode)}，降雨機率 $pop%。記得帶傘！",
         )
         settings.lastRainNotifiedAt = System.currentTimeMillis()
@@ -94,7 +94,7 @@ object WeatherNotifier {
             val end = alert.end?.let { " · 至 ${it.monthValue}/${it.dayOfMonth} ${com.charlie.weather.ui.timeLabel(it)}" }.orEmpty()
             notify(
                 context, CHANNEL_WARNING, ID_WARNING_BASE + (key.hashCode() and 0xfff),
-                title = "⚠️ ${weather.cwa?.county ?: city.name}${alert.title}",
+                title = "⚠️ ${weather.cwa?.county ?: city.displayName}${alert.title}",
                 text = "中央氣象署發布${alert.title}$end",
             )
         }
@@ -112,7 +112,7 @@ object WeatherNotifier {
         val alerts = weather.cwa?.alerts.orEmpty().joinToString("、") { it.title }.let { if (it.isEmpty()) "" else "\n⚠️ $it" }
         notify(
             context, CHANNEL_DAILY, ID_MORNING,
-            title = "${city.name} 今日天氣 ${weather.current.temperature.deg()}",
+            title = "${city.displayName} 今日天氣 ${weather.current.temperature.deg()}",
             text = "${day.description ?: WeatherCodes.description(day.weatherCode)}，${day.temperatureMin.deg()}～${day.temperatureMax.deg()}$pop。" +
                 "目前${weather.current.conditionText()}。$alerts",
         )

@@ -64,6 +64,8 @@ class CityStore(context: Context) {
         .put("lat", latitude)
         .put("lon", longitude)
         .put("loc", isCurrentLocation)
+        .put("label", label ?: JSONObject.NULL)
+        .put("address", address ?: JSONObject.NULL)
 
     private fun JSONObject.toCity() = City(
         id = getString("id"),
@@ -72,6 +74,8 @@ class CityStore(context: Context) {
         latitude = getDouble("lat"),
         longitude = getDouble("lon"),
         isCurrentLocation = optBoolean("loc"),
+        label = optString("label").takeIf { !isNull("label") && it.isNotBlank() },
+        address = optString("address").takeIf { !isNull("address") && it.isNotBlank() },
     )
 
     private companion object {

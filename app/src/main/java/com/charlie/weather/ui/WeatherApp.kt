@@ -9,6 +9,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.charlie.weather.data.AppSettings
+import com.charlie.weather.data.City
 import com.charlie.weather.sync.WeatherNotifier
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -70,6 +71,8 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var detail by remember { mutableStateOf<DetailRequest?>(null) }
     var typhoonCityId by remember { mutableStateOf<String?>(null) }
+    var showPlaceEditor by remember { mutableStateOf(false) }
+    var editingPlace by remember { mutableStateOf<City?>(null) }
     val context = LocalContext.current
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
@@ -156,6 +159,14 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                     onRemove = vm::removeCity,
                     onMove = vm::moveCity,
                     onOpenSettings = { showSettings = true },
+                    onAddPlace = {
+                        editingPlace = null
+                        showPlaceEditor = true
+                    },
+                    onEditPlace = { city ->
+                        editingPlace = city
+                        showPlaceEditor = true
+                    },
                     onClose = {
                         vm.clearSearch()
                         showList = false
@@ -202,6 +213,24 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                     TyphoonScreen(typhoons, typhoonCity, onClose = { typhoonCityId = null })
                 }
             }
+            AnimatedVisibility(
+                visible = showPlaceEditor,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+            ) {
+                PlaceEditorScreen(
+                    existing = editingPlace,
+                    onSearch = vm::searchAddress,
+                    onUseCurrentLocation = vm::currentAddress,
+                    onSave = { label, result ->
+                        val index = vm.saveAddressPlace(editingPlace?.id, label, result)
+                        showPlaceEditor = false
+                        showList = false
+                        scope.launch { pagerState.scrollToPage(index) }
+                    },
+                    onClose = { showPlaceEditor = false },
+                )
+            }
         }
         BackHandler(enabled = showList) {
             vm.clearSearch()
@@ -210,6 +239,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
         BackHandler(enabled = detail != null) { detail = null }
         BackHandler(enabled = typhoonCityId != null) { typhoonCityId = null }
         BackHandler(enabled = showSettings) { showSettings = false }
+        BackHandler(enabled = showPlaceEditor) { showPlaceEditor = false }
     }
 }
 

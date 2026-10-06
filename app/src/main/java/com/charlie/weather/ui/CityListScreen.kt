@@ -84,6 +84,8 @@ fun CityListScreen(
     onMove: (from: Int, to: Int) -> Unit,
     onOpenSettings: () -> Unit,
     onClose: () -> Unit,
+    onAddPlace: () -> Unit = {},
+    onEditPlace: (City) -> Unit = {},
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
     Column(
@@ -146,8 +148,21 @@ fun CityListScreen(
         if (query.isNotBlank() && !editing) {
             SearchResults(results, searching, onAdd)
         } else {
-            Spacer(Modifier.height(if (editing) 8.dp else 0.dp))
-            ReorderableCityList(cities, weather, editing, onSelect, onRemove, onMove)
+            if (editing) {
+                Spacer(Modifier.height(8.dp))
+            } else {
+                Text(
+                    "＋ 新增住家、公司等地點",
+                    color = Color(0xFF0A84FF),
+                    fontSize = 16.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = onAddPlace)
+                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                )
+            }
+            ReorderableCityList(cities, weather, editing, onSelect, onRemove, onMove, onEditPlace)
         }
     }
 }
@@ -166,6 +181,7 @@ private fun ReorderableCityList(
     onSelect: (Int) -> Unit,
     onRemove: (City) -> Unit,
     onMove: (from: Int, to: Int) -> Unit,
+    onEditPlace: (City) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val haptics = LocalHapticFeedback.current
@@ -235,7 +251,11 @@ private fun ReorderableCityList(
                             city = city,
                             weather = cityWeather,
                             compact = true,
-                            onClick = { confirmingDeleteId = null },
+                            // 編輯模式點自訂地點（住家、公司…）可以修改名稱與地址
+                            onClick = {
+                                confirmingDeleteId = null
+                                if (city.label != null) onEditPlace(city)
+                            },
                             modifier = Modifier.weight(1f),
                         )
                         if (confirmingDeleteId == city.id) {
@@ -291,7 +311,7 @@ private fun ReorderableCityList(
         item(key = "hint") {
             Column {
                 Text(
-                    if (editing) "按住右側 ≡ 拖曳可調整順序" else "向左滑可刪除；點右上角「編輯」可調整順序",
+                    if (editing) "按住右側 ≡ 拖曳可調整順序；點自訂地點可修改名稱與地址" else "向左滑可刪除；點右上角「編輯」可調整順序",
                     fontSize = 12.sp,
                     color = Color.Gray,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
@@ -391,8 +411,8 @@ private fun CityRow(
     compact: Boolean = false,
 ) {
     val colors = weather?.let { backgroundColors(it.current.weatherCode, it.current.isDay) } ?: backgroundColors(1, true)
-    val title = if (city.isCurrentLocation) "我的位置" else city.name
-    val subtitle = if (city.isCurrentLocation) city.name else weather?.let { timeLabel(it.localNow()) } ?: city.subtitle
+    val title = city.label ?: if (city.isCurrentLocation) "我的位置" else city.name
+    val subtitle = if (city.isCurrentLocation || city.label != null) city.name else weather?.let { timeLabel(it.localNow()) } ?: city.subtitle
     Row(
         modifier
             .fillMaxWidth()
