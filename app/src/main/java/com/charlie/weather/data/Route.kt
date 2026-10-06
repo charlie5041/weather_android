@@ -13,11 +13,14 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToLong
 
-/** 交通方式：決定用哪種路網規劃路線，以及找不到路線時用直線估計的平均時速。 */
+/**
+ * 交通方式：決定用哪種 OSM 路網規劃路線。[fallbackKmh] 是市區含紅綠燈與車流的平均時速，
+ * 用在直線估計，也當作 OSM 行車時間的下限（OSM 依道路速限計算，沒有路況，市區常低估一半）。
+ */
 enum class TravelMode(val label: String, val profile: String, val fallbackKmh: Double, val rainGear: String?) {
-    SCOOTER("機車", "routed-car", 30.0, "雨衣"),
-    CAR("汽車", "routed-car", 35.0, null),
-    BIKE("單車", "routed-bike", 14.0, "雨衣"),
+    SCOOTER("機車", "routed-car", 25.0, "雨衣"),
+    CAR("汽車", "routed-car", 22.0, null),
+    BIKE("單車", "routed-bike", 13.0, "雨衣"),
     WALK("步行", "routed-foot", 4.5, "雨傘"),
 }
 
@@ -100,7 +103,7 @@ object RouteApi {
     ): RoutePath {
         google?.route(from, to, mode, departure)?.let { return it }
         return try {
-            parse(get(url(from, to, mode))) ?: straightLine(from, to, mode)
+            parse(get(url(from, to, mode)))?.let { withCityPace(it, mode) } ?: straightLine(from, to, mode)
         } catch (e: IOException) {
             straightLine(from, to, mode)
         } catch (e: org.json.JSONException) {
@@ -125,6 +128,10 @@ object RouteApi {
         if (points.size < 2) return null
         return RoutePath(points, route.optDouble("distance", 0.0) / 1000, route.optDouble("duration", 0.0) / 60)
     }
+
+    /** OSM 的行車時間不得少於以市區平均時速走完全程的時間。 */
+    fun withCityPace(path: RoutePath, mode: TravelMode): RoutePath =
+        path.copy(durationMinutes = maxOf(path.durationMinutes, path.distanceKm / mode.fallbackKmh * 60))
 
     /** 直線距離 × 1.3 估計實際道路距離。 */
     fun straightLine(from: LatLon, to: LatLon, mode: TravelMode): RoutePath {

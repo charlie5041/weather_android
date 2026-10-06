@@ -44,7 +44,17 @@ class RouteTest {
     fun straightLineFallbackUsesModeSpeed() {
         val path = RouteApi.straightLine(LatLon(25.08, 121.57), LatLon(25.03, 121.56), TravelMode.SCOOTER)
         assertTrue(path.approximate)
-        assertEquals(path.distanceKm / 30.0 * 60, path.durationMinutes, 1e-6)
+        assertEquals(path.distanceKm / TravelMode.SCOOTER.fallbackKmh * 60, path.durationMinutes, 1e-6)
+    }
+
+    @Test
+    fun osmDurationIsRaisedToCityPace() {
+        // OSM 算 14.1 公里只要 15 分鐘（依速限、沒有紅綠燈），市區機車約 25 km/h → 約 34 分鐘
+        val osm = RoutePath(listOf(LatLon(25.03, 121.49), LatLon(25.06, 121.57)), 14.1, 15.0)
+        assertEquals(33.84, RouteApi.withCityPace(osm, TravelMode.SCOOTER).durationMinutes, 0.01)
+        // 已經比市區平均慢時維持原值
+        val slow = osm.copy(durationMinutes = 50.0)
+        assertEquals(50.0, RouteApi.withCityPace(slow, TravelMode.SCOOTER).durationMinutes, 0.0)
     }
 
     @Test

@@ -335,7 +335,7 @@ fun RouteResult(
                     when (data.path.source) {
                         RouteSource.GOOGLE -> "（含路況）"
                         RouteSource.ESTIMATE -> "（直線估計）"
-                        RouteSource.OSM -> "（未含路況）"
+                        RouteSource.OSM -> "（估計，未含即時路況）"
                     },
                 ),
                 color = Color.Gray,
@@ -399,7 +399,7 @@ fun RouteResult(
                 when (data.path.source) {
                     RouteSource.GOOGLE -> "路線與行車時間：Google 地圖（依出發時間的路況）。"
                     else -> (if (data.mode == TravelMode.SCOOTER) "機車以汽車路線估計，可能包含機車不能行駛的道路；" else "") +
-                        "行車時間未含路況。路線資料：© OpenStreetMap 貢獻者（FOSSGIS 路線服務）。"
+                        "行車時間以市區平均車速估計，未含即時路況。路線資料：© OpenStreetMap 貢獻者（FOSSGIS 路線服務）。"
                 } + (if (googleMap) "" else "地圖：© OpenStreetMap 貢獻者。") + "點地圖可在 Google 地圖開啟導航。",
             color = Color.Gray,
             fontSize = 12.sp,
