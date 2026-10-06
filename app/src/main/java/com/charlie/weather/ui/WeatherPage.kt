@@ -71,7 +71,7 @@ fun CityWeatherPage(
                 Modifier.fillMaxSize().statusBarsPadding().padding(top = 48.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(city.name, fontSize = 34.sp, color = Color.White, style = TextShadow)
+                Text(city.displayName, fontSize = 34.sp, color = Color.White, style = TextShadow)
                 Spacer(Modifier.height(48.dp))
                 if (ui.error != null && !ui.loading) {
                     Text(ui.error, color = Color.White, fontSize = 15.sp)
@@ -151,7 +151,7 @@ fun CityWeatherPage(
                     .padding(top = 6.dp, bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(city.name, fontSize = 26.sp, color = Color.White, style = TextShadow)
+                Text(city.displayName, fontSize = 26.sp, color = Color.White, style = TextShadow)
                 Text(
                     "${w.current.temperature.deg()} | ${w.current.conditionText()}",
                     fontSize = 16.sp,
@@ -183,8 +183,10 @@ private fun Header(city: City, w: Weather) {
         Modifier.fillMaxWidth().statusBarsPadding().padding(top = 40.dp, bottom = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (city.isCurrentLocation) {
-            Text("我的位置", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, style = TextShadow)
+        // 小標：「我的位置」或使用者自訂的地點名稱（住家、公司…），下方大字是行政區
+        val tag = city.label ?: if (city.isCurrentLocation) "我的位置" else null
+        if (tag != null) {
+            Text(tag, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, style = TextShadow)
         }
         Text(city.name, fontSize = 34.sp, color = Color.White, style = TextShadow)
         Text(

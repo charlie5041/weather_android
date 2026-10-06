@@ -73,9 +73,10 @@ class ScreenshotTest {
     @Test
     fun cityList() = capture("03_city_list") {
         CityListScreen(
-            cities = listOf(location, taipei, City("geo_2", "東京", "日本", 35.68, 139.69)),
+            cities = listOf(location, City("addr_1", "內湖區", "臺北市內湖區瑞光路100號", 25.08, 121.57, label = "住家", address = "臺北市內湖區瑞光路100號"), taipei, City("geo_2", "東京", "日本", 35.68, 139.69)),
             weather = mapOf(
                 location.id to CityWeatherUi(sampleWeather(code = 2)),
+                "addr_1" to CityWeatherUi(sampleWeather(code = 3)),
                 taipei.id to CityWeatherUi(sampleWeather(code = 61)),
                 "geo_2" to CityWeatherUi(sampleWeather(code = 0, isDay = false)),
             ),
@@ -88,6 +89,17 @@ class ScreenshotTest {
             onRemove = {},
             onMove = { _, _ -> },
             onOpenSettings = {},
+            onClose = {},
+        )
+    }
+
+    @Test
+    fun placeEditor() = capture("09_place_editor") {
+        PlaceEditorScreen(
+            existing = City("addr_1", "內湖區", "臺北市內湖區瑞光路100號", 25.08, 121.57, label = "住家", address = "臺北市內湖區瑞光路100號"),
+            onSearch = { emptyList() },
+            onUseCurrentLocation = { null },
+            onSave = { _, _ -> },
             onClose = {},
         )
     }

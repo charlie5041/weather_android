@@ -3,6 +3,8 @@ package com.charlie.weather.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.charlie.weather.data.AddressGeocoder
+import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
 import com.charlie.weather.data.CwaParser
 import com.charlie.weather.data.LocationProvider
@@ -145,6 +147,50 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun ensureDefaultCity() {
         if (_cities.value.isEmpty()) addCity(DEFAULT_CITY)
+    }
+
+    private val geocoder = AddressGeocoder(app)
+
+    /** 地址查詢：優先用系統地圖服務找精確地址，找不到時退回內建鄉鎮清單（大概位置）。 */
+    suspend fun searchAddress(query: String): List<AddressResult> {
+        val exact = geocoder.search(query)
+        if (exact.isNotEmpty()) return exact
+        return PlaceSearch.search(query, taiwanPlaces, limit = 5).map {
+            AddressResult(area = it.name, address = it.county + it.township, latitude = it.latitude, longitude = it.longitude, approximate = true)
+        }
+    }
+
+    /** 目前位置的地址（新增「住家」時可以直接使用） */
+    suspend fun currentAddress(): AddressResult? {
+        val location = locationProvider.currentLocation() ?: return null
+        return geocoder.reverse(location.latitude, location.longitude)
+            ?: AddressResult(
+                area = locationProvider.placeName(location.latitude, location.longitude) ?: DEFAULT_LOCATION_NAME,
+                address = "%.5f, %.5f".format(location.latitude, location.longitude),
+                latitude = location.latitude,
+                longitude = location.longitude,
+            )
+    }
+
+    /** 新增或修改自訂地點（住家、公司…），回傳它在頁面中的索引。 */
+    fun saveAddressPlace(existingId: String?, label: String, result: AddressResult): Int {
+        val city = City(
+            id = existingId ?: "addr_${java.util.UUID.randomUUID()}",
+            name = result.area,
+            subtitle = result.address,
+            latitude = result.latitude,
+            longitude = result.longitude,
+            label = label.trim(),
+            address = result.address,
+        )
+        if (existingId == null || savedCities.none { it.id == existingId }) return addCity(city)
+        savedCities = savedCities.map { if (it.id == existingId) city else it }
+        store.saveCities(savedCities)
+        store.removeCache(existingId)
+        _weather.update { it - existingId }
+        publishCities()
+        fetch(city, force = true)
+        return _cities.value.indexOfFirst { it.id == existingId }
     }
 
     private val taiwanPlaces: List<TaiwanPlace> by lazy {

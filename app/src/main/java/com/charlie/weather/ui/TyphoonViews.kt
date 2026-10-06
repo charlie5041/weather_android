@@ -88,7 +88,7 @@ private val Storm = Color(0xFFFF453A)
 
 private fun distanceText(city: City, t: Typhoon): String {
     val km = CwaParser.distanceKm(city.latitude, city.longitude, t.current.latitude, t.current.longitude)
-    return "距離${city.name}約 ${"%,d".format(km.roundToInt())} 公里"
+    return "距離${city.displayName}約 ${"%,d".format(km.roundToInt())} 公里"
 }
 
 /** 主畫面上的颱風卡片：名稱、強度、距離、移動方向與縮圖。 */

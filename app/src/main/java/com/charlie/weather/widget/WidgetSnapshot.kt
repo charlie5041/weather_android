@@ -49,7 +49,7 @@ object WidgetSnapshotStore {
         val hours = weather.hourly.filter { !it.time.isBefore(start) }.take(30)
         val today = weather.today
         val o = JSONObject()
-            .put("city", city.name)
+            .put("city", city.displayName)
             .put("loc", city.isCurrentLocation)
             .put("temp", weather.current.temperature)
             .put("code", weather.current.weatherCode)

@@ -212,7 +212,7 @@ fun DetailScreen(
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(metric.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text(city.name, fontSize = 13.sp, color = Color.Gray)
+                Text(city.displayName, fontSize = 13.sp, color = Color.Gray)
             }
             IconButton(onClick = onClose) {
                 Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White)
