@@ -37,6 +37,25 @@ object WeatherApi {
             "&timezone=auto&forecast_days=10&wind_speed_unit=kmh"
     )
 
+    /**
+     * 一次查詢多個地點（路線沿途），回傳與 [points] 順序相同、可直接給 [parse] 的 JSON。
+     * 只取 [days] 天，減少下載量。
+     */
+    suspend fun fetchForecastJsons(points: List<LatLon>, days: Int = 3): List<String> {
+        if (points.isEmpty()) return emptyList()
+        val text = get(
+            "$FORECAST_URL?latitude=${points.joinToString(",") { coord(it.latitude) }}" +
+                "&longitude=${points.joinToString(",") { coord(it.longitude) }}" +
+                "&current=$CURRENT_VARS&hourly=$HOURLY_VARS&daily=$DAILY_VARS" +
+                "&timezone=auto&forecast_days=$days&wind_speed_unit=kmh"
+        )
+        // 單一地點時回傳物件，多個地點時回傳陣列
+        val trimmed = text.trimStart()
+        if (!trimmed.startsWith("[")) return listOf(text)
+        val arr = JSONArray(trimmed)
+        return (0 until arr.length()).map { arr.getJSONObject(it).toString() }
+    }
+
     suspend fun fetchAirQualityJson(latitude: Double, longitude: Double): String? = try {
         get("$AIR_QUALITY_URL?latitude=${coord(latitude)}&longitude=${coord(longitude)}&current=us_aqi,pm2_5,pm10&timezone=auto")
     } catch (e: IOException) {

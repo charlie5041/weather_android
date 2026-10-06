@@ -77,6 +77,9 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
     var showPlaceEditor by remember { mutableStateOf(false) }
     var editingPlace by remember { mutableStateOf<City?>(null) }
     var settingsVersion by remember { mutableIntStateOf(0) }
+    var routeRequest by remember { mutableStateOf<RouteRequest?>(null) }
+    var lastRouteRequest by remember { mutableStateOf<RouteRequest?>(null) }
+    LaunchedEffect(routeRequest) { routeRequest?.let { lastRouteRequest = it } }
     val context = LocalContext.current
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
@@ -139,6 +142,9 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                         onOpenTyphoon = { typhoonCityId = city.id },
                         // 通勤卡片顯示在第一頁與住家、公司頁
                         commute = commuteTrip?.takeIf { page == 0 || city.id == it.from.id || city.id == it.to.id },
+                        onOpenCommuteRoute = {
+                            commuteTrip?.let { routeRequest = RouteRequest(it.from, it.to, it.departure) }
+                        },
                     )
                 }
                 BottomBar(
@@ -146,6 +152,10 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                     currentPage = pagerState.currentPage,
                     firstIsLocation = cities.firstOrNull()?.isCurrentLocation == true,
                     onList = { showList = true },
+                    onRoute = {
+                        // 從目前看的頁面出發（我的位置或某個地點），再選終點
+                        routeRequest = RouteRequest(cities.getOrNull(pagerState.currentPage), null)
+                    },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
@@ -232,6 +242,25 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                 }
             }
             AnimatedVisibility(
+                visible = routeRequest != null,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+            ) {
+                // 關閉動畫期間 routeRequest 已是 null，沿用最後一次的請求讓畫面不閃掉
+                (routeRequest ?: lastRouteRequest)?.let { req ->
+                    androidx.compose.runtime.key(req) {
+                        RouteScreen(
+                            request = req,
+                            places = cities,
+                            onSearch = vm::searchAddress,
+                            onUseCurrentLocation = vm::currentAddress,
+                            onLoad = vm::routeData,
+                            onClose = { routeRequest = null },
+                        )
+                    }
+                }
+            }
+            AnimatedVisibility(
                 visible = showPlaceEditor,
                 enter = slideInVertically { it },
                 exit = slideOutVertically { it },
@@ -258,6 +287,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
         BackHandler(enabled = typhoonCityId != null) { typhoonCityId = null }
         BackHandler(enabled = showSettings) { showSettings = false }
         BackHandler(enabled = showPlaceEditor) { showPlaceEditor = false }
+        BackHandler(enabled = routeRequest != null) { routeRequest = null }
     }
 }
 
@@ -267,6 +297,7 @@ private fun BottomBar(
     currentPage: Int,
     firstIsLocation: Boolean,
     onList: () -> Unit,
+    onRoute: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -278,7 +309,7 @@ private fun BottomBar(
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Spacer(Modifier.size(48.dp))
+        IconButton(onClick = onRoute) { RouteIcon(Color.White) }
         Row(
             Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
@@ -296,5 +327,30 @@ private fun BottomBar(
         IconButton(onClick = onList) {
             Icon(Icons.Filled.Menu, contentDescription = "城市列表", tint = Color.White)
         }
+    }
+}
+
+/** 路線降雨按鈕：起點、彎曲路線與終點。 */
+@Composable
+private fun RouteIcon(color: Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+        val w = size.width
+        val h = size.height
+        val stroke = 2.dp.toPx()
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.2f, h * 0.82f)
+            cubicTo(w * 0.2f, h * 0.45f, w * 0.8f, h * 0.6f, w * 0.8f, h * 0.22f)
+        }
+        drawPath(
+            path,
+            color,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = stroke,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(stroke * 1.6f, stroke * 1.4f)),
+            ),
+        )
+        drawCircle(color, radius = w * 0.12f, center = androidx.compose.ui.geometry.Offset(w * 0.2f, h * 0.82f))
+        drawCircle(color, radius = w * 0.14f, center = androidx.compose.ui.geometry.Offset(w * 0.8f, h * 0.2f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
     }
 }

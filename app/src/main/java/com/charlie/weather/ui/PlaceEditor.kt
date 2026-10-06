@@ -53,8 +53,8 @@ import kotlinx.coroutines.launch
 
 private val PresetLabels = listOf("住家", "公司", "學校")
 private const val OtherLabel = "其他"
-private val PanelColor = Color(0xFF1C1C1E)
-private val Accent = Color(0xFF0A84FF)
+internal val PanelColor = Color(0xFF1C1C1E)
+internal val Accent = Color(0xFF0A84FF)
 
 /**
  * 新增或編輯自訂地點：選擇名稱（住家、公司、學校或自訂），
@@ -230,12 +230,12 @@ fun PlaceEditorScreen(
 }
 
 @Composable
-private fun SectionLabel(text: String) {
+internal fun SectionLabel(text: String) {
     Text(text, color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
 }
 
 @Composable
-private fun Panel(content: @Composable ColumnScope.() -> Unit) {
+internal fun Panel(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(PanelColor).padding(12.dp),
         content = content,
@@ -243,7 +243,7 @@ private fun Panel(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun DarkTextField(
+internal fun DarkTextField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,

@@ -1,0 +1,106 @@
+package com.charlie.weather.data
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.time.LocalDateTime
+
+class RouteTest {
+    private val home = City("addr_h", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")
+    private val work = City("addr_w", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司")
+    private val now = LocalDateTime.of(2026, 10, 6, 7, 0)
+
+    private fun hour(time: LocalDateTime, pop: Int, code: Int = 2, mm: Double = 0.0) =
+        HourlyForecast(time, 25.0, code, pop, mm, isDay = true)
+
+    /** 07:00 起每小時的預報 */
+    private fun weather(vararg pops: Int) = Weather(
+        current = CurrentConditions(now, 25.0, 25.0, 70, 18.0, true, 0.0, 1, 30, 1012.0, 10.0, 90, 15.0, 20_000.0, 3.0),
+        hourly = pops.mapIndexed { i, p -> hour(now.plusHours(i.toLong()), p, code = if (p >= 50) 61 else 2) },
+        daily = emptyList(),
+        utcOffsetSeconds = 8 * 3600,
+        airQuality = null,
+        fetchedAtMillis = 0,
+    )
+
+    @Test
+    fun parsesOsrmRoute() {
+        val json = """
+            {"code":"Ok","routes":[{"distance":8123.4,"duration":1260.0,
+              "geometry":{"type":"LineString","coordinates":[[121.57,25.08],[121.565,25.05],[121.56,25.03]]}}]}
+        """.trimIndent()
+        val path = RouteApi.parse(json)!!
+        assertEquals(3, path.points.size)
+        assertEquals(LatLon(25.08, 121.57), path.points.first())
+        assertEquals(8.1234, path.distanceKm, 1e-6)
+        assertEquals(21.0, path.durationMinutes, 1e-6)
+        assertFalse(path.approximate)
+        assertNull(RouteApi.parse("""{"code":"NoRoute","routes":[]}"""))
+    }
+
+    @Test
+    fun straightLineFallbackUsesModeSpeed() {
+        val path = RouteApi.straightLine(LatLon(25.08, 121.57), LatLon(25.03, 121.56), TravelMode.SCOOTER)
+        assertTrue(path.approximate)
+        assertEquals(path.distanceKm / 30.0 * 60, path.durationMinutes, 1e-6)
+    }
+
+    @Test
+    fun samplesEveryFewKilometersIncludingEnds() {
+        val path = RoutePath(listOf(LatLon(25.0, 121.5), LatLon(25.1, 121.5)), 11.1, 30.0)
+        val points = RoutePlanner.sample(path)
+        // 約 11 公里、每 3 公里一段 → 4 段 5 點
+        assertEquals(5, points.size)
+        assertEquals(25.0, points.first().position.latitude, 1e-9)
+        assertEquals(25.1, points.last().position.latitude, 1e-9)
+        assertEquals(0.5, points[2].fraction, 1e-9)
+        assertEquals(25.05, points[2].position.latitude, 1e-6)
+
+        val long = RoutePath(listOf(LatLon(22.6, 120.3), LatLon(25.0, 121.5)), 350.0, 240.0)
+        assertEquals(RoutePlanner.MAX_POINTS, RoutePlanner.sample(long).size)
+    }
+
+    private fun data(weathers: List<Weather?>): RouteData {
+        val path = RoutePath(listOf(LatLon(25.08, 121.57), LatLon(25.03, 121.56)), 9.0, 120.0)
+        val points = RoutePlanner.sample(path)
+        assertEquals(weathers.size, points.size)
+        return RouteData(home, work, TravelMode.SCOOTER, path, points, weathers)
+    }
+
+    @Test
+    fun stopsUseForecastAtEachEta() {
+        // 4 點、行程 2 小時：07:00、07:40、08:20、09:00 經過，各取最接近的整點預報
+        val dry = weather(0, 10, 10, 10, 10)
+        val wetLater = weather(0, 80, 80, 80, 80)
+        val forecast = RoutePlanner.evaluate(data(listOf(dry, dry, wetLater, wetLater)), now, now)
+        assertEquals(listOf(7, 7, 8, 9), forecast.stops.map { it.eta.hour })
+        assertEquals(listOf(0, 10, 80, 80), forecast.stops.map { it.probability })
+        assertTrue(forecast.summary, forecast.summary.contains("08:20"))
+        assertTrue(forecast.summary, forecast.summary.contains("雨衣"))
+        assertEquals(now.plusHours(2), forecast.arrival)
+    }
+
+    @Test
+    fun suggestsLaterDepartureWhenRainPasses() {
+        // 雨在 7–8 點，9 點後停
+        val w = weather(90, 90, 10, 10, 10, 10)
+        val path = RoutePath(listOf(LatLon(25.08, 121.57), LatLon(25.07, 121.57)), 1.0, 20.0)
+        val points = RoutePlanner.sample(path)
+        val forecast = RoutePlanner.evaluate(RouteData(home, work, TravelMode.SCOOTER, path, points, points.map { w }), now, now)
+        assertEquals(90, forecast.maxProbability)
+        val (time, pop) = forecast.betterDeparture!!
+        assertEquals(10, pop)
+        assertEquals(now.plusHours(2), time)
+        assertTrue(forecast.summary, forecast.summary.contains("09:00 出發"))
+    }
+
+    @Test
+    fun dryRouteHasNoSuggestion() {
+        val w = weather(0, 0, 0, 0, 0)
+        val forecast = RoutePlanner.evaluate(data(listOf(w, w, w, w)), now, now)
+        assertEquals("沿途降雨機率低，適合出發", forecast.summary)
+        assertNull(forecast.betterDeparture)
+    }
+}

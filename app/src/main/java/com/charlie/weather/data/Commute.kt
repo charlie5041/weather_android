@@ -74,7 +74,8 @@ object Commute {
                 .minByOrNull { abs(ChronoUnit.MINUTES.between(it.time, time)) }
     }
 
-    private fun isWet(h: HourlyForecast) =
+    /** 這個小時可能下雨（降雨機率 ≥ 50%、有雨量或雨天代碼） */
+    fun isWet(h: HourlyForecast) =
         (h.precipitationProbability ?: 0) >= 50 || h.precipitation >= 0.5 ||
             h.weatherCode in 51..67 || h.weatherCode in 80..82 || h.weatherCode in 95..99
 

@@ -9,7 +9,9 @@ import com.charlie.weather.data.City
 import com.charlie.weather.data.CwaParser
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.PlaceSearch
+import com.charlie.weather.data.RouteData
 import com.charlie.weather.data.TaiwanPlace
+import com.charlie.weather.data.TravelMode
 import com.charlie.weather.data.WorldCity
 import com.charlie.weather.data.Weather
 import com.charlie.weather.data.WeatherApi
@@ -192,6 +194,9 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         fetch(city, force = true)
         return _cities.value.indexOfFirst { it.id == existingId }
     }
+
+    /** 路線沿途天氣（路線降雨畫面使用） */
+    suspend fun routeData(from: City, to: City, mode: TravelMode): RouteData = repository.routeData(from, to, mode)
 
     private val taiwanPlaces: List<TaiwanPlace> by lazy {
         runCatching {
