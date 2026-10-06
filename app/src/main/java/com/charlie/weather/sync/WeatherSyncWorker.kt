@@ -1,6 +1,7 @@
 package com.charlie.weather.sync
 
 import android.content.Context
+import android.net.ConnectivityManager
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -22,8 +23,10 @@ class WeatherSyncWorker(context: Context, params: WorkerParameters) : CoroutineW
         Units.load(applicationContext)
         val repo = WeatherRepository.get(applicationContext)
         val city = repo.primaryCity() ?: return Result.success()
+        // 行動網路（計量網路）時省流量：拉長氣象署資料的快取時間，雨量站只用快取
+        val metered = applicationContext.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered ?: true
         val weather = try {
-            repo.fetch(city)
+            repo.fetch(city, lowData = metered)
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             return if (runAttemptCount < 2) Result.retry() else Result.success()

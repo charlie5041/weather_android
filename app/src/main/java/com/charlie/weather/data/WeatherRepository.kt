@@ -17,13 +17,14 @@ class WeatherRepository private constructor(context: Context) {
     /** 小工具與通知使用的城市：有定位時是「我的位置」，否則是列表第一個城市。 */
     fun primaryCity(): City? = store.loadLocationCity() ?: store.loadCities().firstOrNull()
 
-    suspend fun fetch(city: City): Weather = coroutineScope {
+    /** @param lowData 背景更新且使用行動網路時為 true，減少下載量 */
+    suspend fun fetch(city: City, lowData: Boolean = false): Weather = coroutineScope {
         val forecast = async { WeatherApi.fetchForecastJson(city.latitude, city.longitude) }
         val airQuality = async { WeatherApi.fetchAirQualityJson(city.latitude, city.longitude) }
         val cwaData = async {
             if (!settings.useCwa) return@async null
             try {
-                cwa.load(city.latitude, city.longitude, allowNetwork = true)
+                cwa.load(city.latitude, city.longitude, allowNetwork = true, lowData = lowData)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

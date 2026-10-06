@@ -73,10 +73,39 @@ data class CwaAlert(
     val title: String get() = phenomena + significance
 }
 
+/** 自動雨量站（O-A0002-001）的一筆觀測，單位毫米；缺測為 null。 */
+data class RainGauge(
+    val id: String,
+    val name: String,
+    val latitude: Double,
+    val longitude: Double,
+    val time: LocalDateTime?,
+    val past10Min: Double?,
+    val past1Hour: Double?,
+    /** 本日累積雨量 */
+    val today: Double?,
+)
+
+/** 附近雨量站綜合判斷的「現在」降雨狀況。 */
+data class RainNow(
+    val stationName: String,
+    val distanceKm: Double,
+    val time: LocalDateTime?,
+    /** 附近任一站過去 10 分鐘有雨 */
+    val raining: Boolean,
+    /** 以過去 10 分鐘雨量推估的時雨量（mm/h），取附近各站最大值 */
+    val ratePerHour: Double,
+    /** 附近各站過去 1 小時雨量的最大值 */
+    val pastHour: Double,
+    /** 最近一站的本日累積雨量 */
+    val today: Double?,
+)
+
 data class CwaData(
     val observation: CwaObservation?,
     val forecast: CwaForecast?,
     val alerts: List<CwaAlert>,
+    val rain: RainNow? = null,
 )
 
 object CwaParser {
@@ -113,6 +142,53 @@ object CwaParser {
                 dailyLow = we.path("DailyExtreme", "DailyLow", "TemperatureInfo", "AirTemperature").measured(),
             )
         }
+    }
+
+    fun parseRainGauges(json: String): List<RainGauge> {
+        val arr = JSONObject(json).optJSONObject("cwaopendata")?.optJSONObject("dataset")?.optJSONArray("Station")
+            ?: return emptyList()
+        return arr.objects().mapNotNull { s ->
+            val geo = s.optJSONObject("GeoInfo") ?: return@mapNotNull null
+            val coords = geo.optJSONArray("Coordinates")?.objects().orEmpty()
+            val coord = coords.firstOrNull { it.optString("CoordinateName") == "WGS84" } ?: coords.firstOrNull()
+                ?: return@mapNotNull null
+            val rain = s.optJSONObject("RainfallElement") ?: return@mapNotNull null
+            fun mm(key: String) = rain.path(key, "Precipitation").asDouble()?.takeIf { it >= 0 }
+            RainGauge(
+                id = s.optString("StationId"),
+                name = s.optString("StationName"),
+                latitude = coord.opt("StationLatitude").asDouble() ?: return@mapNotNull null,
+                longitude = coord.opt("StationLongitude").asDouble() ?: return@mapNotNull null,
+                time = parseTime(s.path("ObsTime", "DateTime")),
+                past10Min = mm("Past10Min"),
+                past1Hour = mm("Past1hr"),
+                today = mm("Now"),
+            )
+        }
+    }
+
+    /**
+     * 綜合 [maxKm] 公里內最近 3 個雨量站判斷現在是否下雨。
+     * 用多站是為了避免單一站故障或雨帶邊緣造成誤判。
+     */
+    fun rainNow(gauges: List<RainGauge>, latitude: Double, longitude: Double, maxKm: Double = 5.0): RainNow? {
+        val near = gauges.asSequence()
+            .filter { it.past10Min != null }
+            .map { it to distanceKm(latitude, longitude, it.latitude, it.longitude) }
+            .filter { it.second <= maxKm }
+            .sortedBy { it.second }
+            .take(3)
+            .toList()
+        val (closest, distance) = near.firstOrNull() ?: return null
+        return RainNow(
+            stationName = closest.name,
+            distanceKm = distance,
+            time = closest.time,
+            raining = near.any { (it.first.past10Min ?: 0.0) > 0.0 },
+            ratePerHour = near.maxOf { (it.first.past10Min ?: 0.0) * 6 },
+            pastHour = near.maxOf { it.first.past1Hour ?: 0.0 },
+            today = closest.today,
+        )
     }
 
     /** 找出距離最近、且有溫度資料的測站。 */
