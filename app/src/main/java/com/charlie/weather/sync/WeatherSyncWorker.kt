@@ -11,12 +11,15 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.charlie.weather.data.AppSettings
+import com.charlie.weather.data.City
+import com.charlie.weather.data.Weather
 import com.charlie.weather.data.WeatherRepository
 import com.charlie.weather.ui.Units
 import com.charlie.weather.widget.WeatherWidget
 import java.util.concurrent.TimeUnit
 
-/** 每 30 分鐘在背景更新主要城市的天氣：重繪小工具並檢查是否需要通知。 */
+/** 每 30 分鐘在背景更新主要城市與自訂地點的天氣：重繪小工具並檢查是否需要通知。 */
 class WeatherSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -32,11 +35,29 @@ class WeatherSyncWorker(context: Context, params: WorkerParameters) : CoroutineW
             return if (runAttemptCount < 2) Result.retry() else Result.success()
         }
         WeatherWidget.update(applicationContext, city, weather)
-        WeatherNotifier.check(applicationContext, city, weather)
+        WeatherNotifier.check(applicationContext, city to weather, placesWeather(repo, city, metered))
         return Result.success()
     }
 
+    /** 其他自訂地點（住家、公司…）的天氣，供地點提醒與通勤通知使用；單一地點失敗就略過。 */
+    private suspend fun placesWeather(repo: WeatherRepository, primary: City, metered: Boolean): List<Pair<City, Weather>> {
+        val settings = AppSettings(applicationContext)
+        if (!settings.placeAlerts && !settings.commuteNotify) return emptyList()
+        return repo.store.loadCities()
+            .filter { it.label != null && it.id != primary.id }
+            .take(MAX_PLACES)
+            .mapNotNull { place ->
+                try {
+                    place to repo.fetch(place, lowData = metered)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    repo.cached(place)?.let { place to it }
+                }
+            }
+    }
+
     companion object {
+        private const val MAX_PLACES = 5
         private const val PERIODIC = "weather_sync"
         private const val ONE_TIME = "weather_sync_now"
 

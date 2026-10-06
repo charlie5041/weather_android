@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.charlie.weather.data.City
+import com.charlie.weather.data.CommuteTrip
 import com.charlie.weather.data.Weather
 import java.time.Instant
 import java.time.LocalDate
@@ -60,6 +61,7 @@ fun CityWeatherPage(
     onRefresh: () -> Unit,
     onOpenDetail: (DetailMetric, LocalDate?) -> Unit = { _, _ -> },
     onOpenTyphoon: () -> Unit = {},
+    commute: CommuteTrip? = null,
 ) {
     val w = ui.weather
     val code = w?.current?.weatherCode ?: 1
@@ -100,6 +102,7 @@ fun CityWeatherPage(
                 w.cwa?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts ->
                     item { AlertsCard(alerts, Modifier.fillMaxWidth()) }
                 }
+                commute?.let { trip -> item { CommuteCard(trip, Modifier.fillMaxWidth()) } }
                 item { HourlyCard(w, Modifier.fillMaxWidth()) { onOpenDetail(DetailMetric.TEMPERATURE, null) } }
                 item { DailyCard(w, Modifier.fillMaxWidth()) { date -> onOpenDetail(DetailMetric.TEMPERATURE, date) } }
                 w.typhoons.forEach { typhoon ->
