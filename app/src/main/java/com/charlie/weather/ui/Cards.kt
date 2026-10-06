@@ -530,15 +530,18 @@ private fun Compass(direction: Int, speed: Double, modifier: Modifier = Modifier
 
 @Composable
 fun PrecipitationCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
-    val today = w.today?.precipitationSum ?: 0.0
+    // 台灣地區優先顯示附近雨量站的實測累積雨量
+    val observed = w.cwa?.rain?.today
+    val today = observed ?: w.today?.precipitationSum ?: 0.0
     val next24 = w.hourly.filter { it.time.isAfter(w.current.time) }.take(24).sumOf { it.precipitation }
+    val forecastText = if (next24 < 0.1) "未來 24 小時預計不會下雨。" else "預計未來 24 小時降雨 ${formatMm(next24)} 毫米。"
     InfoCard(
         title = "降雨量",
         value = "${formatMm(today)} 毫米",
-        subtitle = "今日",
+        subtitle = if (observed != null) "今日實測" else "今日",
         modifier = modifier,
         onClick = onClick,
-        footer = if (next24 < 0.1) "未來 24 小時預計不會下雨。" else "預計未來 24 小時降雨 ${formatMm(next24)} 毫米。",
+        footer = w.cwa?.rain?.takeIf { it.raining }?.let { "附近正在下雨，每小時約 ${formatMm(it.ratePerHour)} 毫米。" } ?: forecastText,
     )
 }
 

@@ -19,16 +19,22 @@ class CwaRepository(cacheDir: File) {
     private val dir = File(cacheDir, "cwa").apply { mkdirs() }
     private val locks = mutableMapOf<String, Mutex>()
     private val stationCache = mutableMapOf<String, Pair<Long, List<CwaStation>>>()
+    private val gaugeCache = mutableMapOf<String, Pair<Long, List<RainGauge>>>()
 
-    /** 台灣（含離島）範圍外直接回傳 null。 */
-    suspend fun load(latitude: Double, longitude: Double, allowNetwork: Boolean): CwaData? = withContext(Dispatchers.IO) {
+    /**
+     * 台灣（含離島）範圍外直接回傳 null。
+     * @param lowData 背景更新且使用行動網路時為 true：拉長快取時間，雨量站（1.7MB）只用快取
+     */
+    suspend fun load(latitude: Double, longitude: Double, allowNetwork: Boolean, lowData: Boolean = false): CwaData? = withContext(Dispatchers.IO) {
         if (latitude !in 21.5..26.6 || longitude !in 118.0..122.6) return@withContext null
+        val observationTtl = if (lowData) LOW_DATA_OBSERVATION_TTL else OBSERVATION_TTL
+        val forecastTtl = if (lowData) LOW_DATA_FORECAST_TTL else FORECAST_TTL
 
-        val manned = stations("Observation/O-A0003-001.json", OBSERVATION_TTL, allowNetwork)
+        val manned = stations("Observation/O-A0003-001.json", observationTtl, allowNetwork)
         var observation = CwaParser.nearest(manned, latitude, longitude, MAX_STATION_KM)
         var allStations = manned
         if (observation == null) {
-            val auto = stations("Observation/O-A0001-001.json", OBSERVATION_TTL, allowNetwork)
+            val auto = stations("Observation/O-A0001-001.json", observationTtl, allowNetwork)
             observation = CwaParser.nearest(auto, latitude, longitude, MAX_STATION_KM)
             allStations = manned + auto
         }
@@ -38,17 +44,37 @@ class CwaRepository(cacheDir: File) {
             ?: return@withContext observation?.let { CwaData(it, null, emptyList()) }
 
         val forecast = runCatching {
-            val threeDay = CwaParser.threeDayForecastId(county)?.let { file("Forecast/$it.json", FORECAST_TTL, allowNetwork) }
-            val weekly = CwaParser.weeklyForecastId(county)?.let { file("Forecast/$it.json", FORECAST_TTL, allowNetwork) }
+            val threeDay = CwaParser.threeDayForecastId(county)?.let { file("Forecast/$it.json", forecastTtl, allowNetwork) }
+            val weekly = CwaParser.weeklyForecastId(county)?.let { file("Forecast/$it.json", forecastTtl, allowNetwork) }
             CwaParser.parseTownshipForecast(threeDay, weekly, latitude, longitude)
         }.getOrNull()
 
         val alerts = runCatching {
-            file("Warning/W-C0033-001.json", OBSERVATION_TTL, allowNetwork)
+            file("Warning/W-C0033-001.json", observationTtl, allowNetwork)
                 ?.let { CwaParser.parseAlerts(it, county, LocalDateTime.now(TAIWAN)) }
         }.getOrNull().orEmpty()
 
-        if (observation == null && forecast == null && alerts.isEmpty()) null else CwaData(observation, forecast, alerts)
+        val rain = runCatching {
+            CwaParser.rainNow(rainGauges(OBSERVATION_TTL, allowNetwork && !lowData), latitude, longitude)
+        }.getOrNull()
+
+        if (observation == null && forecast == null && alerts.isEmpty() && rain == null) {
+            null
+        } else {
+            CwaData(observation, forecast, alerts, rain)
+        }
+    }
+
+    private suspend fun rainGauges(ttl: Long, allowNetwork: Boolean): List<RainGauge> {
+        val path = "Observation/O-A0002-001.json"
+        val text = file(path, ttl, allowNetwork) ?: return emptyList()
+        val modified = cacheFile(path).lastModified()
+        synchronized(gaugeCache) {
+            gaugeCache[path]?.takeIf { it.first == modified }?.let { return it.second }
+        }
+        val parsed = runCatching { CwaParser.parseRainGauges(text) }.getOrDefault(emptyList())
+        synchronized(gaugeCache) { gaugeCache[path] = modified to parsed }
+        return parsed
     }
 
     private suspend fun stations(path: String, ttl: Long, allowNetwork: Boolean): List<CwaStation> {
@@ -114,6 +140,8 @@ class CwaRepository(cacheDir: File) {
         val TAIWAN: ZoneOffset = ZoneOffset.ofHours(8)
         private const val OBSERVATION_TTL = 10 * 60_000L
         private const val FORECAST_TTL = 60 * 60_000L
+        private const val LOW_DATA_OBSERVATION_TTL = 30 * 60_000L
+        private const val LOW_DATA_FORECAST_TTL = 3 * 60 * 60_000L
         private const val MAX_STATION_KM = 10.0
         private const val TYPHOON_TTL = 30 * 60_000L
     }
