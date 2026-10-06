@@ -1,10 +1,15 @@
 package com.charlie.weather.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.charlie.weather.data.AirQuality
 import com.charlie.weather.data.City
@@ -54,6 +59,22 @@ class ScreenshotTest {
     @Config(qualifiers = "w400dp-h2900dp-xhdpi")
     fun weatherPageFull() = capture("01_weather_page_full") {
         CityWeatherPage(location, CityWeatherUi(weather = sampleWeather(code = 2, typhoon = true)), onRefresh = {})
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h420dp-xhdpi")
+    fun commuteCard() = capture("10_commute") {
+        val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")
+        val work = City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司")
+        val homeWeather = sampleWeather(code = 2)
+        val workWeather = sampleWeather(code = 61)
+        val now = homeWeather.current.time
+        val trip = com.charlie.weather.data.Commute.trip(home, work, homeWeather, workWeather, now, 8, 18)
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF3A6EA5)).padding(16.dp),
+        ) {
+            CommuteCard(trip, androidx.compose.ui.Modifier.fillMaxWidth(), today = now.toLocalDate())
+        }
     }
 
     @Test
@@ -135,6 +156,7 @@ class ScreenshotTest {
     }
 
     @Test
+    @Config(qualifiers = "w400dp-h1700dp-xhdpi")
     fun settings() = capture("06_settings") {
         SettingsScreen(primaryCityName = "大安區", onDataSourceChanged = {}, onClose = {})
     }

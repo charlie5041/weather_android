@@ -23,6 +23,31 @@ class AppSettings(context: Context) {
         get() = prefs.getInt("morning_hour", 7)
         set(value) = prefs.edit().putInt("morning_hour", value).apply()
 
+    /** 自訂地點（住家、公司…）也發送降雨提醒與天氣特報 */
+    var placeAlerts: Boolean
+        get() = prefs.getBoolean("place_alerts", true)
+        set(value) = prefs.edit().putBoolean("place_alerts", value).apply()
+
+    /** 有「住家」與「公司／學校」時在主畫面顯示通勤時段預報 */
+    var commuteCard: Boolean
+        get() = prefs.getBoolean("commute_card", true)
+        set(value) = prefs.edit().putBoolean("commute_card", value).apply()
+
+    /** 出門前推送通勤天氣 */
+    var commuteNotify: Boolean
+        get() = prefs.getBoolean("commute_notify", true)
+        set(value) = prefs.edit().putBoolean("commute_notify", value).apply()
+
+    /** 上班出發時間（小時） */
+    var commuteMorningHour: Int
+        get() = prefs.getInt("commute_morning_hour", 8)
+        set(value) = prefs.edit().putInt("commute_morning_hour", value).apply()
+
+    /** 下班出發時間（小時） */
+    var commuteEveningHour: Int
+        get() = prefs.getInt("commute_evening_hour", 18)
+        set(value) = prefs.edit().putInt("commute_evening_hour", value).apply()
+
     /** "C" 或 "F" */
     var temperatureUnit: String
         get() = prefs.getString("temperature_unit", "C") ?: "C"
@@ -44,9 +69,15 @@ class AppSettings(context: Context) {
 
     // ---- 通知去重 ----
 
-    var lastRainNotifiedAt: Long
-        get() = prefs.getLong("last_rain_notified_at", 0)
-        set(value) = prefs.edit().putLong("last_rain_notified_at", value).apply()
+    fun lastRainNotifiedAt(cityId: String): Long = prefs.getLong("last_rain_notified_at_$cityId", 0)
+
+    fun setLastRainNotifiedAt(cityId: String, value: Long) =
+        prefs.edit().putLong("last_rain_notified_at_$cityId", value).apply()
+
+    /** 最後一次通勤通知，格式為「出發時間」 */
+    var lastCommuteNotified: String?
+        get() = prefs.getString("last_commute_notified", null)
+        set(value) = prefs.edit().putString("last_commute_notified", value).apply()
 
     var lastMorningDate: String?
         get() = prefs.getString("last_morning_date", null)

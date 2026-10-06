@@ -6,10 +6,12 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
+import com.charlie.weather.data.Commute
 import com.charlie.weather.sync.WeatherNotifier
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -58,6 +60,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
 
 @Composable
 fun WeatherApp(vm: WeatherViewModel = viewModel()) {
@@ -73,9 +76,19 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
     var typhoonCityId by remember { mutableStateOf<String?>(null) }
     var showPlaceEditor by remember { mutableStateOf(false) }
     var editingPlace by remember { mutableStateOf<City?>(null) }
+    var settingsVersion by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
+    val commuteTrip = remember(cities, weather, settingsVersion) {
+        val settings = AppSettings(context)
+        if (!settings.commuteCard) return@remember null
+        val (home, work) = Commute.homeAndWork(cities) ?: return@remember null
+        Commute.trip(
+            home, work, weather[home.id]?.weather, weather[work.id]?.weather, LocalDateTime.now(),
+            settings.commuteMorningHour, settings.commuteEveningHour,
+        )
+    }
 
     // 通知權限（Android 13+）只在第一次啟動時詢問一次，之後可在設定頁開啟
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -124,6 +137,8 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                         onRefresh = { vm.refresh(city, force = true) },
                         onOpenDetail = { metric, date -> detail = DetailRequest(city.id, metric, date) },
                         onOpenTyphoon = { typhoonCityId = city.id },
+                        // 通勤卡片顯示在第一頁與住家、公司頁
+                        commute = commuteTrip?.takeIf { page == 0 || city.id == it.from.id || city.id == it.to.id },
                     )
                 }
                 BottomBar(
@@ -181,7 +196,10 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                 SettingsScreen(
                     primaryCityName = cities.firstOrNull()?.name,
                     onDataSourceChanged = { vm.refreshAll(force = true) },
-                    onClose = { showSettings = false },
+                    onClose = {
+                        showSettings = false
+                        settingsVersion++
+                    },
                 )
             }
             val detailRequest = detail

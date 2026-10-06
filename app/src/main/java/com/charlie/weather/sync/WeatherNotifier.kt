@@ -15,6 +15,7 @@ import com.charlie.weather.MainActivity
 import com.charlie.weather.R
 import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
+import com.charlie.weather.data.Commute
 import com.charlie.weather.data.Weather
 import com.charlie.weather.ui.WeatherCodes
 import com.charlie.weather.ui.conditionText
@@ -22,6 +23,8 @@ import com.charlie.weather.ui.deg
 import com.charlie.weather.ui.hourLabel
 import java.time.LocalDate
 import java.time.LocalDateTime
+
+typealias CityWeather = Pair<City, Weather>
 
 /** 降雨提醒、天氣特報與每日早晨天氣通知。 */
 object WeatherNotifier {
@@ -31,6 +34,8 @@ object WeatherNotifier {
 
     private const val ID_RAIN = 1001
     private const val ID_MORNING = 1002
+    private const val ID_COMMUTE = 1003
+    private const val ID_PLACE_RAIN_BASE = 3000
     private const val ID_WARNING_BASE = 2000
 
     private const val RAIN_COOLDOWN_MS = 3 * 60 * 60_000L
@@ -47,7 +52,7 @@ object WeatherNotifier {
                     description = "中央氣象署發布所在縣市的天氣特報時通知"
                 },
                 NotificationChannel(CHANNEL_DAILY, "每日天氣", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "每天早上的今日天氣摘要"
+                    description = "每天早上的今日天氣摘要與通勤天氣"
                 },
             ),
         )
@@ -58,48 +63,96 @@ object WeatherNotifier {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
             NotificationManagerCompat.from(context).areNotificationsEnabled()
 
-    fun check(context: Context, city: City, weather: Weather, now: LocalDateTime = LocalDateTime.now()) {
+    /**
+     * 檢查是否需要通知。[primary] 是城市列表第一個城市；[places] 是其他自訂地點（住家、公司…），
+     * 開啟「自訂地點提醒」時也會檢查降雨與特報，並用來計算通勤天氣。
+     */
+    fun check(
+        context: Context,
+        primary: CityWeather,
+        places: List<CityWeather> = emptyList(),
+        now: LocalDateTime = LocalDateTime.now(),
+    ) {
         if (!canNotify(context)) return
         createChannels(context)
         val settings = AppSettings(context)
-        if (settings.rainAlerts) checkRain(context, settings, city, weather)
-        if (settings.warningAlerts) checkWarnings(context, settings, city, weather)
-        if (settings.morningSummary) checkMorning(context, settings, city, weather, now)
+        val alertTargets = listOf(primary) + if (settings.placeAlerts) places else emptyList()
+        if (settings.rainAlerts) alertTargets.forEach { (city, weather) -> checkRain(context, settings, city, weather, city.id == primary.first.id) }
+        if (settings.warningAlerts) checkWarnings(context, settings, alertTargets)
+        if (settings.morningSummary) checkMorning(context, settings, primary.first, primary.second, now)
+        if (settings.commuteNotify) checkCommute(context, settings, listOf(primary) + places, now)
     }
 
-    /** 目前沒下雨，但未來 2 小時內降雨機率 ≥ 60% 時提醒（3 小時內不重複）。 */
-    private fun checkRain(context: Context, settings: AppSettings, city: City, weather: Weather) {
+    /** 目前沒下雨，但未來 2 小時內降雨機率 ≥ 60% 時提醒（每個地點 3 小時內不重複）。 */
+    private fun checkRain(context: Context, settings: AppSettings, city: City, weather: Weather, isPrimary: Boolean) {
         val current = weather.current
         if (WeatherCodes.isRain(current.weatherCode) && current.precipitation > 0) return
-        if (System.currentTimeMillis() - settings.lastRainNotifiedAt < RAIN_COOLDOWN_MS) return
+        if (System.currentTimeMillis() - settings.lastRainNotifiedAt(city.id) < RAIN_COOLDOWN_MS) return
         val soon = weather.hourly
             .filter { it.time.isAfter(current.time) && !it.time.isAfter(current.time.plusHours(2)) }
             .firstOrNull { (it.precipitationProbability ?: 0) >= 60 && (WeatherCodes.isRain(it.weatherCode) || it.precipitation >= 0.2) }
             ?: return
         val pop = soon.precipitationProbability ?: 0
+        val heavy = when {
+            WeatherCodes.isThunder(soon.weatherCode) -> "即將有雷雨"
+            soon.precipitation >= 10 -> "即將下大雨"
+            else -> "即將下雨"
+        }
         notify(
-            context, CHANNEL_RAIN, ID_RAIN,
-            title = "${city.displayName}：即將下雨",
+            context, CHANNEL_RAIN, if (isPrimary) ID_RAIN else ID_PLACE_RAIN_BASE + (city.id.hashCode() and 0xfff),
+            title = "${city.displayName}：$heavy",
             text = "約${hourLabel(soon.time)}起可能${WeatherCodes.description(soon.weatherCode)}，降雨機率 $pop%。記得帶傘！",
         )
-        settings.lastRainNotifiedAt = System.currentTimeMillis()
+        settings.setLastRainNotifiedAt(city.id, System.currentTimeMillis())
     }
 
-    /** 所在縣市有新的天氣特報時通知（同一則特報只通知一次）。 */
-    private fun checkWarnings(context: Context, settings: AppSettings, city: City, weather: Weather) {
-        val alerts = weather.cwa?.alerts.orEmpty()
-        val keys = alerts.associateBy { "${it.title}|${it.start}" }
+    /** 各地點所在縣市有新的天氣特報時通知（同縣市、同一則特報只通知一次）。 */
+    private fun checkWarnings(context: Context, settings: AppSettings, targets: List<CityWeather>) {
         val notified = settings.notifiedWarnings
-        keys.filterKeys { it !in notified }.forEach { (key, alert) ->
-            val end = alert.end?.let { " · 至 ${it.monthValue}/${it.dayOfMonth} ${com.charlie.weather.ui.timeLabel(it)}" }.orEmpty()
-            notify(
-                context, CHANNEL_WARNING, ID_WARNING_BASE + (key.hashCode() and 0xfff),
-                title = "⚠️ ${weather.cwa?.county ?: city.displayName}${alert.title}",
-                text = "中央氣象署發布${alert.title}$end",
-            )
+        val active = mutableSetOf<String>()
+        targets.forEach { (city, weather) ->
+            val county = weather.cwa?.county
+            weather.cwa?.alerts.orEmpty().forEach { alert ->
+                val legacyKey = "${alert.title}|${alert.start}"
+                val key = "${county.orEmpty()}|$legacyKey"
+                if (!active.add(key)) return@forEach
+                if (key in notified || (city.id == targets.first().first.id && legacyKey in notified)) return@forEach
+                val end = alert.end?.let { " · 至 ${it.monthValue}/${it.dayOfMonth} ${com.charlie.weather.ui.timeLabel(it)}" }.orEmpty()
+                val place = if (city.label != null) "（${city.displayName}）" else ""
+                notify(
+                    context, CHANNEL_WARNING, ID_WARNING_BASE + (key.hashCode() and 0xfff),
+                    title = "⚠️ ${county ?: city.displayName}${alert.title}$place",
+                    text = "中央氣象署發布${alert.title}$end",
+                )
+            }
         }
         // 只保留仍有效的特報，讓同名特報下次重新發布時能再通知
-        settings.notifiedWarnings = keys.keys
+        settings.notifiedWarnings = active
+    }
+
+    /** 出門前 90 分鐘內推送一次通勤天氣（住家 ↔ 公司／學校）。 */
+    private fun checkCommute(context: Context, settings: AppSettings, all: List<CityWeather>, now: LocalDateTime) {
+        val (home, work) = Commute.homeAndWork(all.map { it.first }) ?: return
+        val weatherOf = all.associate { it.first.id to it.second }
+        val trip = Commute.trip(
+            home, work, weatherOf[home.id], weatherOf[work.id], now,
+            settings.commuteMorningHour, settings.commuteEveningHour,
+        )
+        val minutes = java.time.Duration.between(now, trip.departure).toMinutes()
+        if (minutes !in 0..90) return
+        val key = trip.departure.toString()
+        if (settings.lastCommuteNotified == key) return
+        if (trip.fromHour == null && trip.toHour == null) return
+        fun line(place: City, hour: com.charlie.weather.data.HourlyForecast?) = hour?.let {
+            "${place.displayName} ${hourLabel(it.time)} ${WeatherCodes.description(it.weatherCode)} ${it.temperature.deg()}" +
+                (it.precipitationProbability?.let { p -> "，降雨 $p%" }.orEmpty())
+        } ?: "${place.displayName} 暫無資料"
+        notify(
+            context, CHANNEL_DAILY, ID_COMMUTE,
+            title = "${trip.leg.label}通勤天氣：${trip.advice}",
+            text = "${line(trip.from, trip.fromHour)}\n${line(trip.to, trip.toHour)}",
+        )
+        settings.lastCommuteNotified = key
     }
 
     /** 每天到了設定時間後的第一次背景更新時，發送今日天氣摘要。 */
