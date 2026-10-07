@@ -59,6 +59,8 @@ data class RouteData(
     val path: RoutePath,
     val points: List<RoutePoint>,
     val weathers: List<Weather?>,
+    /** 途經點（從 Google 地圖分享的路線才有） */
+    val via: List<City> = emptyList(),
 )
 
 /** 路線上一點在「經過時間」的天氣。 */
@@ -100,20 +102,22 @@ object RouteApi {
         mode: TravelMode,
         departure: LocalDateTime? = null,
         google: GoogleRoutes? = null,
+        via: List<LatLon> = emptyList(),
     ): RoutePath {
-        google?.route(from, to, mode, departure)?.let { return it }
+        google?.route(from, to, mode, departure, via)?.let { return it }
         return try {
-            parse(get(url(from, to, mode)))?.let { withCityPace(it, mode) } ?: straightLine(from, to, mode)
+            parse(get(url(from, to, mode, via)))?.let { withCityPace(it, mode) } ?: straightLine(from, to, mode, via)
         } catch (e: IOException) {
-            straightLine(from, to, mode)
+            straightLine(from, to, mode, via)
         } catch (e: org.json.JSONException) {
-            straightLine(from, to, mode)
+            straightLine(from, to, mode, via)
         }
     }
 
-    fun url(from: LatLon, to: LatLon, mode: TravelMode): String {
+    fun url(from: LatLon, to: LatLon, mode: TravelMode, via: List<LatLon> = emptyList()): String {
         fun p(l: LatLon) = String.format(Locale.US, "%.5f,%.5f", l.longitude, l.latitude)
-        return "$BASE_URL/${mode.profile}/route/v1/driving/${p(from)};${p(to)}?overview=full&geometries=geojson"
+        val coords = (listOf(from) + via + to).joinToString(";", transform = ::p)
+        return "$BASE_URL/${mode.profile}/route/v1/driving/$coords?overview=full&geometries=geojson"
     }
 
     /** 解析 OSRM 回應（座標為 [經度, 緯度]）。 */
@@ -134,9 +138,10 @@ object RouteApi {
         path.copy(durationMinutes = maxOf(path.durationMinutes, path.distanceKm / mode.fallbackKmh * 60))
 
     /** 直線距離 × 1.3 估計實際道路距離。 */
-    fun straightLine(from: LatLon, to: LatLon, mode: TravelMode): RoutePath {
-        val km = CwaParser.distanceKm(from.latitude, from.longitude, to.latitude, to.longitude) * 1.3
-        return RoutePath(listOf(from, to), km, km / mode.fallbackKmh * 60, RouteSource.ESTIMATE)
+    fun straightLine(from: LatLon, to: LatLon, mode: TravelMode, via: List<LatLon> = emptyList()): RoutePath {
+        val points = listOf(from) + via + to
+        val km = points.zipWithNext { a, b -> CwaParser.distanceKm(a.latitude, a.longitude, b.latitude, b.longitude) }.sum() * 1.3
+        return RoutePath(points, km, km / mode.fallbackKmh * 60, RouteSource.ESTIMATE)
     }
 
     private suspend fun get(url: String): String = withContext(Dispatchers.IO) {

@@ -103,8 +103,17 @@ private val MapPlaceholder = Color(0xFFE8E6E1)
 
 private enum class Endpoint { FROM, TO }
 
-/** 起點、終點與出發時間；從通勤卡片開啟時會帶入住家、公司與通勤時間。 */
-data class RouteRequest(val from: City?, val to: City?, val departure: LocalDateTime? = null, val mode: TravelMode? = null)
+/**
+ * 起點、終點與出發時間；從通勤卡片開啟時會帶入住家、公司與通勤時間，
+ * 從 Google 地圖分享路線時會帶入途經點與交通方式。
+ */
+data class RouteRequest(
+    val from: City?,
+    val to: City?,
+    val departure: LocalDateTime? = null,
+    val mode: TravelMode? = null,
+    val via: List<City> = emptyList(),
+)
 
 /**
  * 路線降雨：像地圖 App 一樣輸入起點與終點，沿路線每幾公里取一點，
@@ -116,7 +125,7 @@ fun RouteScreen(
     places: List<City>,
     onSearch: suspend (String) -> List<AddressResult>,
     onUseCurrentLocation: suspend () -> AddressResult?,
-    onLoad: suspend (City, City, TravelMode, LocalDateTime) -> RouteData,
+    onLoad: suspend (City, City, List<City>, TravelMode, LocalDateTime) -> RouteData,
     /** 行車時間含路況（Google）：改出發時間要重新查詢 */
     trafficAware: Boolean = false,
     onClose: () -> Unit,
@@ -124,6 +133,7 @@ fun RouteScreen(
     val openedAt = remember { LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES) }
     var from by remember { mutableStateOf(request.from) }
     var to by remember { mutableStateOf(request.to) }
+    var via by remember { mutableStateOf(request.via) }
     var mode by remember { mutableStateOf(request.mode ?: TravelMode.SCOOTER) }
     var departure by remember { mutableStateOf(request.departure ?: openedAt) }
     var editing by remember { mutableStateOf<Endpoint?>(if (request.from != null && request.to == null) Endpoint.TO else null) }
@@ -132,7 +142,7 @@ fun RouteScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var pickTime by remember { mutableStateOf(false) }
 
-    LaunchedEffect(from, to, mode, if (trafficAware) departure else null) {
+    LaunchedEffect(from, to, via, mode, if (trafficAware) departure else null) {
         val a = from
         val b = to
         data = null
@@ -140,7 +150,7 @@ fun RouteScreen(
         if (a == null || b == null) return@LaunchedEffect
         loading = true
         try {
-            data = onLoad(a, b, mode, departure)
+            data = onLoad(a, b, via, mode, departure)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -186,6 +196,10 @@ fun RouteScreen(
                         Column(Modifier.weight(1f)) {
                             EndpointRow(RouteDry, "起點", from) { editing = Endpoint.FROM }
                             HorizontalDivider(Modifier.padding(start = 26.dp), color = Color.White.copy(alpha = 0.1f))
+                            if (via.isNotEmpty()) {
+                                ViaRow(via, onClear = { via = emptyList() })
+                                HorizontalDivider(Modifier.padding(start = 26.dp), color = Color.White.copy(alpha = 0.1f))
+                            }
                             EndpointRow(Color(0xFFFF453A), "終點", to) { editing = Endpoint.TO }
                         }
                         Text(
@@ -198,6 +212,7 @@ fun RouteScreen(
                                     val a = from
                                     from = to
                                     to = a
+                                    via = via.reversed()
                                 }
                                 .padding(10.dp),
                         )
@@ -283,6 +298,24 @@ private fun EndpointRow(dot: Color, caption: String, city: City?, onClick: () ->
                 }
             }
         }
+    }
+}
+
+/** 途經點（從 Google 地圖分享的路線）；可以移除，改走起點到終點的建議路線。 */
+@Composable
+private fun ViaRow(via: List<City>, onClear: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(12.dp).clip(CircleShape).background(Color.Gray))
+        Spacer(Modifier.width(14.dp))
+        Text(
+            "途經 " + via.joinToString("、") { it.displayName },
+            color = Color.Gray,
+            fontSize = 14.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text("移除", color = Accent, fontSize = 14.sp, modifier = Modifier.clickable(onClick = onClear).padding(horizontal = 8.dp))
     }
 }
 
@@ -394,18 +427,15 @@ fun RouteResult(
                 .padding(horizontal = 4.dp)
                 .clickable { openInGoogleMaps(context, data) },
         )
-        Text(
-            "沿路線約每 ${RoutePlanner.STEP_KM.toInt()} 公里取一點，依預估經過時間查逐時預報；即將經過的點會參考附近雨量站是否正在下雨。" +
-                when (data.path.source) {
-                    RouteSource.GOOGLE -> "路線與行車時間：Google 地圖（依出發時間的路況）。"
-                    else -> (if (data.mode == TravelMode.SCOOTER) "機車以汽車路線估計，可能包含機車不能行駛的道路；" else "") +
-                        "行車時間以市區平均車速估計，未含即時路況。路線資料：© OpenStreetMap 貢獻者（FOSSGIS 路線服務）。"
-                } + (if (googleMap) "" else "地圖：© OpenStreetMap 貢獻者。") + "點地圖可在 Google 地圖開啟導航。",
-            color = Color.Gray,
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
+        // 只留 OpenStreetMap 授權要求的出處標示
+        if (data.path.source == RouteSource.OSM || !googleMap) {
+            Text(
+                "© OpenStreetMap 貢獻者",
+                color = Color.Gray,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
     }
 }
 
@@ -416,10 +446,12 @@ private fun openInGoogleMaps(context: Context, data: RouteData) {
         TravelMode.BIKE -> "bicycling"
         TravelMode.WALK -> "walking"
     }
+    val waypoints = data.via.takeIf { it.isNotEmpty() }
+        ?.joinToString("|", prefix = "&waypoints=") { "${it.latitude},${it.longitude}" }.orEmpty()
     val uri = Uri.parse(
         "https://www.google.com/maps/dir/?api=1" +
             "&origin=${data.from.latitude},${data.from.longitude}" +
-            "&destination=${data.to.latitude},${data.to.longitude}&travelmode=$travel",
+            "&destination=${data.to.latitude},${data.to.longitude}$waypoints&travelmode=$travel",
     )
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, uri))
@@ -691,7 +723,7 @@ private fun EndpointSearch(
     }
 }
 
-private fun AddressResult.toRouteCity(label: String? = null, id: String? = null) = City(
+internal fun AddressResult.toRouteCity(label: String? = null, id: String? = null) = City(
     id = id ?: "route_%.5f_%.5f".format(Locale.US, latitude, longitude),
     name = area,
     subtitle = address,

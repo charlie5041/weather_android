@@ -48,6 +48,14 @@ class RouteTest {
     }
 
     @Test
+    fun viaPointsAreRoutedInOrder() {
+        val url = RouteApi.url(LatLon(25.03, 121.56), LatLon(24.83, 121.77), TravelMode.CAR, listOf(LatLon(24.94, 121.71)))
+        assertTrue(url.contains("/121.56000,25.03000;121.71000,24.94000;121.77000,24.83000?"))
+        val line = RouteApi.straightLine(LatLon(25.03, 121.56), LatLon(24.83, 121.77), TravelMode.CAR, listOf(LatLon(24.94, 121.71)))
+        assertEquals(3, line.points.size)
+    }
+
+    @Test
     fun osmDurationIsRaisedToCityPace() {
         // OSM 算 14.1 公里只要 15 分鐘（依速限、沒有紅綠燈），市區機車約 25 km/h → 約 34 分鐘
         val osm = RoutePath(listOf(LatLon(25.03, 121.49), LatLon(25.06, 121.57)), 14.1, 15.0)

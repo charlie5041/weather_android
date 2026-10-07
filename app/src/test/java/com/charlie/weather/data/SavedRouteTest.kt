@@ -17,5 +17,8 @@ class SavedRouteTest {
         val office = City("route_25.03000_121.56000", "信義區", "臺北市信義區市府路", 25.03, 121.56, address = "臺北市信義區市府路")
         store.saveLastRoute(SavedRoute(home, office, TravelMode.BIKE))
         assertEquals(SavedRoute(home, office, TravelMode.BIKE), store.loadLastRoute())
+        val via = City("route_24.94000_121.71000", "坪林區", "", 24.94, 121.71)
+        store.saveLastRoute(SavedRoute(home, office, TravelMode.CAR, listOf(via)))
+        assertEquals(listOf(via), store.loadLastRoute()?.via)
     }
 }

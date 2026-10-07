@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -23,8 +24,8 @@ import java.time.ZoneId
  */
 class GoogleRoutes(private val apiKey: String, private val packageName: String, private val certSha1: String?) {
 
-    suspend fun route(from: LatLon, to: LatLon, mode: TravelMode, departure: LocalDateTime?): RoutePath? = try {
-        parse(post(requestBody(from, to, mode, departure, Instant.now())))
+    suspend fun route(from: LatLon, to: LatLon, mode: TravelMode, departure: LocalDateTime?, via: List<LatLon> = emptyList()): RoutePath? = try {
+        parse(post(requestBody(from, to, mode, departure, Instant.now(), via)))
     } catch (e: IOException) {
         null
     } catch (e: org.json.JSONException) {
@@ -67,7 +68,14 @@ class GoogleRoutes(private val apiKey: String, private val packageName: String, 
          * 組出 computeRoutes 的請求。機車與汽車使用路況（TRAFFIC_AWARE），
          * 出發時間在未來時用預測路況；已經過或沒指定時就是現在的路況。
          */
-        fun requestBody(from: LatLon, to: LatLon, mode: TravelMode, departure: LocalDateTime?, now: Instant): String {
+        fun requestBody(
+            from: LatLon,
+            to: LatLon,
+            mode: TravelMode,
+            departure: LocalDateTime?,
+            now: Instant,
+            via: List<LatLon> = emptyList(),
+        ): String {
             fun waypoint(p: LatLon) = JSONObject().put(
                 "location",
                 JSONObject().put("latLng", JSONObject().put("latitude", p.latitude).put("longitude", p.longitude)),
@@ -79,6 +87,7 @@ class GoogleRoutes(private val apiKey: String, private val packageName: String, 
                 .put("polylineEncoding", "GEO_JSON_LINESTRING")
                 .put("languageCode", "zh-TW")
                 .put("units", "METRIC")
+            if (via.isNotEmpty()) body.put("intermediates", JSONArray(via.map(::waypoint)))
             if (mode == TravelMode.SCOOTER || mode == TravelMode.CAR) {
                 body.put("routingPreference", "TRAFFIC_AWARE")
                 departure?.atZone(ZoneId.systemDefault())?.toInstant()

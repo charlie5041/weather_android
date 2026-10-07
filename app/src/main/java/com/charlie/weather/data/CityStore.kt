@@ -4,7 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class SavedRoute(val from: City, val to: City, val mode: TravelMode)
+data class SavedRoute(val from: City, val to: City, val mode: TravelMode, val via: List<City> = emptyList())
 
 data class CachedWeather(val forecastJson: String, val airQualityJson: String?, val fetchedAtMillis: Long)
 
@@ -68,6 +68,7 @@ class CityStore(context: Context) {
                 from = o.getJSONObject("from").toCity(),
                 to = o.getJSONObject("to").toCity(),
                 mode = TravelMode.entries.firstOrNull { it.name == o.optString("mode") } ?: TravelMode.SCOOTER,
+                via = o.optJSONArray("via")?.let { arr -> (0 until arr.length()).map { arr.getJSONObject(it).toCity() } }.orEmpty(),
             )
         }.getOrNull()
     }
@@ -77,6 +78,7 @@ class CityStore(context: Context) {
             .put("from", route.from.toJson())
             .put("to", route.to.toJson())
             .put("mode", route.mode.name)
+            .put("via", JSONArray(route.via.map { it.toJson() }))
         prefs.edit().putString(KEY_LAST_ROUTE, o.toString()).apply()
     }
 

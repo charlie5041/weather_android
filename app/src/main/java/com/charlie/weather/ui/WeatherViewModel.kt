@@ -7,6 +7,7 @@ import com.charlie.weather.data.AddressGeocoder
 import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
 import com.charlie.weather.data.CwaParser
+import com.charlie.weather.data.GoogleMapsLink
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.PlaceSearch
 import com.charlie.weather.data.RouteData
@@ -198,9 +199,39 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 路線沿途天氣（路線降雨畫面使用）；查詢的路線會記下來，下次開啟時直接帶入。 */
-    suspend fun routeData(from: City, to: City, mode: TravelMode, departure: LocalDateTime): RouteData {
-        store.saveLastRoute(SavedRoute(from, to, mode))
-        return repository.routeData(from, to, mode, departure)
+    suspend fun routeData(from: City, to: City, via: List<City>, mode: TravelMode, departure: LocalDateTime): RouteData {
+        store.saveLastRoute(SavedRoute(from, to, mode, via))
+        return repository.routeData(from, to, mode, departure, via)
+    }
+
+    /**
+     * 從 Google 地圖分享的路線連結建立查詢：短網址先轉成完整網址，
+     * 沒有座標的地點用地址查詢，「目前位置」用定位。不是路線連結時回傳 null。
+     */
+    suspend fun routeFromLink(text: String): RouteRequest? {
+        val url = GoogleMapsLink.findUrl(text) ?: return null
+        val full = runCatching { GoogleMapsLink.expand(url) }.getOrNull() ?: return null
+        val route = GoogleMapsLink.parse(full) ?: return null
+        val cities = route.stops.map { stop -> resolveStop(stop) }
+        return RouteRequest(
+            from = cities.first(),
+            to = cities.last(),
+            mode = route.mode,
+            via = cities.subList(1, cities.size - 1).filterNotNull(),
+        )
+    }
+
+    private suspend fun resolveStop(stop: GoogleMapsLink.Stop): City? {
+        val position = stop.position
+        val result = when {
+            position != null ->
+                stop.label?.let { AddressResult(area = it, address = it, latitude = position.latitude, longitude = position.longitude) }
+                    ?: geocoder.reverse(position.latitude, position.longitude)
+                    ?: AddressResult(area = "地圖上的位置", address = "", latitude = position.latitude, longitude = position.longitude)
+            stop.name != null -> searchAddress(stop.name).firstOrNull()
+            else -> currentAddress()
+        }
+        return result?.toRouteCity()
     }
 
     /** 行車時間含路況時，改出發時間要重新查詢路線 */
