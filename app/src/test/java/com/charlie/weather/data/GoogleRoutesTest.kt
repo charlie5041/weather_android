@@ -37,6 +37,15 @@ class GoogleRoutesTest {
     }
 
     @Test
+    fun viaPointsBecomeIntermediates() {
+        val stop = LatLon(24.94, 121.71)
+        val body = JSONObject(GoogleRoutes.requestBody(home, work, TravelMode.CAR, null, now, listOf(stop)))
+        val latLng = body.getJSONArray("intermediates").getJSONObject(0).getJSONObject("location").getJSONObject("latLng")
+        assertEquals(24.94, latLng.getDouble("latitude"), 0.0)
+        assertFalse(JSONObject(GoogleRoutes.requestBody(home, work, TravelMode.CAR, null, now)).has("intermediates"))
+    }
+
+    @Test
     fun parsesRouteResponse() {
         val json = """
             {"routes":[{"distanceMeters":8650,"duration":"1530s",

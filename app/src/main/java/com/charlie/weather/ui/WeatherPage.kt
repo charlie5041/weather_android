@@ -106,8 +106,8 @@ fun CityWeatherPage(
                 commute?.let { trip -> item { CommuteCard(trip, Modifier.fillMaxWidth(), onOpenRoute = onOpenCommuteRoute) } }
                 item { HourlyCard(w, Modifier.fillMaxWidth()) { onOpenDetail(DetailMetric.TEMPERATURE, null) } }
                 item { DailyCard(w, Modifier.fillMaxWidth()) { date -> onOpenDetail(DetailMetric.TEMPERATURE, date) } }
-                w.typhoons.forEach { typhoon ->
-                    item { TyphoonCard(typhoon, city, Modifier.fillMaxWidth(), onClick = onOpenTyphoon) }
+                if (w.typhoons.isNotEmpty()) {
+                    item { TyphoonCard(w.typhoons, city, Modifier.fillMaxWidth(), onClick = onOpenTyphoon) }
                 }
                 w.airQuality?.let { aq -> item { AirQualityCard(aq, Modifier.fillMaxWidth()) } }
                 item {

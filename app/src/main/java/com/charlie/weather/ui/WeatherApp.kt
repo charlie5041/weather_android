@@ -2,6 +2,7 @@ package com.charlie.weather.ui
 
 import android.Manifest
 import android.os.Build
+import android.widget.Toast
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -63,7 +64,12 @@ import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 
 @Composable
-fun WeatherApp(vm: WeatherViewModel = viewModel()) {
+fun WeatherApp(
+    vm: WeatherViewModel = viewModel(),
+    /** 從其他 App 分享進來的文字（Google 地圖的路線連結） */
+    sharedText: String? = null,
+    onSharedTextHandled: () -> Unit = {},
+) {
     val cities by vm.cities.collectAsStateWithLifecycle()
     val weather by vm.weather.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
@@ -81,6 +87,24 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
     var lastRouteRequest by remember { mutableStateOf<RouteRequest?>(null) }
     LaunchedEffect(routeRequest) { routeRequest?.let { lastRouteRequest = it } }
     val context = LocalContext.current
+    LaunchedEffect(sharedText) {
+        val text = sharedText ?: return@LaunchedEffect
+        Toast.makeText(context, "正在讀取 Google 地圖路線…", Toast.LENGTH_SHORT).show()
+        // 讀完才清掉：清掉會改變 key，讓這個 effect 被取消
+        val request = try {
+            vm.routeFromLink(text)
+        } finally {
+            onSharedTextHandled()
+        }
+        if (request == null) {
+            Toast.makeText(context, "無法讀取路線，請在 Google 地圖規劃路線後再分享", Toast.LENGTH_LONG).show()
+        } else {
+            showList = false
+            showSettings = false
+            detail = null
+            routeRequest = request
+        }
+    }
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
     val commuteTrip = remember(cities, weather, settingsVersion) {
@@ -154,7 +178,7 @@ fun WeatherApp(vm: WeatherViewModel = viewModel()) {
                     onList = { showList = true },
                     onRoute = {
                         // 帶入上次查詢的路線；第一次使用時從目前看的頁面出發，再選終點
-                        routeRequest = vm.lastRoute()?.let { RouteRequest(it.from, it.to, mode = it.mode) }
+                        routeRequest = vm.lastRoute()?.let { RouteRequest(it.from, it.to, mode = it.mode, via = it.via) }
                             ?: RouteRequest(cities.getOrNull(pagerState.currentPage), null)
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),

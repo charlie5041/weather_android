@@ -86,34 +86,45 @@ private val TrackForecast = Color(0xFFFFD60A)
 private val Gale = Color(0xFFFF9F0A)
 private val Storm = Color(0xFFFF453A)
 
-private fun distanceText(city: City, t: Typhoon): String {
-    val km = CwaParser.distanceKm(city.latitude, city.longitude, t.current.latitude, t.current.longitude)
-    return "距離${city.displayName}約 ${"%,d".format(km.roundToInt())} 公里"
-}
+private fun distanceKm(city: City, t: Typhoon): Double =
+    CwaParser.distanceKm(city.latitude, city.longitude, t.current.latitude, t.current.longitude)
 
-/** 主畫面上的颱風卡片：名稱、強度、距離、移動方向與縮圖。 */
+private fun distanceText(city: City, t: Typhoon): String =
+    "距離${city.displayName}約 ${"%,d".format(distanceKm(city, t).roundToInt())} 公里"
+
+/**
+ * 主畫面上的颱風卡片：所有颱風畫在同一張路徑圖，下面每個颱風一行（名稱、強度、距離），
+ * 由近到遠排列。移動方向等細節在點開後的颱風詳細頁。
+ */
 @Composable
-fun TyphoonCard(typhoon: Typhoon, city: City, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun TyphoonCard(typhoons: List<Typhoon>, city: City, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    if (typhoons.isEmpty()) return
+    val sorted = remember(typhoons, city) { typhoons.sortedBy { distanceKm(city, it) } }
     GlassCard("颱風", modifier, onClick = onClick) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(typhoon.displayName, fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.padding(start = 8.dp))
-            Text(typhoon.nameEn, fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(bottom = 3.dp))
-        }
-        Text(typhoon.category, fontSize = 15.sp, color = Color.White, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            listOfNotNull(distanceText(city, typhoon), typhoon.movement).joinToString("，") + "。",
-            fontSize = 13.sp,
-            color = Color.White.copy(alpha = 0.9f),
-            lineHeight = 18.sp,
-        )
-        Spacer(Modifier.height(10.dp))
         TyphoonMap(
-            typhoons = listOf(typhoon),
+            typhoons = sorted,
             city = city,
+            labels = sorted.size > 1,
             modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(12.dp)),
         )
+        sorted.forEachIndexed { i, t ->
+            if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = if (i == sorted.lastIndex) 0.dp else 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(t.displayName, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.padding(start = 6.dp))
+                        Text(t.nameEn, fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(bottom = 2.dp))
+                    }
+                    Text(t.category, fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f))
+                }
+                Text(
+                    "距離約 ${"%,d".format(distanceKm(city, t).roundToInt())} 公里",
+                    fontSize = 13.sp,
+                    color = Color.White.copy(alpha = 0.9f),
+                )
+            }
+        }
     }
 }
 
@@ -122,7 +133,13 @@ fun TyphoonCard(typhoon: Typhoon, city: City, modifier: Modifier = Modifier, onC
  * 目前的七級／十級暴風圈，以及城市位置（藍點）。
  */
 @Composable
-fun TyphoonMap(typhoons: List<Typhoon>, city: City?, modifier: Modifier = Modifier) {
+fun TyphoonMap(
+    typhoons: List<Typhoon>,
+    city: City?,
+    modifier: Modifier = Modifier,
+    /** 在颱風目前位置旁標上名稱（同一張圖有多個颱風時） */
+    labels: Boolean = false,
+) {
     val context = LocalContext.current
     val land = remember { LandShapes.load(context) }
     val measurer = rememberTextMeasurer()
@@ -173,6 +190,13 @@ fun TyphoonMap(typhoons: List<Typhoon>, city: City?, modifier: Modifier = Modifi
         }
 
         typhoons.forEach { t -> drawTyphoon(t, ::p, ::km) }
+        if (labels) {
+            typhoons.forEach { t ->
+                val c = p(t.current.latitude, t.current.longitude)
+                val label = measurer.measure(t.displayName, TextStyle(color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold))
+                drawText(label, topLeft = Offset(c.x + 9.dp.toPx(), c.y - label.size.height / 2f))
+            }
+        }
 
         city?.let {
             val c = p(it.latitude, it.longitude)

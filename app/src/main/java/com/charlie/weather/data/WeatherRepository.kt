@@ -55,8 +55,15 @@ class WeatherRepository private constructor(context: Context) {
      * 預報一次查完，之後改出發時間只要用 [RoutePlanner.evaluate] 重新計算
      * （使用 Google 路況時，行車時間隨出發時間改變，需要重新查詢）。
      */
-    suspend fun routeData(from: City, to: City, mode: TravelMode, departure: LocalDateTime? = null): RouteData = coroutineScope {
-        val path = RouteApi.route(LatLon(from.latitude, from.longitude), LatLon(to.latitude, to.longitude), mode, departure, googleRoutes)
+    suspend fun routeData(
+        from: City,
+        to: City,
+        mode: TravelMode,
+        departure: LocalDateTime? = null,
+        via: List<City> = emptyList(),
+    ): RouteData = coroutineScope {
+        fun City.latLon() = LatLon(latitude, longitude)
+        val path = RouteApi.route(from.latLon(), to.latLon(), mode, departure, googleRoutes, via.map { it.latLon() })
         val points = RoutePlanner.sample(path)
         val forecasts = async { WeatherApi.fetchForecastJsons(points.map { it.position }) }
         val cwaData = async {
@@ -75,7 +82,7 @@ class WeatherRepository private constructor(context: Context) {
                 }
             }
         }
-        RouteData(from, to, mode, path, points, weathers)
+        RouteData(from, to, mode, path, points, weathers, via)
     }
 
     private suspend fun cwaAt(p: LatLon): CwaData? = try {
