@@ -61,6 +61,7 @@ fun GlassCard(
     modifier: Modifier = Modifier,
     divider: Boolean = false,
     onClick: (() -> Unit)? = null,
+    titleIcon: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -70,7 +71,13 @@ fun GlassCard(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Text(title, fontSize = 12.sp, color = Secondary, fontWeight = FontWeight.Medium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (titleIcon != null) {
+                titleIcon()
+                Spacer(Modifier.width(5.dp))
+            }
+            Text(title, fontSize = 12.sp, color = Secondary, fontWeight = FontWeight.Medium)
+        }
         if (divider) {
             HorizontalDivider(Modifier.padding(top = 10.dp), color = DividerColor)
         }
@@ -88,9 +95,10 @@ fun InfoCard(
     subtitle: String? = null,
     footer: String? = null,
     onClick: (() -> Unit)? = null,
+    titleIcon: (@Composable () -> Unit)? = null,
     visual: (@Composable () -> Unit)? = null,
 ) {
-    GlassCard(title, modifier.heightIn(min = 160.dp), onClick = onClick) {
+    GlassCard(title, modifier.heightIn(min = 160.dp), onClick = onClick, titleIcon = titleIcon) {
         Text(value, fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Medium)
         subtitle?.let { Text(it, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium) }
         if (visual != null) {
@@ -107,7 +115,16 @@ fun InfoCard(
 
 // ---------------- 每小時預報 ----------------
 
-private data class HourEntry(val time: LocalDateTime, val label: String, val icon: String, val pop: Int?, val value: String)
+private enum class SunEvent { Rise, Set }
+
+private data class HourEntry(
+    val time: LocalDateTime,
+    val label: String,
+    val icon: String,
+    val pop: Int?,
+    val value: String,
+    val sun: SunEvent? = null,
+)
 
 private fun buildHourEntries(w: Weather): List<HourEntry> {
     val start = w.current.time.truncatedTo(ChronoUnit.HOURS)
@@ -123,10 +140,10 @@ private fun buildHourEntries(w: Weather): List<HourEntry> {
     }.toMutableList()
     w.daily.forEach { d ->
         d.sunrise?.takeIf { it.isAfter(w.current.time) && it.isBefore(end) }?.let {
-            entries += HourEntry(it, timeLabel(it), "🌅", null, "日出")
+            entries += HourEntry(it, timeLabel(it), "", null, "日出", SunEvent.Rise)
         }
         d.sunset?.takeIf { it.isAfter(w.current.time) && it.isBefore(end) }?.let {
-            entries += HourEntry(it, timeLabel(it), "🌇", null, "日落")
+            entries += HourEntry(it, timeLabel(it), "", null, "日落", SunEvent.Set)
         }
     }
     return entries.sortedBy { it.time }
@@ -174,7 +191,11 @@ fun HourlyCard(w: Weather, modifier: Modifier = Modifier, onClick: () -> Unit = 
                     Text(e.label, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
                     Box(Modifier.height(48.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(e.icon, fontSize = 22.sp)
+                            if (e.sun != null) {
+                                SunEventIcon(rising = e.sun == SunEvent.Rise, Modifier.size(28.dp))
+                            } else {
+                                Text(e.icon, fontSize = 22.sp)
+                            }
                             if ((e.pop ?: 0) >= 20) {
                                 Text("${e.pop}%", fontSize = 11.sp, color = PrecipBlue, fontWeight = FontWeight.SemiBold)
                             }
@@ -184,6 +205,40 @@ fun HourlyCard(w: Weather, modifier: Modifier = Modifier, onClick: () -> Unit = 
                 }
             }
         }
+    }
+}
+
+/** 線條風格的日出／日落圖示：地平線上的半個太陽、光芒，以及上／下箭頭。以 24×24 的格線繪製。 */
+@Composable
+private fun SunEventIcon(rising: Boolean, modifier: Modifier = Modifier, color: Color = Color.White) {
+    Canvas(modifier) {
+        val u = size.minDimension / 24f
+        val stroke = 1.7f * u
+        fun line(x1: Float, y1: Float, x2: Float, y2: Float) =
+            drawLine(color, Offset(x1 * u, y1 * u), Offset(x2 * u, y2 * u), strokeWidth = stroke, cap = StrokeCap.Round)
+
+        // 箭頭
+        line(12f, 2.5f, 12f, 9f)
+        if (rising) {
+            line(9f, 5.5f, 12f, 2.5f)
+            line(15f, 5.5f, 12f, 2.5f)
+        } else {
+            line(9f, 6f, 12f, 9f)
+            line(15f, 6f, 12f, 9f)
+        }
+        // 半個太陽
+        drawArc(
+            color, startAngle = 180f, sweepAngle = 180f, useCenter = false,
+            topLeft = Offset(7f * u, 14f * u), size = Size(10f * u, 10f * u),
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+        )
+        // 光芒：左右水平與兩側斜上
+        line(2.5f, 19f, 4.5f, 19f)
+        line(19.5f, 19f, 21.5f, 19f)
+        line(5.3f, 12.3f, 6.7f, 13.7f)
+        line(18.7f, 12.3f, 17.3f, 13.7f)
+        // 地平線
+        line(2.5f, 22f, 21.5f, 22f)
     }
 }
 
@@ -408,6 +463,7 @@ fun SunCard(w: Weather, modifier: Modifier = Modifier) {
         value = time?.let { timeLabel(it) } ?: "--",
         modifier = modifier,
         footer = footer,
+        titleIcon = { SunEventIcon(rising = title == "日出", Modifier.size(14.dp), color = Secondary) },
         visual = {
             if (sunrise != null && sunset != null) {
                 SunPathGraph(
