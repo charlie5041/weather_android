@@ -61,6 +61,7 @@ fun GlassCard(
     modifier: Modifier = Modifier,
     divider: Boolean = false,
     onClick: (() -> Unit)? = null,
+    titleIcon: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -70,7 +71,13 @@ fun GlassCard(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Text(title, fontSize = 12.sp, color = Secondary, fontWeight = FontWeight.Medium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (titleIcon != null) {
+                titleIcon()
+                Spacer(Modifier.width(5.dp))
+            }
+            Text(title, fontSize = 12.sp, color = Secondary, fontWeight = FontWeight.Medium)
+        }
         if (divider) {
             HorizontalDivider(Modifier.padding(top = 10.dp), color = DividerColor)
         }
@@ -88,9 +95,10 @@ fun InfoCard(
     subtitle: String? = null,
     footer: String? = null,
     onClick: (() -> Unit)? = null,
+    titleIcon: (@Composable () -> Unit)? = null,
     visual: (@Composable () -> Unit)? = null,
 ) {
-    GlassCard(title, modifier.heightIn(min = 160.dp), onClick = onClick) {
+    GlassCard(title, modifier.heightIn(min = 160.dp), onClick = onClick, titleIcon = titleIcon) {
         Text(value, fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Medium)
         subtitle?.let { Text(it, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium) }
         if (visual != null) {
@@ -455,6 +463,7 @@ fun SunCard(w: Weather, modifier: Modifier = Modifier) {
         value = time?.let { timeLabel(it) } ?: "--",
         modifier = modifier,
         footer = footer,
+        titleIcon = { SunEventIcon(rising = title == "日出", Modifier.size(14.dp), color = Secondary) },
         visual = {
             if (sunrise != null && sunset != null) {
                 SunPathGraph(
