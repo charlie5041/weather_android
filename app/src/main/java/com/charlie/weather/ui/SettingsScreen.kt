@@ -200,7 +200,7 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
 
         SectionTitle("桌面小工具")
         Section {
-            Text("在桌面空白處長按 → 小工具 → 找到「我的天氣」，拖曳到桌面即可。", color = Color.White, fontSize = 15.sp)
+            Text("在桌面空白處長按 → 小工具 → 找到「出行看天氣」，拖曳到桌面即可。", color = Color.White, fontSize = 15.sp)
             Text("可調整成小、中、大三種尺寸：中型顯示逐時預報，大型再加上每日預報。", color = Color.Gray, fontSize = 14.sp)
             TextButton(onClick = { WeatherSyncWorker.runNow(context) }) {
                 Text("立即更新小工具", color = Color(0xFF0A84FF), fontSize = 16.sp)

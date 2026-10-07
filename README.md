@@ -1,4 +1,4 @@
-# 我的天氣（iPhone 風格 Android 天氣 App）
+# 出行看天氣（iPhone 風格 Android 天氣 App）
 
 以 Kotlin + Jetpack Compose 打造、仿 iOS 天氣介面的 Android App，台灣地區整合中央氣象署與環境部資料。
 
