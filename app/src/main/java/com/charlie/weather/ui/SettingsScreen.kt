@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.charlie.weather.data.AppSettings
+import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.sync.WeatherNotifier
 import com.charlie.weather.sync.WeatherSyncWorker
 
@@ -70,6 +71,7 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
     var commuteNotify by remember { mutableStateOf(settings.commuteNotify) }
     var commuteMorning by remember { mutableIntStateOf(settings.commuteMorningHour) }
     var commuteEvening by remember { mutableIntStateOf(settings.commuteEveningHour) }
+    var routeStep by remember { mutableIntStateOf(settings.routeStepKm) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
 
@@ -194,6 +196,19 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
         }
         Text(
             "在城市列表點「＋ 新增住家、公司等地點」設定兩地地址；只計算平日，週末會顯示下週一的通勤。",
+            color = Color.Gray,
+            fontSize = 13.sp,
+        )
+
+        SectionTitle("路線降雨")
+        Section {
+            ChoiceRow("取樣間距（公里）", RoutePlanner.STEP_OPTIONS, routeStep, { it.toString() }) {
+                routeStep = it
+                settings.routeStepKm = it
+            }
+        }
+        Text(
+            "沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。",
             color = Color.Gray,
             fontSize = 13.sp,
         )

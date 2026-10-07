@@ -83,6 +83,7 @@ import com.charlie.weather.data.RouteForecast
 import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.data.RouteSource
 import com.charlie.weather.data.RouteStop
+import com.charlie.weather.data.StopGroup
 import com.charlie.weather.data.TravelMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -405,16 +406,29 @@ fun RouteResult(
         }
 
         Panel {
-            forecast.stops.forEachIndexed { i, stop ->
+            // 預設把連續經過同一個鄉鎮的點合併成一行；可以展開看每個點
+            val groups = remember(forecast) { RoutePlanner.group(forecast.stops) }
+            var expanded by remember(forecast) { mutableStateOf(false) }
+            val rows = if (expanded || groups.size == forecast.stops.size) forecast.stops.map { StopGroup(listOf(it)) } else groups
+            rows.forEachIndexed { i, group ->
                 StopRow(
-                    stop,
-                    title = when (i) {
-                        0 -> data.from.displayName
-                        forecast.stops.lastIndex -> data.to.displayName
-                        else -> stop.place ?: "途中"
+                    group,
+                    title = when {
+                        i == 0 -> data.from.displayName
+                        i == rows.lastIndex -> data.to.displayName
+                        else -> group.first.place ?: "途中"
                     },
                     first = i == 0,
-                    last = i == forecast.stops.lastIndex,
+                    last = i == rows.lastIndex,
+                )
+            }
+            if (groups.size < forecast.stops.size) {
+                Text(
+                    if (expanded) "收合 ⌃" else "顯示全部 ${forecast.stops.size} 個點 ⌄",
+                    color = Accent,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(top = 8.dp, bottom = 4.dp),
                 )
             }
         }
@@ -581,10 +595,11 @@ internal fun TileRouteMap(forecast: RouteForecast, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun StopRow(stop: RouteStop, title: String, first: Boolean, last: Boolean) {
+private fun StopRow(group: StopGroup, title: String, first: Boolean, last: Boolean) {
+    val stop = group.worst
     val color = rainColor(stop)
     Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(clock(stop.eta), color = Color.White, fontSize = 15.sp, modifier = Modifier.width(50.dp))
+        Text(clock(group.first.eta), color = Color.White, fontSize = 15.sp, modifier = Modifier.width(50.dp))
         Box(Modifier.width(20.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
             Column(Modifier.fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.width(3.dp).weight(1f).background(if (first) Color.Transparent else Color.White.copy(alpha = 0.2f)))
@@ -601,8 +616,14 @@ private fun StopRow(stop: RouteStop, title: String, first: Boolean, last: Boolea
                     (if (stop.hour.precipitation >= 0.1) " · %.1f mm".format(Locale.US, stop.hour.precipitation) else "")
                 else -> "暫無預報"
             }
+            // 合併的一段顯示「至 hh:mm」與距離範圍
+            val where = if (group.stops.size == 1) {
+                "%.1f 公里".format(Locale.US, stop.point.distanceKm)
+            } else {
+                "至 %s · %.0f–%.0f 公里".format(Locale.US, clock(group.last.eta), group.first.point.distanceKm, group.last.point.distanceKm)
+            }
             Text(
-                "%.1f 公里 · %s".format(Locale.US, stop.point.distanceKm, detail),
+                "$where · $detail",
                 color = Color.Gray,
                 fontSize = 12.sp,
                 maxLines = 1,
