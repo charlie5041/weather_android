@@ -111,7 +111,7 @@ private fun WidgetContent(s: WidgetSnapshot?) {
             .padding(14.dp),
     ) {
         if (s == null) {
-            Text("開啟「我的天氣」以載入資料", style = style(13.sp))
+            Text("開啟「出行看天氣」以載入資料", style = style(13.sp))
             return@Box
         }
         val wide = size.width >= 250.dp

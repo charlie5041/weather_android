@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">我的天氣</string>
+    <string name="app_name">出行看天氣</string>
     <string name="widget_description">目前天氣、逐時與每日預報</string>
 </resources>
