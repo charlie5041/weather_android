@@ -101,6 +101,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
+    // Android Auto（Car App Library 範本）
+    implementation("androidx.car.app:app:1.7.0")
     // 路線降雨的地圖（有 Google 金鑰時）
     implementation("com.google.maps.android:maps-compose:6.4.1")
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
