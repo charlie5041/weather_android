@@ -62,7 +62,7 @@ class ScreenshotTest {
     }
 
     @Test
-    @Config(qualifiers = "w400dp-h1600dp-xhdpi")
+    @Config(qualifiers = "w400dp-h1760dp-xhdpi")
     fun routeResult() {
         val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")
         val work = City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司")
@@ -103,6 +103,10 @@ class ScreenshotTest {
                     onSelect = {},
                     onCustom = {},
                 )
+                // 替代路線：較遠但沿途乾燥
+                val longer = path.copy(distanceKm = 11.8, durationMinutes = 33.0, description = "環東大道")
+                val alt = data.copy(path = longer, weathers = weathers.map { dry })
+                RouteChoices(listOf(data, alt), 0, { now }, {})
                 RouteResult(forecast, googleMap = false)
             }
         }

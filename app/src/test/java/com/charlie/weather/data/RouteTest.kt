@@ -249,4 +249,32 @@ class RouteTest {
         assertEquals(5.0, RoutePlanner.windChill(5.0, 3.0), 0.0)
         assertTrue(RoutePlanner.windChill(10.0, 40.0) < 6.5)
     }
+
+    @Test
+    fun parsesOsrmAlternativesAndDropsNearDuplicates() {
+        val json = """
+            {"code":"Ok","routes":[
+              {"distance":8000,"duration":1200,"geometry":{"coordinates":[[121.57,25.08],[121.56,25.03]]}},
+              {"distance":9500,"duration":1500,"geometry":{"coordinates":[[121.57,25.08],[121.58,25.05],[121.56,25.03]]}}]}
+        """.trimIndent()
+        val paths = RouteApi.parseAll(json)
+        assertEquals(2, paths.size)
+        assertEquals(9.5, paths[1].distanceKm, 1e-9)
+        assertTrue(RouteApi.url(home.let { LatLon(it.latitude, it.longitude) }, LatLon(25.03, 121.56), TravelMode.CAR, alternatives = true).endsWith("&alternatives=true"))
+        assertFalse(RouteApi.url(LatLon(25.08, 121.57), LatLon(25.03, 121.56), TravelMode.CAR, listOf(LatLon(25.05, 121.6)), alternatives = true).contains("alternatives"))
+
+        val a = RoutePath(listOf(LatLon(25.0, 121.5), LatLon(25.1, 121.5)), 10.0, 30.0)
+        val almostSame = a.copy(distanceKm = 10.2, durationMinutes = 30.5)
+        val longer = a.copy(distanceKm = 12.0, durationMinutes = 31.0)
+        assertEquals(listOf(a, longer), RouteApi.distinct(listOf(a, almostSame, longer)))
+        assertEquals(3, RouteApi.distinct(List(5) { i -> a.copy(distanceKm = 10.0 + i * 2) }).size)
+    }
+
+    @Test
+    fun forecastDaysCoverTheDepartureDay() {
+        assertEquals(3, RoutePlanner.forecastDays(null, now))
+        assertEquals(3, RoutePlanner.forecastDays(now.plusHours(3), now))
+        assertEquals(5, RoutePlanner.forecastDays(now.plusDays(3), now))
+        assertEquals(7, RoutePlanner.forecastDays(now.plusDays(10), now))
+    }
 }

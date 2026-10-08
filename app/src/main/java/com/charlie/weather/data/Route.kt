@@ -8,6 +8,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Duration
 import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -44,6 +45,8 @@ data class RoutePath(
     val distanceKm: Double,
     val durationMinutes: Double,
     val source: RouteSource = RouteSource.OSM,
+    /** 主要道路（Google 才有），用來分辨替代路線 */
+    val description: String? = null,
 ) {
     val approximate: Boolean get() = source == RouteSource.ESTIMATE
 }
@@ -161,28 +164,61 @@ object RouteApi {
         departure: LocalDateTime? = null,
         google: GoogleRoutes? = null,
         via: List<LatLon> = emptyList(),
-    ): RoutePath {
-        google?.route(from, to, mode, departure, via)?.let { return it }
-        return try {
-            parse(get(url(from, to, mode, via)))?.let { withCityPace(it, mode) } ?: straightLine(from, to, mode, via)
+    ): RoutePath = routes(from, to, mode, departure, google, via).first()
+
+    /**
+     * 建議路線與（[alternatives] 時）最多兩條替代路線；第一條是建議路線，
+     * 幾乎一樣的路線只留一條。至少會有一條（都失敗時是直線估計）。
+     */
+    suspend fun routes(
+        from: LatLon,
+        to: LatLon,
+        mode: TravelMode,
+        departure: LocalDateTime? = null,
+        google: GoogleRoutes? = null,
+        via: List<LatLon> = emptyList(),
+        alternatives: Boolean = false,
+    ): List<RoutePath> {
+        google?.routes(from, to, mode, departure, via, alternatives)?.takeIf { it.isNotEmpty() }?.let { return distinct(it) }
+        val osm = try {
+            parseAll(get(url(from, to, mode, via, alternatives))).map { withCityPace(it, mode) }
         } catch (e: IOException) {
-            straightLine(from, to, mode, via)
+            emptyList()
         } catch (e: org.json.JSONException) {
-            straightLine(from, to, mode, via)
+            emptyList()
         }
+        return distinct(osm).ifEmpty { listOf(straightLine(from, to, mode, via)) }
     }
 
-    fun url(from: LatLon, to: LatLon, mode: TravelMode, via: List<LatLon> = emptyList()): String {
+    /** 距離與時間都相差不到 3% 的路線視為同一條；最多三條 */
+    fun distinct(paths: List<RoutePath>): List<RoutePath> {
+        fun close(a: Double, b: Double) = abs(a - b) <= 0.03 * maxOf(a, b, 0.001)
+        val kept = mutableListOf<RoutePath>()
+        paths.forEach { p ->
+            if (kept.none { close(it.distanceKm, p.distanceKm) && close(it.durationMinutes, p.durationMinutes) }) kept += p
+        }
+        return kept.take(3)
+    }
+
+    fun url(from: LatLon, to: LatLon, mode: TravelMode, via: List<LatLon> = emptyList(), alternatives: Boolean = false): String {
         fun p(l: LatLon) = String.format(Locale.US, "%.5f,%.5f", l.longitude, l.latitude)
         val coords = (listOf(from) + via + to).joinToString(";", transform = ::p)
-        return "$BASE_URL/${mode.profile}/route/v1/driving/$coords?overview=full&geometries=geojson"
+        val alt = if (alternatives && via.isEmpty()) "&alternatives=true" else ""
+        return "$BASE_URL/${mode.profile}/route/v1/driving/$coords?overview=full&geometries=geojson$alt"
     }
 
-    /** 解析 OSRM 回應（座標為 [經度, 緯度]）。 */
-    fun parse(json: String): RoutePath? {
+    /** 解析 OSRM 回應的第一條路線 */
+    fun parse(json: String): RoutePath? = parseAll(json).firstOrNull()
+
+    /** 解析 OSRM 回應的所有路線（座標為 [經度, 緯度]）。 */
+    fun parseAll(json: String): List<RoutePath> {
         val root = JSONObject(json)
-        if (root.optString("code") != "Ok") return null
-        val route = root.optJSONArray("routes")?.optJSONObject(0) ?: return null
+        if (root.optString("code") != "Ok") return emptyList()
+        val routes = root.optJSONArray("routes") ?: return emptyList()
+        return (0 until routes.length()).mapNotNull { i -> routes.optJSONObject(i)?.let(::parseRoute) }
+    }
+
+    private fun parseRoute(route: JSONObject): RoutePath? {
         val coords = route.optJSONObject("geometry")?.optJSONArray("coordinates") ?: return null
         val points = (0 until coords.length()).mapNotNull { i ->
             coords.optJSONArray(i)?.let { LatLon(it.getDouble(1), it.getDouble(0)) }
@@ -284,6 +320,10 @@ object RoutePlanner {
         }
         return spans
     }
+
+    /** 路線各點要下載幾天的逐時預報：涵蓋出發日的隔天（行程可能跨日），3–7 天 */
+    fun forecastDays(departure: LocalDateTime?, now: LocalDateTime = LocalDateTime.now()): Int =
+        ((departure?.let { ChronoUnit.DAYS.between(now.toLocalDate(), it.toLocalDate()) } ?: 0) + 2).toInt().coerceIn(3, 7)
 
     /** 依各個出發時間重新計算沿途雨況（路線與行車時間不變）。 */
     fun compare(data: RouteData, departures: List<LocalDateTime>, now: LocalDateTime = LocalDateTime.now()): List<DepartureOption> =

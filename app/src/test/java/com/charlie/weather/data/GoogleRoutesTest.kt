@@ -64,4 +64,29 @@ class GoogleRoutesTest {
     fun straightLineIsMarkedAsEstimate() {
         assertTrue(RouteApi.straightLine(home, work, TravelMode.WALK).approximate)
     }
+
+    @Test
+    fun alternativesOnlyWithoutWaypoints() {
+        val body = JSONObject(GoogleRoutes.requestBody(home, work, TravelMode.CAR, null, now, alternatives = true))
+        assertTrue(body.getBoolean("computeAlternativeRoutes"))
+        val withVia = JSONObject(GoogleRoutes.requestBody(home, work, TravelMode.CAR, null, now, listOf(LatLon(24.9, 121.7)), alternatives = true))
+        assertFalse(withVia.has("computeAlternativeRoutes"))
+        assertFalse(JSONObject(GoogleRoutes.requestBody(home, work, TravelMode.CAR, null, now)).has("computeAlternativeRoutes"))
+    }
+
+    @Test
+    fun parsesAlternativeRoutesWithDescription() {
+        val json = """
+            {"routes":[
+              {"distanceMeters":8650,"duration":"1530s","description":"內湖路一段",
+               "polyline":{"geoJsonLinestring":{"type":"LineString","coordinates":[[121.57,25.08],[121.56,25.03]]}}},
+              {"distanceMeters":9900,"duration":"1700s",
+               "polyline":{"geoJsonLinestring":{"type":"LineString","coordinates":[[121.57,25.08],[121.58,25.05],[121.56,25.03]]}}}]}
+        """.trimIndent()
+        val paths = GoogleRoutes.parseAll(json)
+        assertEquals(2, paths.size)
+        assertEquals("內湖路一段", paths[0].description)
+        assertNull(paths[1].description)
+        assertEquals(9.9, paths[1].distanceKm, 1e-9)
+    }
 }

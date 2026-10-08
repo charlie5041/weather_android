@@ -220,10 +220,10 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         return _cities.value.indexOfFirst { it.id == existingId }
     }
 
-    /** 路線沿途天氣（沿路天氣畫面使用）；查詢的路線會記下來，下次開啟時直接帶入。 */
-    suspend fun routeData(from: City, to: City, via: List<City>, mode: TravelMode, departure: LocalDateTime): RouteData {
+    /** 建議與替代路線的沿途天氣（沿路天氣畫面使用）；查詢的路線會記下來，下次開啟時直接帶入。 */
+    suspend fun routeData(from: City, to: City, via: List<City>, mode: TravelMode, departure: LocalDateTime): List<RouteData> {
         store.saveLastRoute(SavedRoute(from, to, mode, via))
-        return repository.routeData(from, to, mode, departure, via)
+        return repository.routeOptions(from, to, mode, departure, via, alternatives = true)
     }
 
     /**

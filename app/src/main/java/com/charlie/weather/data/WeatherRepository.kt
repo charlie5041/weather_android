@@ -61,11 +61,25 @@ class WeatherRepository private constructor(context: Context) {
         mode: TravelMode,
         departure: LocalDateTime? = null,
         via: List<City> = emptyList(),
-    ): RouteData = coroutineScope {
+    ): RouteData = routeOptions(from, to, mode, departure, via).first()
+
+    /**
+     * 同 [routeData]，[alternatives] 時另外規劃最多兩條替代路線，每條都查沿途天氣
+     * （所有取樣點一次向 Open-Meteo 查詢）。第一條是建議路線。
+     */
+    suspend fun routeOptions(
+        from: City,
+        to: City,
+        mode: TravelMode,
+        departure: LocalDateTime? = null,
+        via: List<City> = emptyList(),
+        alternatives: Boolean = false,
+    ): List<RouteData> = coroutineScope {
         fun City.latLon() = LatLon(latitude, longitude)
-        val path = RouteApi.route(from.latLon(), to.latLon(), mode, departure, googleRoutes, via.map { it.latLon() })
-        val points = RoutePlanner.sample(path, stepKm = settings.routeStepKm.toDouble())
-        val forecasts = async { WeatherApi.fetchForecastJsons(points.map { it.position }) }
+        val paths = RouteApi.routes(from.latLon(), to.latLon(), mode, departure, googleRoutes, via.map { it.latLon() }, alternatives)
+        val sampled = paths.map { RoutePlanner.sample(it, stepKm = settings.routeStepKm.toDouble()) }
+        val points = sampled.flatten()
+        val forecasts = async { WeatherApi.fetchForecastJsons(points.map { it.position }, RoutePlanner.forecastDays(departure)) }
         val cwaData = async {
             if (!settings.useCwa) return@async points.map<RoutePoint, CwaData?> { null }
             // 第一個點先下載共用的檔案（測站、縣市預報、雨量站），其他點再並行使用快取
@@ -82,7 +96,11 @@ class WeatherRepository private constructor(context: Context) {
                 }
             }
         }
-        RouteData(from, to, mode, path, points, weathers, via)
+        var offset = 0
+        paths.mapIndexed { k, path ->
+            val count = sampled[k].size
+            RouteData(from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via).also { offset += count }
+        }
     }
 
     private suspend fun cwaAt(p: LatLon): CwaData? = try {

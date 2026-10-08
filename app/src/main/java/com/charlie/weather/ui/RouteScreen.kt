@@ -51,6 +51,7 @@ import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -148,7 +149,8 @@ fun RouteScreen(
     places: List<City>,
     onSearch: suspend (String) -> List<AddressResult>,
     onUseCurrentLocation: suspend () -> AddressResult?,
-    onLoad: suspend (City, City, List<City>, TravelMode, LocalDateTime) -> RouteData,
+    /** 建議路線與替代路線（第一條是建議路線） */
+    onLoad: suspend (City, City, List<City>, TravelMode, LocalDateTime) -> List<RouteData>,
     /** 行車時間含路況（Google）：改出發時間要重新查詢 */
     trafficAware: Boolean = false,
     favorites: List<FavoriteRoute> = emptyList(),
@@ -163,7 +165,10 @@ fun RouteScreen(
     var mode by remember { mutableStateOf(request.mode ?: TravelMode.SCOOTER) }
     var departure by remember { mutableStateOf(request.departure ?: openedAt) }
     var editing by remember { mutableStateOf<Endpoint?>(if (request.from != null && request.to == null) Endpoint.TO else null) }
-    var data by remember { mutableStateOf<RouteData?>(null) }
+    var routes by remember { mutableStateOf<List<RouteData>?>(null) }
+    var selected by remember { mutableIntStateOf(0) }
+    // 「抵達時間」模式：使用者指定幾點要到，出發時間依各路線的行車時間往回推
+    var arriveBy by remember { mutableStateOf<LocalDateTime?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var pickTime by remember { mutableStateOf(false) }
@@ -172,15 +177,20 @@ fun RouteScreen(
     var editFavorite by remember { mutableStateOf(false) }
     val favorite = favorites.firstOrNull { f -> from?.let { a -> to?.let { b -> f.sameRoute(a, b, via) } } == true }
 
-    LaunchedEffect(from, to, via, mode, if (trafficAware) departure else null) {
+    fun departureFor(route: RouteData?): LocalDateTime =
+        arriveBy?.let { a -> route?.let { a.minusSeconds((it.path.durationMinutes * 60).roundToLong()) } ?: a.minusMinutes(30) } ?: departure
+
+    LaunchedEffect(from, to, via, mode, if (trafficAware) arriveBy ?: departure else null) {
         val a = from
         val b = to
-        data = null
+        val previous = routes?.getOrNull(selected)
+        routes = null
         error = null
         if (a == null || b == null) return@LaunchedEffect
         loading = true
         try {
-            data = onLoad(a, b, via, mode, departure)
+            routes = onLoad(a, b, via, mode, departureFor(previous))
+            selected = 0
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -188,7 +198,9 @@ fun RouteScreen(
         }
         loading = false
     }
-    val forecast = remember(data, departure) { data?.let { RoutePlanner.evaluate(it, departure) } }
+    val data = routes?.getOrNull(selected)
+    val effectiveDeparture = departureFor(data)
+    val forecast = remember(data, effectiveDeparture) { data?.let { RoutePlanner.evaluate(it, effectiveDeparture) } }
 
     val endpoint = editing
     if (endpoint != null) {
@@ -261,20 +273,50 @@ fun RouteScreen(
                     mode = TravelMode.entries[it]
                 }
 
-                val departures = remember(anchor) {
-                    val times = anchor?.let { a -> listOf(0L, 30L, 60L, 90L, 120L).map { a.plusMinutes(it) } }
-                        ?: listOf(30L, 60L, 90L, 120L, 180L).map { openedAt.plusMinutes(it) }
-                    (listOf(openedAt) + times).distinct().sorted()
+                ChipRow(listOf("出發時間", "抵達時間"), if (arriveBy == null) 0 else 1) { i ->
+                    if (i == 1 && arriveBy == null) {
+                        // 改用目前這趟的抵達時間（進位到 5 分鐘）
+                        val arrival = forecast?.arrival ?: openedAt.plusHours(1)
+                        arriveBy = arrival.truncatedTo(ChronoUnit.MINUTES).plusMinutes(((5 - arrival.minute % 5) % 5).toLong())
+                    } else if (i == 0 && arriveBy != null) {
+                        departure = effectiveDeparture.truncatedTo(ChronoUnit.MINUTES)
+                        anchor = departure
+                        arriveBy = null
+                    }
                 }
-                val options = remember(data, departures) { data?.let { RoutePlanner.compare(it, departures) } }
-                DepartureStrip(
-                    departures,
-                    options,
-                    selected = departure,
-                    now = openedAt,
-                    onSelect = { departure = it },
-                    onCustom = { pickTime = true },
-                )
+
+                val arrival = arriveBy
+                if (arrival == null) {
+                    val departures = remember(anchor) {
+                        val times = anchor?.let { a -> listOf(0L, 30L, 60L, 90L, 120L).map { a.plusMinutes(it) } }
+                            ?: listOf(30L, 60L, 90L, 120L, 180L).map { openedAt.plusMinutes(it) }
+                        (listOf(openedAt) + times).distinct().sorted()
+                    }
+                    val options = remember(data, departures) { data?.let { RoutePlanner.compare(it, departures) } }
+                    DepartureStrip(
+                        departures,
+                        options,
+                        selected = departure,
+                        now = openedAt,
+                        onSelect = { departure = it },
+                        onCustom = { pickTime = true },
+                    )
+                } else {
+                    // 比較抵達時間：前 90 分鐘到後 30 分鐘；出發時間已經過去的不列
+                    val seconds = data?.let { (it.path.durationMinutes * 60).roundToLong() } ?: 0L
+                    val arrivals = listOf(-90L, -60L, -30L, 0L, 30L).map { arrival.plusMinutes(it) }
+                        .filter { it == arrival || !it.minusSeconds(seconds).isBefore(openedAt.minusMinutes(5)) }
+                    val options = remember(data, arrivals) { data?.let { d -> RoutePlanner.compare(d, arrivals.map { it.minusSeconds(seconds) }) } }
+                    DepartureStrip(
+                        arrivals,
+                        options,
+                        selected = arrival,
+                        now = openedAt,
+                        onSelect = { arriveBy = it },
+                        onCustom = { pickTime = true },
+                        suffix = " 到",
+                    )
+                }
 
                 when {
                     from == null || to == null -> {
@@ -292,7 +334,11 @@ fun RouteScreen(
                         CircularProgressIndicator(color = Color.White)
                     }
                     error != null -> Hint(error!!)
-                    forecast != null -> RouteResult(forecast)
+                    forecast != null -> {
+                        val all = routes.orEmpty()
+                        if (all.size > 1) RouteChoices(all, selected, ::departureFor) { selected = it }
+                        RouteResult(forecast)
+                    }
                 }
                 Spacer(Modifier.height(24.dp))
             }
@@ -331,12 +377,22 @@ fun RouteScreen(
     }
 
     if (pickTime) {
-        DepartureTimeDialog(departure, onDismiss = { pickTime = false }) { hour, minute ->
+        val arriving = arriveBy
+        DateTimeDialog(
+            title = if (arriving != null) "抵達時間" else "出發時間",
+            initial = arriving ?: departure,
+            today = openedAt.toLocalDate(),
+            onDismiss = { pickTime = false },
+        ) { picked ->
             pickTime = false
-            val today = openedAt.toLocalDate().atTime(hour, minute)
-            // 選的時間已經過了就當作明天
-            departure = if (today.isBefore(openedAt.minusMinutes(5))) today.plusDays(1) else today
-            anchor = departure
+            // 今天已經過了的時間就當作明天
+            val time = if (picked.toLocalDate() == openedAt.toLocalDate() && picked.isBefore(openedAt.minusMinutes(5))) picked.plusDays(1) else picked
+            if (arriving != null) {
+                arriveBy = time
+            } else {
+                departure = time
+                anchor = time
+            }
         }
     }
 }
@@ -447,8 +503,11 @@ fun RouteResult(
             Spacer(Modifier.height(14.dp))
             RainTimeline(forecast)
             RouteHazards(forecast.hazards, Modifier.padding(top = 4.dp))
+            // 不是今天出發時標出日期，免得只看時間誤會
+            val day = forecast.departure.toLocalDate()
+            val date = if (day == LocalDate.now()) "" else "${day.monthValue}/${day.dayOfMonth}（${weekdayLabel(day.dayOfWeek).takeLast(1)}）出發 · "
             Text(
-                "%.1f 公里 · 約 %d 分鐘%s".format(
+                date + "%.1f 公里 · 約 %d 分鐘%s".format(
                     Locale.US,
                     data.path.distanceKm,
                     data.path.durationMinutes.toInt().coerceAtLeast(1),
@@ -635,6 +694,127 @@ private fun FavoriteDialog(
     }
 }
 
+internal fun durationLabel(minutes: Double): String {
+    val m = minutes.roundToInt().coerceAtLeast(1)
+    return if (m < 60) "$m 分" else if (m % 60 == 0) "${m / 60} 小時" else "${m / 60} 小時 ${m % 60} 分"
+}
+
+/**
+ * 建議路線與替代路線：每條的行車時間、距離與沿途最高降雨機率；
+ * 標出最快的一條，以及明顯比較不會淋雨（低 20% 以上）的一條。
+ */
+@Composable
+internal fun RouteChoices(
+    routes: List<RouteData>,
+    selected: Int,
+    departureFor: (RouteData) -> LocalDateTime,
+    onSelect: (Int) -> Unit,
+) {
+    val options = routes.map { RoutePlanner.compare(it, listOf(departureFor(it))).first() }
+    val fastest = routes.indices.minByOrNull { routes[it].path.durationMinutes }
+    val driest = options.indices.filter { options[it].level != RainLevel.UNKNOWN }.minByOrNull { options[it].risk }
+        ?.takeIf { i -> options.indices.any { j -> j != i && options[j].risk >= options[i].risk + 20 } }
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        routes.forEachIndexed { i, route ->
+            val active = i == selected
+            val option = options[i].takeIf { it.level != RainLevel.UNKNOWN }
+            Column(
+                Modifier
+                    .width(132.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (active) Color.White.copy(alpha = 0.18f) else PanelColor)
+                    .then(if (active) Modifier.border(1.5.dp, Color.White, RoundedCornerShape(12.dp)) else Modifier)
+                    .clickable(role = Role.Button) { onSelect(i) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    route.path.description ?: if (i == 0) "建議路線" else "替代路線 $i",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${durationLabel(route.path.durationMinutes)} · %.1f 公里".format(Locale.US, route.path.distanceKm),
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                )
+                Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
+                    Box(Modifier.width(10.dp).height(14.dp), contentAlignment = Alignment.BottomCenter) {
+                        if (option != null) {
+                            Box(
+                                Modifier.fillMaxWidth().fillMaxHeight(option.level.barHeight())
+                                    .clip(RoundedCornerShape(2.dp)).background(rainLevelColor(option.level)),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        option?.let { "最高 ${it.risk}%" } ?: "暫無預報",
+                        color = option?.takeIf { it.risk >= 30 }?.let { rainLevelColor(it.level) } ?: Color.Gray,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                val tags = listOfNotNull("最快".takeIf { i == fastest }, "較不會淋雨".takeIf { i == driest })
+                Text(tags.joinToString(" · ").ifEmpty { " " }, color = Accent, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+            }
+        }
+    }
+}
+
+/** 選日期（今天起 7 天，逐時預報的範圍）與時間 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateTimeDialog(
+    title: String,
+    initial: LocalDateTime,
+    today: LocalDate,
+    onDismiss: () -> Unit,
+    onConfirm: (LocalDateTime) -> Unit,
+) {
+    val state = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute, is24Hour = true)
+    val dates = (0L until 7L).map { today.plusDays(it) }
+    var date by remember { mutableStateOf(initial.toLocalDate().takeIf { it in dates } ?: today) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = PanelColor,
+        title = { Text(title, color = Color.White) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    dates.forEachIndexed { i, d ->
+                        val on = d == date
+                        Text(
+                            when (i) {
+                                0 -> "今天"
+                                1 -> "明天"
+                                else -> "${weekdayLabel(d.dayOfWeek).takeLast(1)} ${d.monthValue}/${d.dayOfMonth}"
+                            },
+                            color = if (on) Color.Black else Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(if (on) Color.White else Color(0xFF2C2C2E))
+                                .clickable(role = Role.Button) { date = d }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                        )
+                    }
+                }
+                TimePicker(state = state)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(date.atTime(state.hour, state.minute)) }) { Text("確定", color = Accent) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = Accent) } },
+    )
+}
+
 private fun stopWhere(stop: RouteStop) = stop.place ?: "%.0f 公里處".format(Locale.US, stop.point.distanceKm)
 
 private fun uvLevel(index: Double) = when {
@@ -683,7 +863,7 @@ private fun stripLabel(time: LocalDateTime, now: LocalDateTime) = when {
     time == now -> "現在"
     time.toLocalDate() == now.toLocalDate() -> clock(time)
     time.toLocalDate() == now.toLocalDate().plusDays(1) -> "明 ${clock(time)}"
-    else -> "${time.monthValue}/${time.dayOfMonth}"
+    else -> "${weekdayLabel(time.dayOfWeek).takeLast(1)} ${clock(time)}"
 }
 
 /**
@@ -692,14 +872,19 @@ private fun stripLabel(time: LocalDateTime, now: LocalDateTime) = when {
  */
 @Composable
 internal fun DepartureStrip(
+    /** 每一欄顯示的時間（出發時間，或「抵達時間」模式的抵達時間） */
     departures: List<LocalDateTime>,
+    /** 與 [departures] 一一對應，在該時間出發（或抵達）時的沿途雨況 */
     options: List<DepartureOption>?,
     selected: LocalDateTime,
     now: LocalDateTime,
     onSelect: (LocalDateTime) -> Unit,
     onCustom: () -> Unit,
+    /** 加在時間後面的字（抵達時間模式為「到」） */
+    suffix: String = "",
 ) {
-    val best = options?.let { RoutePlanner.recommended(it, selected) }
+    val current = options?.getOrNull(departures.indexOf(selected))
+    val best = options?.let { o -> current?.let { RoutePlanner.recommended(o, it.departure) } }
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -710,10 +895,10 @@ internal fun DepartureStrip(
             StripCell(
                 active = active,
                 onClick = { onSelect(time) },
-                label = stripLabel(time, now),
+                label = if (time == now) "現在" else stripLabel(time, now) + suffix,
                 bottom = option?.let { "${it.risk}%" } ?: "–",
                 bottomColor = option?.takeIf { it.risk >= 30 }?.let { rainLevelColor(it.level) } ?: Color.Gray,
-                recommended = best != null && best.departure == time,
+                recommended = best != null && best.departure == options?.getOrNull(i)?.departure,
             ) {
                 if (option != null) {
                     Box(
@@ -741,7 +926,7 @@ private fun StripCell(
 ) {
     Column(
         Modifier
-            .width(64.dp)
+            .width(72.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (active) Color.White.copy(alpha = 0.18f) else PanelColor)
             .then(if (active) Modifier.border(1.5.dp, Color.White, RoundedCornerShape(12.dp)) else Modifier)
