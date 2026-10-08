@@ -63,6 +63,8 @@ fun CityWeatherPage(
     onOpenTyphoon: () -> Unit = {},
     commute: CommuteTrip? = null,
     onOpenCommuteRoute: () -> Unit = {},
+    /** 出門卡片（只在第一頁） */
+    outing: (@Composable () -> Unit)? = null,
 ) {
     val w = ui.weather
     val code = w?.current?.weatherCode ?: 1
@@ -103,6 +105,7 @@ fun CityWeatherPage(
                 w.cwa?.alerts?.takeIf { it.isNotEmpty() }?.let { alerts ->
                     item { AlertsCard(alerts, Modifier.fillMaxWidth()) }
                 }
+                outing?.let { card -> item { card() } }
                 commute?.let { trip -> item { CommuteCard(trip, Modifier.fillMaxWidth(), onOpenRoute = onOpenCommuteRoute) } }
                 item { HourlyCard(w, Modifier.fillMaxWidth()) { onOpenDetail(DetailMetric.TEMPERATURE, null) } }
                 item { DailyCard(w, Modifier.fillMaxWidth()) { date -> onOpenDetail(DetailMetric.TEMPERATURE, date) } }

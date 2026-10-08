@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
+import com.charlie.weather.data.FavoriteRoute
 import com.charlie.weather.sync.WeatherNotifier
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,6 +24,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -69,12 +77,17 @@ fun WeatherApp(
     /** 從其他 App 分享進來的文字（Google 地圖的路線連結） */
     sharedText: String? = null,
     onSharedTextHandled: () -> Unit = {},
+    /** 點常用路線的出發提醒通知開啟時，要開的路線 id */
+    favoriteRouteId: String? = null,
+    onFavoriteRouteHandled: () -> Unit = {},
 ) {
     val cities by vm.cities.collectAsStateWithLifecycle()
     val weather by vm.weather.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
     val results by vm.searchResults.collectAsStateWithLifecycle()
     val searching by vm.searching.collectAsStateWithLifecycle()
+    val favorites by vm.favorites.collectAsStateWithLifecycle()
+    val upcoming by vm.upcoming.collectAsStateWithLifecycle()
 
     var showList by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -104,6 +117,22 @@ fun WeatherApp(
             detail = null
             routeRequest = request
         }
+    }
+    /** 帶入上次查詢的路線；第一次使用時從目前看的頁面出發，再選終點 */
+    fun defaultRouteRequest(current: City?): RouteRequest =
+        vm.lastRoute()?.let { RouteRequest(it.from, it.to, mode = it.mode, via = it.via) } ?: RouteRequest(current, null)
+
+    fun openFavorite(route: FavoriteRoute, departure: LocalDateTime?) {
+        val r = vm.latestRoute(route)
+        showList = false
+        showSettings = false
+        detail = null
+        routeRequest = RouteRequest(r.from, r.to, departure, r.mode, r.via)
+    }
+    LaunchedEffect(favoriteRouteId) {
+        val id = favoriteRouteId ?: return@LaunchedEffect
+        vm.favorites.value.firstOrNull { it.id == id }?.let { openFavorite(it, it.reminder?.next(LocalDateTime.now())) }
+        onFavoriteRouteHandled()
     }
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
@@ -158,6 +187,15 @@ fun WeatherApp(
                     key = { cities.getOrNull(it)?.id ?: it },
                 ) { page ->
                     val city = cities.getOrNull(page) ?: return@HorizontalPager
+                    val outingCard: @Composable () -> Unit = {
+                        TripCard(
+                            favorites = favorites,
+                            upcoming = upcoming,
+                            modifier = Modifier.fillMaxWidth(),
+                            onOpen = { route, departure -> openFavorite(route, departure) },
+                            onNewRoute = { routeRequest = defaultRouteRequest(city) },
+                        )
+                    }
                     CityWeatherPage(
                         city = city,
                         ui = weather[city.id] ?: CityWeatherUi(loading = true),
@@ -169,6 +207,7 @@ fun WeatherApp(
                         onOpenCommuteRoute = {
                             commuteTrip?.let { routeRequest = RouteRequest(it.from, it.to, it.departure, vm.lastRoute()?.mode) }
                         },
+                        outing = outingCard.takeIf { page == 0 },
                     )
                 }
                 BottomBar(
@@ -176,11 +215,7 @@ fun WeatherApp(
                     currentPage = pagerState.currentPage,
                     firstIsLocation = cities.firstOrNull()?.isCurrentLocation == true,
                     onList = { showList = true },
-                    onRoute = {
-                        // 帶入上次查詢的路線；第一次使用時從目前看的頁面出發，再選終點
-                        routeRequest = vm.lastRoute()?.let { RouteRequest(it.from, it.to, mode = it.mode, via = it.via) }
-                            ?: RouteRequest(cities.getOrNull(pagerState.currentPage), null)
-                    },
+                    onRoute = { routeRequest = defaultRouteRequest(cities.getOrNull(pagerState.currentPage)) },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
@@ -281,6 +316,9 @@ fun WeatherApp(
                             onUseCurrentLocation = vm::currentAddress,
                             onLoad = vm::routeData,
                             trafficAware = vm.trafficAwareRoutes,
+                            favorites = favorites,
+                            onSaveFavorite = vm::saveFavorite,
+                            onRemoveFavorite = vm::removeFavorite,
                             onClose = { routeRequest = null },
                         )
                     }
@@ -335,7 +373,18 @@ private fun BottomBar(
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onRoute) { RouteIcon(Color.White) }
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = 0.18f))
+                .clickable(role = Role.Button, onClick = onRoute)
+                .padding(start = 10.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RouteIcon(Color.White, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("沿路天氣", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
         Row(
             Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
@@ -356,10 +405,10 @@ private fun BottomBar(
     }
 }
 
-/** 路線降雨按鈕：起點、彎曲路線與終點。 */
+/** 沿路天氣按鈕：起點、彎曲路線與終點。 */
 @Composable
-private fun RouteIcon(color: Color) {
-    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+private fun RouteIcon(color: Color, modifier: Modifier = Modifier.size(22.dp)) {
+    androidx.compose.foundation.Canvas(modifier) {
         val w = size.width
         val h = size.height
         val stroke = 2.dp.toPx()

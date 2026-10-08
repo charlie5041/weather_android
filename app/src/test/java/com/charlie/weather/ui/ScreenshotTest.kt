@@ -109,6 +109,39 @@ class ScreenshotTest {
     }
 
     @Test
+    @Config(qualifiers = "w400dp-h760dp-xhdpi")
+    fun tripCard() {
+        val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")
+        val work = City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司")
+        val dry = sampleWeather(code = 2)
+        val wet = sampleWeather(code = 61)
+        val path = com.charlie.weather.data.RoutePath(
+            listOf(com.charlie.weather.data.LatLon(25.08, 121.57), com.charlie.weather.data.LatLon(25.03, 121.56)),
+            9.2, 26.0,
+        )
+        val points = com.charlie.weather.data.RoutePlanner.sample(path)
+        val weathers = points.mapIndexed { i, _ -> if (i >= points.size / 2) wet else dry }
+        val data = com.charlie.weather.data.RouteData(home, work, com.charlie.weather.data.TravelMode.SCOOTER, path, points, weathers)
+        val now = dry.current.time
+        val reminder = com.charlie.weather.data.RouteReminder(com.charlie.weather.data.RouteReminder.WEEKDAYS, now.hour, now.minute)
+        val commute = com.charlie.weather.data.FavoriteRoute("a", "上班", home, work, com.charlie.weather.data.TravelMode.SCOOTER, reminder = reminder)
+        val weekend = com.charlie.weather.data.FavoriteRoute(
+            "b", "週末回老家", home, work, com.charlie.weather.data.TravelMode.CAR,
+            reminder = com.charlie.weather.data.RouteReminder(setOf(java.time.DayOfWeek.SATURDAY, java.time.DayOfWeek.SUNDAY), 9, 30),
+        )
+        val trip = UpcomingTrip(commute, now, com.charlie.weather.data.RoutePlanner.evaluate(data, now, now))
+        capture("13_trip_card") {
+            androidx.compose.foundation.layout.Column(
+                androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF3F7CC0)).padding(16.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+            ) {
+                TripCard(listOf(commute, weekend), trip, androidx.compose.ui.Modifier.fillMaxWidth(), now.toLocalDate(), onOpen = { _, _ -> }, onNewRoute = {})
+                TripCard(emptyList(), null, androidx.compose.ui.Modifier.fillMaxWidth(), now.toLocalDate(), onOpen = { _, _ -> }, onNewRoute = {})
+            }
+        }
+    }
+
+    @Test
     @Config(qualifiers = "w400dp-h360dp-xhdpi")
     fun routeHazards() = capture("12_route_hazards") {
         val now = java.time.LocalDateTime.of(2026, 1, 10, 17, 0)

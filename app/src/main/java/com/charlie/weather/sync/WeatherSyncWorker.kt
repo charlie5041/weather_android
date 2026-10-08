@@ -19,7 +19,7 @@ import com.charlie.weather.ui.Units
 import com.charlie.weather.widget.WeatherWidget
 import java.util.concurrent.TimeUnit
 
-/** 每 30 分鐘在背景更新主要城市與自訂地點的天氣：重繪小工具並檢查是否需要通知。 */
+/** 每 30 分鐘在背景更新主要城市與自訂地點的天氣：重繪小工具並檢查是否需要通知（含常用路線出發前的沿路天氣）。 */
 class WeatherSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -36,6 +36,7 @@ class WeatherSyncWorker(context: Context, params: WorkerParameters) : CoroutineW
         }
         WeatherWidget.update(applicationContext, city, weather)
         WeatherNotifier.check(applicationContext, city to weather, placesWeather(repo, city, metered))
+        WeatherNotifier.checkFavoriteRoutes(applicationContext, repo)
         return Result.success()
     }
 

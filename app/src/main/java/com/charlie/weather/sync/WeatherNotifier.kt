@@ -16,11 +16,18 @@ import com.charlie.weather.R
 import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
+import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.data.Weather
+import com.charlie.weather.data.WeatherRepository
 import com.charlie.weather.ui.WeatherCodes
+import com.charlie.weather.ui.clock
 import com.charlie.weather.ui.conditionText
 import com.charlie.weather.ui.deg
+import com.charlie.weather.ui.hazardLine
 import com.charlie.weather.ui.hourLabel
+import com.charlie.weather.ui.modeEmoji
+import kotlinx.coroutines.CancellationException
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -31,12 +38,17 @@ object WeatherNotifier {
     private const val CHANNEL_RAIN = "rain"
     private const val CHANNEL_WARNING = "warning"
     private const val CHANNEL_DAILY = "daily"
+    private const val CHANNEL_ROUTE = "route"
+
+    /** 通知帶的常用路線 id，開啟 App 時直接開這條路線 */
+    const val EXTRA_FAVORITE_ROUTE = "favorite_route_id"
 
     private const val ID_RAIN = 1001
     private const val ID_MORNING = 1002
     private const val ID_COMMUTE = 1003
     private const val ID_PLACE_RAIN_BASE = 3000
     private const val ID_WARNING_BASE = 2000
+    private const val ID_ROUTE_BASE = 4000
 
     private const val RAIN_COOLDOWN_MS = 3 * 60 * 60_000L
 
@@ -53,6 +65,9 @@ object WeatherNotifier {
                 },
                 NotificationChannel(CHANNEL_DAILY, "每日天氣", NotificationManager.IMPORTANCE_LOW).apply {
                     description = "每天早上的今日天氣摘要與通勤天氣"
+                },
+                NotificationChannel(CHANNEL_ROUTE, "常用路線", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "常用路線出發前的沿路天氣"
                 },
             ),
         )
@@ -155,6 +170,48 @@ object WeatherNotifier {
         settings.lastCommuteNotified = key
     }
 
+    /**
+     * 常用路線在設定的出發時間前 90 分鐘內，查一次沿路天氣並通知結論與提醒
+     * （每一趟只通知一次；查詢失敗就等下次背景更新再試）。
+     */
+    suspend fun checkFavoriteRoutes(context: Context, repo: WeatherRepository, now: LocalDateTime = LocalDateTime.now()) {
+        if (!canNotify(context)) return
+        val settings = AppSettings(context)
+        val notified = settings.notifiedRouteReminders
+        val due = repo.store.loadFavoriteRoutes()
+            .mapNotNull { route -> route.reminder?.next(now)?.let { route to it } }
+            .filter { (route, departure) -> Duration.between(now, departure).toMinutes() in 0..90 && "${route.id}|$departure" !in notified }
+        if (due.isEmpty()) return
+        createChannels(context)
+        // 起終點是「目前位置」時用最後一次定位的座標
+        val location = repo.store.loadLocationCity()
+        fun latest(city: City) = if (city.isCurrentLocation) location ?: city else city
+        val sent = mutableSetOf<String>()
+        due.forEach { (route, departure) ->
+            val forecast = try {
+                val data = repo.routeData(latest(route.from), latest(route.to), route.mode, departure, route.via.map(::latest))
+                RoutePlanner.evaluate(data, departure, now)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@forEach
+            }
+            val verdict = forecast.verdict
+            val hazards = forecast.hazards.map { hazard -> hazardLine(hazard).let { (icon, text) -> "$icon $text" } }
+            notify(
+                context, CHANNEL_ROUTE, ID_ROUTE_BASE + (route.id.hashCode() and 0xfff),
+                title = "${modeEmoji(route.mode)} ${route.name} ${clock(departure)} 出發：${verdict.title}",
+                text = (listOf(verdict.detail) + hazards).joinToString("\n"),
+                routeId = route.id,
+            )
+            sent += "${route.id}|$departure"
+        }
+        // 只留一天內的紀錄，集合不會越來越大
+        settings.notifiedRouteReminders = (notified + sent).filter { key ->
+            runCatching { LocalDateTime.parse(key.substringAfter('|')) }.getOrNull()?.isAfter(now.minusDays(1)) == true
+        }.toSet()
+    }
+
     /** 每天到了設定時間後的第一次背景更新時，發送今日天氣摘要。 */
     private fun checkMorning(context: Context, settings: AppSettings, city: City, weather: Weather, now: LocalDateTime) {
         val today = LocalDate.now().toString()
@@ -172,8 +229,9 @@ object WeatherNotifier {
         settings.lastMorningDate = today
     }
 
-    private fun notify(context: Context, channel: String, id: Int, title: String, text: String) {
+    private fun notify(context: Context, channel: String, id: Int, title: String, text: String, routeId: String? = null) {
         val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        routeId?.let { intent.putExtra(EXTRA_FAVORITE_ROUTE, it) }
         val pending = PendingIntent.getActivity(context, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_stat_weather)

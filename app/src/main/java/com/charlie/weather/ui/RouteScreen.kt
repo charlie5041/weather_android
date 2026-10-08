@@ -43,6 +43,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
@@ -84,12 +86,14 @@ import com.charlie.weather.BuildConfig
 import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
 import com.charlie.weather.data.CwaParser
+import com.charlie.weather.data.FavoriteRoute
 import com.charlie.weather.data.DepartureOption
 import com.charlie.weather.data.LatLon
 import com.charlie.weather.data.MapTile
 import com.charlie.weather.data.MapTileCache
 import com.charlie.weather.data.MapViewport
 import com.charlie.weather.data.RainLevel
+import com.charlie.weather.data.RouteReminder
 import com.charlie.weather.data.RouteHazard
 import com.charlie.weather.data.WebMercator
 import com.charlie.weather.data.RouteData
@@ -104,9 +108,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.time.Duration
+import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -132,7 +139,7 @@ data class RouteRequest(
 )
 
 /**
- * 路線降雨：像地圖 App 一樣輸入起點與終點，沿路線每幾公里取一點，
+ * 沿路天氣：像地圖 App 一樣輸入起點與終點，沿路線每幾公里取一點，
  * 依騎到該點的時間查逐時預報，看路上會不會遇到雨。
  */
 @Composable
@@ -144,6 +151,9 @@ fun RouteScreen(
     onLoad: suspend (City, City, List<City>, TravelMode, LocalDateTime) -> RouteData,
     /** 行車時間含路況（Google）：改出發時間要重新查詢 */
     trafficAware: Boolean = false,
+    favorites: List<FavoriteRoute> = emptyList(),
+    onSaveFavorite: (FavoriteRoute) -> Unit = {},
+    onRemoveFavorite: (String) -> Unit = {},
     onClose: () -> Unit,
 ) {
     val openedAt = remember { LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES) }
@@ -159,6 +169,8 @@ fun RouteScreen(
     var pickTime by remember { mutableStateOf(false) }
     // 比較條從這個時間起每 30 分鐘一欄（通勤時間或自訂時間）；沒有時從現在起
     var anchor by remember { mutableStateOf(request.departure?.takeIf { it != openedAt }) }
+    var editFavorite by remember { mutableStateOf(false) }
+    val favorite = favorites.firstOrNull { f -> from?.let { a -> to?.let { b -> f.sameRoute(a, b, via) } } == true }
 
     LaunchedEffect(from, to, via, mode, if (trafficAware) departure else null) {
         val a = from
@@ -194,16 +206,24 @@ fun RouteScreen(
     } else {
         Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onClose) { Text("完成", color = Accent, fontSize = 17.sp) }
+                Box(Modifier.width(96.dp)) {
+                    TextButton(onClick = onClose) { Text("完成", color = Accent, fontSize = 17.sp) }
+                }
                 Text(
-                    "路線降雨",
+                    "沿路天氣",
                     color = Color.White,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.width(72.dp))
+                Box(Modifier.width(96.dp), contentAlignment = Alignment.CenterEnd) {
+                    if (from != null && to != null) {
+                        TextButton(onClick = { editFavorite = true }) {
+                            Text(if (favorite != null) "★ 常用" else "☆ 常用", color = Accent, fontSize = 16.sp)
+                        }
+                    }
+                }
             }
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -257,7 +277,17 @@ fun RouteScreen(
                 )
 
                 when {
-                    from == null || to == null -> Hint("輸入起點與終點，查看路上每一段經過時的降雨機率。")
+                    from == null || to == null -> {
+                        Hint("輸入起點與終點，查看路上每一段經過時的天氣。")
+                        if (favorites.isNotEmpty()) {
+                            FavoriteList(favorites) { f ->
+                                from = f.from
+                                to = f.to
+                                via = f.via
+                                mode = f.mode
+                            }
+                        }
+                    }
                     loading -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = Color.White)
                     }
@@ -267,6 +297,37 @@ fun RouteScreen(
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+
+    val a = from
+    val b = to
+    if (editFavorite && a != null && b != null) {
+        FavoriteDialog(
+            existing = favorite,
+            defaultName = "${a.displayName} → ${b.displayName}",
+            defaultTime = departure.takeIf { it != openedAt },
+            onDismiss = { editFavorite = false },
+            onSave = { name, reminder ->
+                editFavorite = false
+                onSaveFavorite(
+                    FavoriteRoute(
+                        id = favorite?.id ?: UUID.randomUUID().toString(),
+                        name = name,
+                        from = a,
+                        to = b,
+                        mode = mode,
+                        via = via,
+                        reminder = reminder,
+                    ),
+                )
+            },
+            onRemove = favorite?.let { f ->
+                {
+                    editFavorite = false
+                    onRemoveFavorite(f.id)
+                }
+            },
+        )
     }
 
     if (pickTime) {
@@ -280,14 +341,14 @@ fun RouteScreen(
     }
 }
 
-private fun modeEmoji(mode: TravelMode) = when (mode) {
+internal fun modeEmoji(mode: TravelMode) = when (mode) {
     TravelMode.SCOOTER -> "🛵"
     TravelMode.CAR -> "🚗"
     TravelMode.BIKE -> "🚲"
     TravelMode.WALK -> "🚶"
 }
 
-private fun clock(time: LocalDateTime) = "%02d:%02d".format(time.hour, time.minute)
+internal fun clock(time: LocalDateTime) = "%02d:%02d".format(time.hour, time.minute)
 
 internal fun rainColor(stop: RouteStop): Color = rainLevelColor(stop.rainLevel)
 
@@ -469,6 +530,111 @@ fun RouteResult(
     }
 }
 
+/** 還沒選起終點時列出常用路線，點了直接帶入 */
+@Composable
+private fun FavoriteList(favorites: List<FavoriteRoute>, onPick: (FavoriteRoute) -> Unit) {
+    Text("常用路線", color = Color.Gray, fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp))
+    Panel {
+        favorites.forEachIndexed { i, f ->
+            if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            Row(
+                Modifier.fillMaxWidth().clickable(role = Role.Button) { onPick(f) }.padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("${modeEmoji(f.mode)} ${f.name}", color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                f.reminder?.let { Text(reminderLabel(it), color = Color.Gray, fontSize = 13.sp) }
+            }
+        }
+    }
+}
+
+/** 存成常用路線：名稱與出發前提醒（每週哪幾天、幾點出發）。 */
+@Composable
+private fun FavoriteDialog(
+    existing: FavoriteRoute?,
+    defaultName: String,
+    defaultTime: LocalDateTime?,
+    onDismiss: () -> Unit,
+    onSave: (String, RouteReminder?) -> Unit,
+    onRemove: (() -> Unit)?,
+) {
+    var name by remember { mutableStateOf(existing?.name ?: defaultName) }
+    var remind by remember { mutableStateOf(existing == null || existing.reminder != null) }
+    var days by remember { mutableStateOf(existing?.reminder?.days ?: RouteReminder.WEEKDAYS) }
+    var hour by remember { mutableStateOf(existing?.reminder?.hour ?: defaultTime?.hour ?: 8) }
+    var minute by remember { mutableStateOf(existing?.reminder?.minute ?: defaultTime?.minute ?: 0) }
+    var pickTime by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = PanelColor,
+        title = { Text(if (existing == null) "加入常用路線" else "常用路線", color = Color.White) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                DarkTextField(value = name, onValueChange = { name = it }, placeholder = defaultName)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("出發前提醒", color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = remind,
+                        onCheckedChange = { remind = it },
+                        colors = SwitchDefaults.colors(checkedTrackColor = RouteDry, checkedThumbColor = Color.White),
+                    )
+                }
+                if (remind) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable(role = Role.Button) { pickTime = true }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("出發時間", color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        Text("%02d:%02d ›".format(hour, minute), color = Accent, fontSize = 16.sp)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        DayOfWeek.values().forEach { day ->
+                            val on = day in days
+                            Text(
+                                weekdayLabel(day).takeLast(1),
+                                color = if (on) Color.Black else Color.White,
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(if (on) Color.White else Color(0xFF2C2C2E))
+                                    .clickable(role = Role.Checkbox) { days = if (on) days - day else days + day }
+                                    .padding(top = 6.dp),
+                            )
+                        }
+                    }
+                    Text("出發前 1.5 小時內會通知沿路天氣", color = Color.Gray, fontSize = 13.sp)
+                }
+                if (onRemove != null) {
+                    Text(
+                        "移除常用路線",
+                        color = Color(0xFFFF453A),
+                        fontSize = 16.sp,
+                        modifier = Modifier.clickable(role = Role.Button, onClick = onRemove).padding(vertical = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !remind || days.isNotEmpty(),
+                onClick = {
+                    onSave(name.trim().ifEmpty { defaultName }, if (remind && days.isNotEmpty()) RouteReminder(days, hour, minute) else null)
+                },
+            ) { Text("儲存", color = if (!remind || days.isNotEmpty()) Accent else Color.Gray) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = Accent) } },
+    )
+    if (pickTime) {
+        DepartureTimeDialog(LocalDate.now().atTime(hour, minute), onDismiss = { pickTime = false }) { h, m ->
+            hour = h
+            minute = m
+            pickTime = false
+        }
+    }
+}
+
 private fun stopWhere(stop: RouteStop) = stop.place ?: "%.0f 公里處".format(Locale.US, stop.point.distanceKm)
 
 private fun uvLevel(index: Double) = when {
@@ -609,7 +775,7 @@ private fun RainLevel.barHeight() = when (this) {
  * 下方標出發、抵達，以及第一次遇到雨（沒有的話是可能下雨）的時間。
  */
 @Composable
-internal fun RainTimeline(forecast: RouteForecast, modifier: Modifier = Modifier) {
+internal fun RainTimeline(forecast: RouteForecast, modifier: Modifier = Modifier, labelColor: Color = Color.Gray) {
     val spans = remember(forecast) { RoutePlanner.timeline(forecast.stops) }
     val rain = spans.firstOrNull { it.level >= RainLevel.WET } ?: spans.firstOrNull { it.level == RainLevel.MAYBE }
     val seconds = Duration.between(forecast.departure, forecast.arrival).seconds
@@ -631,7 +797,7 @@ internal fun RainTimeline(forecast: RouteForecast, modifier: Modifier = Modifier
             )
         }
 
-        val style = TextStyle(color = Color.Gray, fontSize = 12.sp)
+        val style = TextStyle(color = labelColor, fontSize = 12.sp)
         val y = barHeight + 5.dp.toPx()
         val start = measurer.measure(clock(forecast.departure), style)
         val end = measurer.measure(clock(forecast.arrival), style)

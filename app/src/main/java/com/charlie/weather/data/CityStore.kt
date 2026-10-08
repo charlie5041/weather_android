@@ -59,7 +59,7 @@ class CityStore(context: Context) {
         prefs.edit().remove("cache_$cityId").apply()
     }
 
-    /** 上次在「路線降雨」查詢的起點、終點與交通方式 */
+    /** 上次在「沿路天氣」查詢的起點、終點與交通方式 */
     fun loadLastRoute(): SavedRoute? {
         val raw = prefs.getString(KEY_LAST_ROUTE, null) ?: return null
         return runCatching {
@@ -82,30 +82,39 @@ class CityStore(context: Context) {
         prefs.edit().putString(KEY_LAST_ROUTE, o.toString()).apply()
     }
 
-    private fun City.toJson() = JSONObject()
-        .put("id", id)
-        .put("name", name)
-        .put("subtitle", subtitle)
-        .put("lat", latitude)
-        .put("lon", longitude)
-        .put("loc", isCurrentLocation)
-        .put("label", label ?: JSONObject.NULL)
-        .put("address", address ?: JSONObject.NULL)
+    /** 常用路線（出門卡片與出發前提醒） */
+    fun loadFavoriteRoutes(): List<FavoriteRoute> =
+        prefs.getString(KEY_FAVORITE_ROUTES, null)?.let { FavoriteRoutes.parse(it) }.orEmpty()
 
-    private fun JSONObject.toCity() = City(
-        id = getString("id"),
-        name = getString("name"),
-        subtitle = optString("subtitle"),
-        latitude = getDouble("lat"),
-        longitude = getDouble("lon"),
-        isCurrentLocation = optBoolean("loc"),
-        label = optString("label").takeIf { !isNull("label") && it.isNotBlank() },
-        address = optString("address").takeIf { !isNull("address") && it.isNotBlank() },
-    )
+    fun saveFavoriteRoutes(routes: List<FavoriteRoute>) {
+        prefs.edit().putString(KEY_FAVORITE_ROUTES, FavoriteRoutes.toJson(routes)).apply()
+    }
 
     private companion object {
         const val KEY_CITIES = "cities"
         const val KEY_LOCATION = "location_city"
         const val KEY_LAST_ROUTE = "last_route"
+        const val KEY_FAVORITE_ROUTES = "favorite_routes"
     }
 }
+
+internal fun City.toJson() = JSONObject()
+    .put("id", id)
+    .put("name", name)
+    .put("subtitle", subtitle)
+    .put("lat", latitude)
+    .put("lon", longitude)
+    .put("loc", isCurrentLocation)
+    .put("label", label ?: JSONObject.NULL)
+    .put("address", address ?: JSONObject.NULL)
+
+internal fun JSONObject.toCity() = City(
+    id = getString("id"),
+    name = getString("name"),
+    subtitle = optString("subtitle"),
+    latitude = getDouble("lat"),
+    longitude = getDouble("lon"),
+    isCurrentLocation = optBoolean("loc"),
+    label = optString("label").takeIf { !isNull("label") && it.isNotBlank() },
+    address = optString("address").takeIf { !isNull("address") && it.isNotBlank() },
+)
