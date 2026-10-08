@@ -147,8 +147,19 @@ sealed interface RouteHazard {
     data class Uv(val index: Double, val stop: RouteStop) : RouteHazard
 }
 
-/** 出發時間比較條的一欄：在這個時間出發，沿途最高的降雨機率與最嚴重的雨況。 */
-data class DepartureOption(val departure: LocalDateTime, val risk: Int, val level: RainLevel)
+/**
+ * 出發時間比較條與路線卡片的一欄：在這個時間出發時，沿途會淋雨的時間、
+ * 最高的降雨機率與最嚴重的雨況。
+ */
+data class DepartureOption(
+    val departure: LocalDateTime,
+    val risk: Int,
+    val level: RainLevel,
+    /** 經過「會下雨」路段的時間（分鐘），依雨況時間軸計算 */
+    val wetMinutes: Int = 0,
+    /** [wetMinutes] 佔整趟行程的比例（0–1） */
+    val wetFraction: Double = 0.0,
+)
 
 /** 沿途清單的一行：連續經過同一個鄉鎮的點。 */
 data class StopGroup(val stops: List<RouteStop>) {
@@ -352,20 +363,42 @@ object RoutePlanner {
     fun compare(data: RouteData, departures: List<LocalDateTime>, now: LocalDateTime = LocalDateTime.now()): List<DepartureOption> =
         departures.map { departure ->
             val stops = stopsAt(data, departure, now)
-            DepartureOption(departure, risk(stops), stops.maxOfOrNull { it.rainLevel } ?: RainLevel.UNKNOWN)
+            val fraction = wetFraction(stops)
+            DepartureOption(
+                departure,
+                risk(stops),
+                stops.maxOfOrNull { it.rainLevel } ?: RainLevel.UNKNOWN,
+                wetMinutes(fraction, data.path.durationMinutes),
+                fraction,
+            )
         }
 
+    /** 時間軸上「會下雨／大雨」的路段佔整趟行程的比例 */
+    fun wetFraction(stops: List<RouteStop>): Double =
+        timeline(stops).filter { it.level >= RainLevel.WET }.sumOf { it.end - it.start }.coerceIn(0.0, 1.0)
+
+    /** 淋雨分鐘數：有雨就至少 1 分鐘，免得短短一段被四捨五入成 0 */
+    fun wetMinutes(fraction: Double, durationMinutes: Double): Int {
+        if (fraction <= 0) return 0
+        return (fraction * durationMinutes).roundToLong().toInt().coerceAtLeast(1)
+    }
+
     /**
-     * 比較條上建議的出發時間：降雨機率比目前選的低 20% 以上的最低者（同機率取較早）；
-     * 沒有的話為 null。
+     * 建議的出發時間（或路線）：淋雨時間比目前選的少至少 5 分鐘且少一半以上，
+     * 取淋雨最少的（同樣時取降雨機率低、再取較早）；沒有的話為 null。
+     * 只看最高機率會被起點附近正在下的雨主導，長途時每個選項都一樣高，所以改比淋雨時間。
      */
     fun recommended(options: List<DepartureOption>, selected: LocalDateTime): DepartureOption? {
         val current = options.firstOrNull { it.departure == selected } ?: return null
         if (current.level == RainLevel.UNKNOWN) return null
         return options
-            .filter { it.level != RainLevel.UNKNOWN && it.risk <= current.risk - 20 }
-            .minWithOrNull(compareBy<DepartureOption> { it.risk }.thenBy { it.departure })
+            .filter { it.level != RainLevel.UNKNOWN && clearlyDrier(it, current) }
+            .minWithOrNull(compareBy<DepartureOption> { it.wetMinutes }.thenBy { it.risk }.thenBy { it.departure })
     }
+
+    /** [a] 比 [b] 明顯少淋雨 */
+    fun clearlyDrier(a: DepartureOption, b: DepartureOption): Boolean =
+        a.wetMinutes <= b.wetMinutes - 5 && a.wetMinutes * 2 <= b.wetMinutes
 
     private fun risk(stops: List<RouteStop>) = stops.maxOfOrNull { it.probability } ?: 0
 

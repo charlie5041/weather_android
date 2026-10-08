@@ -735,6 +735,33 @@ private fun FavoriteDialog(
     }
 }
 
+/**
+ * 比較用的文字：會淋雨多久。沒有會下雨的路段時，說「可能有雨」或「不太會淋雨」。
+ * [short] 用在出發時間比較條的窄欄。
+ */
+internal fun wetLabel(option: DepartureOption, short: Boolean): String = when {
+    option.wetMinutes > 0 -> if (short) "雨 ${option.wetMinutes} 分" else "淋雨約 ${durationLabel(option.wetMinutes.toDouble())}"
+    option.level == RainLevel.MAYBE -> if (short) "可能" else "可能有雨（${option.risk}%）"
+    else -> if (short) "不會下" else "不太會淋雨"
+}
+
+internal fun wetColor(option: DepartureOption): Color = when {
+    option.wetMinutes > 0 -> rainLevelColor(maxOf(option.level, RainLevel.WET))
+    option.level == RainLevel.MAYBE -> RouteMaybe
+    else -> Color.Gray
+}
+
+/** 柱的顏色與雨況時間軸一致（乾燥是綠色） */
+internal fun wetBarColor(option: DepartureOption): Color =
+    if (option.wetMinutes == 0 && option.level != RainLevel.MAYBE) RouteDry else wetColor(option)
+
+/** 柱高：淋雨的時間佔整趟越多越高 */
+internal fun wetBar(option: DepartureOption): Float = when {
+    option.wetMinutes > 0 -> 0.3f + 0.7f * option.wetFraction.toFloat()
+    option.level == RainLevel.MAYBE -> 0.25f
+    else -> 0.15f
+}
+
 internal fun durationLabel(minutes: Double): String {
     val m = minutes.roundToInt().coerceAtLeast(1)
     return if (m < 60) "$m 分" else if (m % 60 == 0) "${m / 60} 小時" else "${m / 60} 小時 ${m % 60} 分"
@@ -753,8 +780,10 @@ internal fun RouteChoices(
 ) {
     val options = routes.map { RoutePlanner.compare(it, listOf(departureFor(it))).first() }
     val fastest = routes.indices.minByOrNull { routes[it].path.durationMinutes }
-    val driest = options.indices.filter { options[it].level != RainLevel.UNKNOWN }.minByOrNull { options[it].risk }
-        ?.takeIf { i -> options.indices.any { j -> j != i && options[j].risk >= options[i].risk + 20 } }
+    // 淋雨最少、而且比其他至少一條明顯少淋雨的路線
+    val driest = options.indices.filter { options[it].level != RainLevel.UNKNOWN }
+        .minWithOrNull(compareBy<Int> { options[it].wetMinutes }.thenBy { options[it].risk })
+        ?.takeIf { i -> options.indices.any { j -> j != i && options[j].level != RainLevel.UNKNOWN && RoutePlanner.clearlyDrier(options[i], options[j]) } }
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -764,7 +793,7 @@ internal fun RouteChoices(
             val option = options[i].takeIf { it.level != RainLevel.UNKNOWN }
             Column(
                 Modifier
-                    .width(132.dp)
+                    .width(150.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(if (active) Color.White.copy(alpha = 0.18f) else PanelColor)
                     .then(if (active) Modifier.border(1.5.dp, Color.White, RoundedCornerShape(12.dp)) else Modifier)
@@ -779,27 +808,25 @@ internal fun RouteChoices(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    "${durationLabel(route.path.durationMinutes)} · %.1f 公里".format(Locale.US, route.path.distanceKm),
-                    color = Color.Gray,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                )
+                // 時間與距離分兩行，長途時才不會被截掉
+                Text(durationLabel(route.path.durationMinutes), color = Color.Gray, fontSize = 12.sp, maxLines = 1)
+                Text("%.1f 公里".format(Locale.US, route.path.distanceKm), color = Color.Gray, fontSize = 12.sp, maxLines = 1)
                 Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
                     Box(Modifier.width(10.dp).height(14.dp), contentAlignment = Alignment.BottomCenter) {
                         if (option != null) {
                             Box(
-                                Modifier.fillMaxWidth().fillMaxHeight(option.level.barHeight())
-                                    .clip(RoundedCornerShape(2.dp)).background(rainLevelColor(option.level)),
+                                Modifier.fillMaxWidth().fillMaxHeight(wetBar(option))
+                                    .clip(RoundedCornerShape(2.dp)).background(wetBarColor(option)),
                             )
                         }
                     }
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        option?.let { "最高 ${it.risk}%" } ?: "暫無預報",
-                        color = option?.takeIf { it.risk >= 30 }?.let { rainLevelColor(it.level) } ?: Color.Gray,
+                        option?.let { wetLabel(it, short = false) } ?: "暫無預報",
+                        color = option?.let(::wetColor) ?: Color.Gray,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
                     )
                 }
                 val tags = listOfNotNull("最快".takeIf { i == fastest }, "較不會淋雨".takeIf { i == driest })
@@ -941,14 +968,14 @@ internal fun DepartureStrip(
                 active = active,
                 onClick = { onSelect(time) },
                 label = if (time == now) "現在" else stripLabel(time, now) + suffix,
-                bottom = option?.let { "${it.risk}%" } ?: "–",
-                bottomColor = option?.takeIf { it.risk >= 30 }?.let { rainLevelColor(it.level) } ?: Color.Gray,
+                bottom = option?.let { wetLabel(it, short = true) } ?: "–",
+                bottomColor = option?.let(::wetColor) ?: Color.Gray,
                 recommended = best != null && best.departure == options?.getOrNull(i)?.departure,
             ) {
                 if (option != null) {
                     Box(
-                        Modifier.width(22.dp).fillMaxHeight(option.level.barHeight())
-                            .clip(RoundedCornerShape(3.dp)).background(rainLevelColor(option.level)),
+                        Modifier.width(22.dp).fillMaxHeight(wetBar(option))
+                            .clip(RoundedCornerShape(3.dp)).background(wetBarColor(option)),
                     )
                 }
             }
