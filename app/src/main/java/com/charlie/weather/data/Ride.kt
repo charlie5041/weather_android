@@ -98,6 +98,6 @@ object RideTracker {
             minutes <= 2 -> if (heavy) "目前路段有大雨" else "目前路段可能下雨"
             else -> "約 $minutes 分鐘後${if (heavy) "有大雨" else "可能下雨"}"
         }
-        return RideStatus(title, "$offRoute$where一帶 · $amount。$remain", rain, minutes, arrived = false)
+        return RideStatus(title, "$offRoute${where}一帶 · $amount。$remain", rain, minutes, arrived = false)
     }
 }
