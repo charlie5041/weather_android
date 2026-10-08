@@ -162,4 +162,45 @@ class RouteTest {
         assertEquals(RainLevel.HEAVY, stop(hour(now, 90, code = 63, mm = 12.0)).rainLevel)
         assertEquals(RainLevel.HEAVY, stop(null, raining = true).rainLevel)
     }
+
+    @Test
+    fun verdictLeadsWithWhenRainStarts() {
+        val dry = weather(0, 10, 10, 10, 10)
+        val wetLater = weather(0, 80, 80, 80, 80)
+        val verdict = RoutePlanner.evaluate(data(listOf(dry, dry, wetLater, wetLater)), now, now).verdict
+        assertEquals("08:20 起可能下雨", verdict.title)
+        assertTrue(verdict.detail, verdict.detail.contains("80%"))
+        assertTrue(verdict.detail, verdict.detail.contains("雨衣"))
+
+        val allDry = weather(0, 0, 0, 0, 0)
+        val dryVerdict = RoutePlanner.evaluate(data(listOf(allDry, allDry, allDry, allDry)), now, now).verdict
+        assertEquals("沿途不太會下雨", dryVerdict.title)
+
+        val allWet = weather(90, 90, 90, 90, 90)
+        assertEquals("一出發就可能下雨", RoutePlanner.evaluate(data(listOf(allWet, dry, dry, dry)), now, now).verdict.title)
+        assertEquals("沿途都會下雨", RoutePlanner.evaluate(data(listOf(allWet, allWet, allWet, allWet)), now, now).verdict.title)
+        assertEquals("暫無預報", RoutePlanner.evaluate(data(listOf(null, null, null, null)), now, now).verdict.title)
+    }
+
+    @Test
+    fun comparesDeparturesAndRecommendsDrierOne() {
+        // 雨在 7–8 點，9 點後停；20 分鐘的路
+        val w = weather(90, 90, 10, 10, 10, 10)
+        val path = RoutePath(listOf(LatLon(25.08, 121.57), LatLon(25.07, 121.57)), 1.0, 20.0)
+        val points = RoutePlanner.sample(path)
+        val route = RouteData(home, work, TravelMode.SCOOTER, path, points, points.map { w })
+        val departures = listOf(0L, 60L, 120L, 180L).map { now.plusMinutes(it) }
+        val options = RoutePlanner.compare(route, departures, now)
+        assertEquals(listOf(90, 90, 10, 10), options.map { it.risk })
+        assertEquals(RainLevel.WET, options[0].level)
+        assertEquals(RainLevel.DRY, options[2].level)
+        // 同樣乾時取較早的
+        assertEquals(now.plusHours(2), RoutePlanner.recommended(options, now)?.departure)
+        // 已經選了乾的時間就不再建議
+        assertNull(RoutePlanner.recommended(options, now.plusHours(2)))
+        // 超出預報範圍的時間不建議
+        val far = RoutePlanner.compare(route, listOf(now, now.plusDays(3)), now)
+        assertEquals(RainLevel.UNKNOWN, far[1].level)
+        assertNull(RoutePlanner.recommended(far, now))
+    }
 }

@@ -62,7 +62,7 @@ class ScreenshotTest {
     }
 
     @Test
-    @Config(qualifiers = "w400dp-h1400dp-xhdpi")
+    @Config(qualifiers = "w400dp-h1600dp-xhdpi")
     fun routeResult() {
         val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")
         val work = City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司")
@@ -90,9 +90,19 @@ class ScreenshotTest {
             }
         }
         capture("11_route") {
-            androidx.compose.foundation.layout.Box(
+            androidx.compose.foundation.layout.Column(
                 androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).padding(16.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
             ) {
+                val departures = listOf(0L, 30L, 60L, 90L, 120L, 180L).map { now.plusMinutes(it) }
+                DepartureStrip(
+                    departures,
+                    com.charlie.weather.data.RoutePlanner.compare(data, departures, now),
+                    selected = now,
+                    now = now,
+                    onSelect = {},
+                    onCustom = {},
+                )
                 RouteResult(forecast, googleMap = false)
             }
         }

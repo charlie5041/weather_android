@@ -8,10 +8,12 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -66,6 +69,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -80,6 +84,7 @@ import com.charlie.weather.BuildConfig
 import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
 import com.charlie.weather.data.CwaParser
+import com.charlie.weather.data.DepartureOption
 import com.charlie.weather.data.LatLon
 import com.charlie.weather.data.MapTile
 import com.charlie.weather.data.MapTileCache
@@ -98,7 +103,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.time.Duration
-import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -152,6 +156,8 @@ fun RouteScreen(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var pickTime by remember { mutableStateOf(false) }
+    // 比較條從這個時間起每 30 分鐘一欄（通勤時間或自訂時間）；沒有時從現在起
+    var anchor by remember { mutableStateOf(request.departure?.takeIf { it != openedAt }) }
 
     LaunchedEffect(from, to, via, mode, if (trafficAware) departure else null) {
         val a = from
@@ -234,16 +240,20 @@ fun RouteScreen(
                     mode = TravelMode.entries[it]
                 }
 
-                val presets = buildList {
-                    add("現在出發" to openedAt)
-                    request.departure?.takeIf { it.isAfter(openedAt) }?.let { add("${routeDay(it)} ${clock(it)}" to it) }
-                    listOf(30L, 60L, 120L).forEach { add((if (it < 60) "$it 分鐘後" else "${it / 60} 小時後") to openedAt.plusMinutes(it)) }
+                val departures = remember(anchor) {
+                    val times = anchor?.let { a -> listOf(0L, 30L, 60L, 90L, 120L).map { a.plusMinutes(it) } }
+                        ?: listOf(30L, 60L, 90L, 120L, 180L).map { openedAt.plusMinutes(it) }
+                    (listOf(openedAt) + times).distinct().sorted()
                 }
-                val presetIndex = presets.indexOfFirst { it.second == departure }
-                val labels = presets.map { it.first } + if (presetIndex < 0) "${routeDay(departure)} ${clock(departure)}" else "自訂時間"
-                ChipRow(labels, if (presetIndex >= 0) presetIndex else presets.size) { i ->
-                    if (i < presets.size) departure = presets[i].second else pickTime = true
-                }
+                val options = remember(data, departures) { data?.let { RoutePlanner.compare(it, departures) } }
+                DepartureStrip(
+                    departures,
+                    options,
+                    selected = departure,
+                    now = openedAt,
+                    onSelect = { departure = it },
+                    onCustom = { pickTime = true },
+                )
 
                 when {
                     from == null || to == null -> Hint("輸入起點與終點，查看路上每一段經過時的降雨機率。")
@@ -251,7 +261,7 @@ fun RouteScreen(
                         CircularProgressIndicator(color = Color.White)
                     }
                     error != null -> Hint(error!!)
-                    forecast != null -> RouteResult(forecast, onDeparture = { departure = it })
+                    forecast != null -> RouteResult(forecast)
                 }
                 Spacer(Modifier.height(24.dp))
             }
@@ -264,6 +274,7 @@ fun RouteScreen(
             val today = openedAt.toLocalDate().atTime(hour, minute)
             // 選的時間已經過了就當作明天
             departure = if (today.isBefore(openedAt.minusMinutes(5))) today.plusDays(1) else today
+            anchor = departure
         }
     }
 }
@@ -276,12 +287,6 @@ private fun modeEmoji(mode: TravelMode) = when (mode) {
 }
 
 private fun clock(time: LocalDateTime) = "%02d:%02d".format(time.hour, time.minute)
-
-private fun routeDay(time: LocalDateTime, today: LocalDate = LocalDate.now()) = when (time.toLocalDate()) {
-    today -> "今天"
-    today.plusDays(1) -> "明天"
-    else -> "${time.monthValue}/${time.dayOfMonth}"
-}
 
 internal fun rainColor(stop: RouteStop): Color = rainLevelColor(stop.rainLevel)
 
@@ -361,7 +366,6 @@ private fun Hint(text: String) {
 @Composable
 fun RouteResult(
     forecast: RouteForecast,
-    onDeparture: (LocalDateTime) -> Unit = {},
     /** 有 Google 金鑰時用 Google 地圖；截圖測試固定用圖磚地圖 */
     googleMap: Boolean = BuildConfig.GOOGLE_MAPS_API_KEY.isNotBlank(),
 ) {
@@ -369,11 +373,17 @@ fun RouteResult(
     val data = forecast.data
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Panel {
+            val verdict = forecast.verdict
+            Text(verdict.title, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, lineHeight = 32.sp)
             Text(
-                "${clock(forecast.departure)} 出發 → 約 ${clock(forecast.arrival)} 抵達",
-                color = Color.Gray,
-                fontSize = 13.sp,
+                verdict.detail,
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 15.sp,
+                lineHeight = 20.sp,
+                modifier = Modifier.padding(top = 2.dp),
             )
+            Spacer(Modifier.height(14.dp))
+            RainTimeline(forecast)
             Text(
                 "%.1f 公里 · 約 %d 分鐘%s".format(
                     Locale.US,
@@ -387,19 +397,8 @@ fun RouteResult(
                 ),
                 color = Color.Gray,
                 fontSize = 13.sp,
+                modifier = Modifier.padding(top = 4.dp),
             )
-            Spacer(Modifier.height(6.dp))
-            Text(forecast.summary, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium, lineHeight = 23.sp)
-            Spacer(Modifier.height(12.dp))
-            RainTimeline(forecast)
-            forecast.betterDeparture?.let { (time, _) ->
-                Text(
-                    "改成 ${clock(time)} 出發 ›",
-                    color = Accent,
-                    fontSize = 15.sp,
-                    modifier = Modifier.padding(top = 8.dp).clickable { onDeparture(time) },
-                )
-            }
         }
 
         Panel {
@@ -465,6 +464,89 @@ fun RouteResult(
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
         }
+    }
+}
+
+private fun stripLabel(time: LocalDateTime, now: LocalDateTime) = when {
+    time == now -> "現在"
+    time.toLocalDate() == now.toLocalDate() -> clock(time)
+    time.toLocalDate() == now.toLocalDate().plusDays(1) -> "明 ${clock(time)}"
+    else -> "${time.monthValue}/${time.dayOfMonth}"
+}
+
+/**
+ * 出發時間比較條：每一欄是一個出發時間與該時間出發時沿途最高的降雨機率，
+ * 柱高與顏色同雨況時間軸；明顯比較不會淋雨的一欄標「建議」。點一欄就改用該時間出發。
+ */
+@Composable
+internal fun DepartureStrip(
+    departures: List<LocalDateTime>,
+    options: List<DepartureOption>?,
+    selected: LocalDateTime,
+    now: LocalDateTime,
+    onSelect: (LocalDateTime) -> Unit,
+    onCustom: () -> Unit,
+) {
+    val best = options?.let { RoutePlanner.recommended(it, selected) }
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        departures.forEachIndexed { i, time ->
+            val option = options?.getOrNull(i)?.takeIf { it.level != RainLevel.UNKNOWN }
+            val active = time == selected
+            StripCell(
+                active = active,
+                onClick = { onSelect(time) },
+                label = stripLabel(time, now),
+                bottom = option?.let { "${it.risk}%" } ?: "–",
+                bottomColor = option?.takeIf { it.risk >= 30 }?.let { rainLevelColor(it.level) } ?: Color.Gray,
+                recommended = best != null && best.departure == time,
+            ) {
+                if (option != null) {
+                    Box(
+                        Modifier.width(22.dp).fillMaxHeight(option.level.barHeight())
+                            .clip(RoundedCornerShape(3.dp)).background(rainLevelColor(option.level)),
+                    )
+                }
+            }
+        }
+        StripCell(active = false, onClick = onCustom, label = "自訂", bottom = "時間", bottomColor = Color.Gray, recommended = false) {
+            Icon(Icons.Filled.Edit, contentDescription = null, tint = Accent, modifier = Modifier.size(18.dp).align(Alignment.Center))
+        }
+    }
+}
+
+@Composable
+private fun StripCell(
+    active: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    bottom: String,
+    bottomColor: Color,
+    recommended: Boolean,
+    graphic: @Composable BoxScope.() -> Unit,
+) {
+    Column(
+        Modifier
+            .width(64.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (active) Color.White.copy(alpha = 0.18f) else PanelColor)
+            .then(if (active) Modifier.border(1.5.dp, Color.White, RoundedCornerShape(12.dp)) else Modifier)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            label,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+        )
+        Box(Modifier.padding(vertical = 6.dp).height(22.dp).fillMaxWidth(), contentAlignment = Alignment.BottomCenter, content = graphic)
+        Text(bottom, color = bottomColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("建議", color = if (recommended) Accent else Color.Transparent, fontSize = 10.sp)
     }
 }
 

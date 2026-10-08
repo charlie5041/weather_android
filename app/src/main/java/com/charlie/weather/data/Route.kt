@@ -94,6 +94,12 @@ enum class RainLevel { UNKNOWN, DRY, MAYBE, WET, HEAVY }
  */
 data class RainSpan(val start: Double, val end: Double, val level: RainLevel)
 
+/** 結果最上方的大字結論，與一行補充說明。 */
+data class RouteVerdict(val title: String, val detail: String)
+
+/** 出發時間比較條的一欄：在這個時間出發，沿途最高的降雨機率與最嚴重的雨況。 */
+data class DepartureOption(val departure: LocalDateTime, val risk: Int, val level: RainLevel)
+
 /** 沿途清單的一行：連續經過同一個鄉鎮的點。 */
 data class StopGroup(val stops: List<RouteStop>) {
     val first: RouteStop get() = stops.first()
@@ -113,6 +119,7 @@ data class RouteForecast(
     val arrival: LocalDateTime get() = departure.plusSeconds((data.path.durationMinutes * 60).roundToLong())
     val maxProbability: Int get() = stops.maxOfOrNull { it.probability } ?: 0
     val summary: String get() = RoutePlanner.summary(this)
+    val verdict: RouteVerdict get() = RoutePlanner.verdict(this)
 }
 
 /**
@@ -253,6 +260,25 @@ object RoutePlanner {
         return spans
     }
 
+    /** 依各個出發時間重新計算沿途雨況（路線與行車時間不變）。 */
+    fun compare(data: RouteData, departures: List<LocalDateTime>, now: LocalDateTime = LocalDateTime.now()): List<DepartureOption> =
+        departures.map { departure ->
+            val stops = stopsAt(data, departure, now)
+            DepartureOption(departure, risk(stops), stops.maxOfOrNull { it.rainLevel } ?: RainLevel.UNKNOWN)
+        }
+
+    /**
+     * 比較條上建議的出發時間：降雨機率比目前選的低 20% 以上的最低者（同機率取較早）；
+     * 沒有的話為 null。
+     */
+    fun recommended(options: List<DepartureOption>, selected: LocalDateTime): DepartureOption? {
+        val current = options.firstOrNull { it.departure == selected } ?: return null
+        if (current.level == RainLevel.UNKNOWN) return null
+        return options
+            .filter { it.level != RainLevel.UNKNOWN && it.risk <= current.risk - 20 }
+            .minWithOrNull(compareBy<DepartureOption> { it.risk }.thenBy { it.departure })
+    }
+
     private fun risk(stops: List<RouteStop>) = stops.maxOfOrNull { it.probability } ?: 0
 
     private fun stopsAt(data: RouteData, departure: LocalDateTime, now: LocalDateTime): List<RouteStop> =
@@ -292,6 +318,36 @@ object RoutePlanner {
         weather.hourly
             .filter { abs(Duration.between(it.time, time).toMinutes()) <= 60 }
             .minByOrNull { abs(Duration.between(it.time, time).toMinutes()) }
+
+    fun verdict(forecast: RouteForecast): RouteVerdict {
+        val stops = forecast.stops
+        if (stops.all { it.hour == null && !it.rainingNow }) return RouteVerdict("暫無預報", "這段時間還沒有逐時預報資料")
+        val gear = forecast.data.mode.rainGear?.let { "記得帶$it" } ?: "注意路面濕滑"
+        fun where(s: RouteStop) = s.place ?: "距起點 ${"%.1f".format(Locale.US, s.point.distanceKm)} 公里處"
+        val wet = stops.filter { it.wet }
+        val heavy = wet.any { it.rainLevel == RainLevel.HEAVY }
+        val raining = stops.firstOrNull { it.rainingNow }
+        return when {
+            raining != null -> RouteVerdict("${where(raining)}正在下雨", gear)
+            wet.size == stops.size -> RouteVerdict(
+                if (heavy) "沿途都有雨，部分大雨" else "沿途都會下雨",
+                "降雨機率最高 ${forecast.maxProbability}% · $gear",
+            )
+            wet.isNotEmpty() -> {
+                val first = wet.first()
+                val rain = if (heavy) "有大雨" else "可能下雨"
+                RouteVerdict(
+                    if (first == stops.first()) "一出發就$rain" else "${"%02d:%02d".format(first.eta.hour, first.eta.minute)} 起$rain",
+                    "${where(first)}一帶 · 降雨機率 ${first.probability}% · $gear",
+                )
+            }
+            forecast.maxProbability >= 30 -> RouteVerdict(
+                "可能會下雨",
+                "降雨機率最高 ${forecast.maxProbability}% · 可以備著${forecast.data.mode.rainGear ?: "雨具"}",
+            )
+            else -> RouteVerdict("沿途不太會下雨", "降雨機率最高 ${forecast.maxProbability}%")
+        }
+    }
 
     fun summary(forecast: RouteForecast): String {
         val stops = forecast.stops
