@@ -192,6 +192,8 @@ class RouteTest {
         val departures = listOf(0L, 60L, 120L, 180L).map { now.plusMinutes(it) }
         val options = RoutePlanner.compare(route, departures, now)
         assertEquals(listOf(90, 90, 10, 10), options.map { it.risk })
+        // 20 分鐘的路：雨中出發整趟都淋雨，9 點後不會
+        assertEquals(listOf(20, 20, 0, 0), options.map { it.wetMinutes })
         assertEquals(RainLevel.WET, options[0].level)
         assertEquals(RainLevel.DRY, options[2].level)
         // 同樣乾時取較早的
@@ -276,5 +278,28 @@ class RouteTest {
         assertEquals(3, RoutePlanner.forecastDays(now.plusHours(3), now))
         assertEquals(5, RoutePlanner.forecastDays(now.plusDays(3), now))
         assertEquals(7, RoutePlanner.forecastDays(now.plusDays(10), now))
+    }
+
+    @Test
+    fun wetMinutesIgnoreRainOnlyNearTheStart() {
+        // 2 小時的路，只有起點那一段在下雨：最高機率 90%，但只淋雨 1/8 的時間（15 分鐘）
+        val path = RoutePath(listOf(LatLon(25.0, 121.5), LatLon(25.4, 121.5)), 44.0, 120.0)
+        val points = RoutePlanner.sample(path, stepKm = 11.2)
+        assertEquals(5, points.size)
+        val rainy = weather(90, 90, 90)
+        val dry = weather(0, 0, 0)
+        val startRain = RouteData(home, work, TravelMode.CAR, path, points, points.mapIndexed { i, _ -> if (i == 0) rainy else dry })
+        val allRain = startRain.copy(weathers = points.map { rainy })
+        val a = RoutePlanner.compare(startRain, listOf(now), now).single()
+        val b = RoutePlanner.compare(allRain, listOf(now), now).single()
+        assertEquals(90, a.risk)
+        assertEquals(90, b.risk)
+        assertEquals(15, a.wetMinutes)
+        assertEquals(0.125, a.wetFraction, 1e-9)
+        assertEquals(120, b.wetMinutes)
+        assertTrue(RoutePlanner.clearlyDrier(a, b))
+        assertFalse(RoutePlanner.clearlyDrier(b, a))
+        // 少淋雨不到 5 分鐘不算明顯
+        assertFalse(RoutePlanner.clearlyDrier(a.copy(wetMinutes = 0), a.copy(wetMinutes = 4)))
     }
 }
