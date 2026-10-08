@@ -28,7 +28,7 @@ import java.time.LocalDateTime
 private val CommuteSecondary = Color.White.copy(alpha = 0.6f)
 private val CommuteRain = Color(0xFF64D2FF)
 
-/** 通勤時段預報：出發地（出發時）與目的地（約 1 小時後抵達時）的天氣；可開啟沿途降雨。 */
+/** 通勤時段預報：出發地（出發時）與目的地（抵達時）的天氣，標出兩個時間；可開啟沿途降雨。 */
 @Composable
 fun CommuteCard(
     trip: CommuteTrip,
@@ -37,9 +37,9 @@ fun CommuteCard(
     onOpenRoute: (() -> Unit)? = null,
 ) {
     GlassCard("${dayWord(trip.departure, today)} ${timeLabel(trip.departure)} ${trip.leg.label}通勤", modifier) {
-        CommuteRow("出發", trip.from, trip.fromHour)
+        CommuteRow("出發 ${clockLabel(trip.departure)}", trip.from, trip.fromHour)
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Color.White.copy(alpha = 0.18f))
-        CommuteRow("抵達", trip.to, trip.toHour)
+        CommuteRow("約 ${clockLabel(trip.arrival)} 抵達", trip.to, trip.toHour)
         Spacer(Modifier.height(8.dp))
         Text(trip.advice, fontSize = 14.sp, color = Color.White, lineHeight = 19.sp)
         if (onOpenRoute != null) {
@@ -53,6 +53,8 @@ fun CommuteCard(
         }
     }
 }
+
+private fun clockLabel(time: LocalDateTime) = "%02d:%02d".format(time.hour, time.minute)
 
 private fun dayWord(time: LocalDateTime, today: LocalDate) = when (time.toLocalDate()) {
     today -> "今天"

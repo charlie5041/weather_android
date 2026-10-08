@@ -8,6 +8,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
+import kotlin.math.roundToInt
 
 /** App、背景更新與小工具共用的天氣資料來源（Open-Meteo + 中央氣象署）。 */
 class WeatherRepository private constructor(context: Context) {
@@ -17,6 +18,31 @@ class WeatherRepository private constructor(context: Context) {
     private val googleRoutes = BuildConfig.GOOGLE_MAPS_API_KEY.takeIf { it.isNotBlank() }?.let {
         GoogleRoutes(it, context.packageName, GoogleRoutes.certSha1(context))
     }
+
+    /**
+     * 住家到公司的行車時間（分鐘），一天查一次路線並記下來。
+     * [allowNetwork] 為 false（背景通知）時只用記下的值；查不到路線時回傳 null。
+     */
+    suspend fun commuteMinutes(home: City, work: City, mode: TravelMode = commuteMode(), allowNetwork: Boolean = true): Int? {
+        val key = Commute.routeKey(home, work, mode)
+        settings.commuteMinutes(key)?.let { return it }
+        if (!allowNetwork) return settings.lastCommuteMinutes(key)
+        val path = try {
+            RouteApi.route(LatLon(home.latitude, home.longitude), LatLon(work.latitude, work.longitude), mode, google = googleRoutes)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        // 直線估計不可靠，不記下來，下次再試
+        if (path == null || path.approximate) return settings.lastCommuteMinutes(key)
+        val minutes = path.durationMinutes.roundToInt().coerceAtLeast(1)
+        settings.setCommuteMinutes(key, minutes)
+        return minutes
+    }
+
+    /** 通勤的交通方式：沿用上次在路線降雨選的方式，預設機車 */
+    fun commuteMode(): TravelMode = store.loadLastRoute()?.mode ?: TravelMode.SCOOTER
 
     /** 有 Google 金鑰：行車時間含路況，會隨出發時間改變 */
     val trafficAwareRoutes: Boolean get() = googleRoutes != null

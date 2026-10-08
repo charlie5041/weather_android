@@ -4,6 +4,10 @@ import android.content.Context
 
 /** 使用者設定與通知去重用的狀態。 */
 class AppSettings(context: Context) {
+    companion object {
+        private const val COMMUTE_ROUTE_TTL_MS = 24 * 60 * 60 * 1000L
+    }
+
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     var rainAlerts: Boolean
@@ -52,6 +56,24 @@ class AppSettings(context: Context) {
     var routeStepKm: Int
         get() = prefs.getInt("route_step_km", RoutePlanner.STEP_KM.toInt())
         set(value) = prefs.edit().putInt("route_step_km", value).apply()
+
+    /** 住家與公司之間的行車時間（分鐘），以 [key] 對應地點與交通方式；超過一天或地點改變就失效 */
+    fun commuteMinutes(key: String, now: Long = System.currentTimeMillis()): Int? {
+        if (prefs.getString("commute_route_key", null) != key) return null
+        if (now - prefs.getLong("commute_route_at", 0) > COMMUTE_ROUTE_TTL_MS) return null
+        return prefs.getInt("commute_route_minutes", -1).takeIf { it > 0 }
+    }
+
+    /** 最後一次記下的行車時間（不管是否過期），背景通知用 */
+    fun lastCommuteMinutes(key: String): Int? =
+        prefs.getInt("commute_route_minutes", -1).takeIf { it > 0 && prefs.getString("commute_route_key", null) == key }
+
+    fun setCommuteMinutes(key: String, minutes: Int, now: Long = System.currentTimeMillis()) =
+        prefs.edit()
+            .putString("commute_route_key", key)
+            .putInt("commute_route_minutes", minutes)
+            .putLong("commute_route_at", now)
+            .apply()
 
     /** "C" 或 "F" */
     var temperatureUnit: String
