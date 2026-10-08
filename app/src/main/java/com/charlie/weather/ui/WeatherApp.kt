@@ -107,13 +107,19 @@ fun WeatherApp(
     }
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
-    val commuteTrip = remember(cities, weather, settingsVersion) {
+    val commuteMinutes by vm.commuteMinutes.collectAsStateWithLifecycle()
+    val commutePlaces = remember(cities) { Commute.homeAndWork(cities) }
+    // 住家、公司或交通方式改變時重新查行車時間（一天內用記下的值）
+    LaunchedEffect(commutePlaces, routeRequest == null) {
+        commutePlaces?.let { (home, work) -> vm.loadCommuteMinutes(home, work) }
+    }
+    val commuteTrip = remember(cities, weather, settingsVersion, commuteMinutes) {
         val settings = AppSettings(context)
         if (!settings.commuteCard) return@remember null
-        val (home, work) = Commute.homeAndWork(cities) ?: return@remember null
+        val (home, work) = commutePlaces ?: return@remember null
         Commute.trip(
             home, work, weather[home.id]?.weather, weather[work.id]?.weather, LocalDateTime.now(),
-            settings.commuteMorningHour, settings.commuteEveningHour,
+            settings.commuteMorningHour, settings.commuteEveningHour, commuteMinutes,
         )
     }
 

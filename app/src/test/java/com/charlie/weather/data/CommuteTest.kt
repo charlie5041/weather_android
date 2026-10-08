@@ -68,6 +68,21 @@ class CommuteTest {
     }
 
     @Test
+    fun arrivalUsesRouteTravelTimeAndNearestHour() {
+        val homeWeather = weather(hour(at(6, 8), 22.0), hour(at(6, 9), 23.0))
+        val workWeather = weather(hour(at(6, 8), 24.0), hour(at(6, 9), 27.0))
+        // 騎車 25 分鐘：08:25 抵達，取最接近的 08:00
+        val short = Commute.trip(home, work, homeWeather, workWeather, at(6, 7), 8, 18, travelMinutes = 25)
+        assertEquals(at(6, 8, 25), short.arrival)
+        assertEquals(24.0, short.toHour!!.temperature, 0.0)
+        // 40 分鐘：08:40 抵達，取 09:00
+        val longer = Commute.trip(home, work, homeWeather, workWeather, at(6, 7), 8, 18, travelMinutes = 40)
+        assertEquals(27.0, longer.toHour!!.temperature, 0.0)
+        // 還沒有行車時間時以 1 小時估計
+        assertEquals(at(6, 9), Commute.trip(home, work, homeWeather, workWeather, at(6, 7), 8, 18).arrival)
+    }
+
+    @Test
     fun adviceForCalmAndStormyWeather() {
         assertEquals("兩地天氣穩定，適合出門", Commute.advice(hour(at(6, 8), 24.0), hour(at(6, 9), 25.0)))
         assertTrue(Commute.advice(hour(at(6, 8), 24.0, code = 95), null).contains("雷雨"))
