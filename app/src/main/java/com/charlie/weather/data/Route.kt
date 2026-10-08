@@ -72,6 +72,9 @@ data class RouteStop(
     val hour: HourlyForecast?,
     /** 附近雨量站顯示現在正在下雨（只在即將經過的點才採用） */
     val rainingNow: Boolean,
+    val county: String? = null,
+    /** 這個縣市發布中的天氣特報 */
+    val alerts: List<CwaAlert> = emptyList(),
 ) {
     val wet: Boolean get() = rainingNow || hour?.let(Commute::isWet) == true
     val probability: Int get() = if (rainingNow) 100 else hour?.precipitationProbability ?: 0
@@ -97,6 +100,27 @@ data class RainSpan(val start: Double, val end: Double, val level: RainLevel)
 /** 結果最上方的大字結論，與一行補充說明。 */
 data class RouteVerdict(val title: String, val detail: String)
 
+/** 沿途除了雨以外要注意的事；文字在畫面上依使用者的單位組成。 */
+sealed interface RouteHazard {
+    /** 經過時仍生效的天氣特報，與會經過的發布縣市 */
+    data class Alert(val title: String, val counties: List<String>) : RouteHazard
+
+    /** 沿途最大的陣風（km/h） */
+    data class Wind(val gustKmh: Double, val stop: RouteStop) : RouteHazard
+
+    /** 路上會日落；stop 是日落後經過的第一個點 */
+    data class Sunset(val time: LocalDateTime, val stop: RouteStop) : RouteHazard
+
+    /** 沿途最低的體感溫度；騎車時含車速造成的風寒 */
+    data class Cold(val feelsLike: Double, val temperature: Double, val riding: Boolean, val stop: RouteStop) : RouteHazard
+
+    /** 沿途最高的體感溫度 */
+    data class Heat(val feelsLike: Double, val stop: RouteStop) : RouteHazard
+
+    /** 沿途最高的紫外線指數 */
+    data class Uv(val index: Double, val stop: RouteStop) : RouteHazard
+}
+
 /** 出發時間比較條的一欄：在這個時間出發，沿途最高的降雨機率與最嚴重的雨況。 */
 data class DepartureOption(val departure: LocalDateTime, val risk: Int, val level: RainLevel)
 
@@ -120,6 +144,7 @@ data class RouteForecast(
     val maxProbability: Int get() = stops.maxOfOrNull { it.probability } ?: 0
     val summary: String get() = RoutePlanner.summary(this)
     val verdict: RouteVerdict get() = RoutePlanner.verdict(this)
+    val hazards: List<RouteHazard> get() = RoutePlanner.hazards(this)
 }
 
 /**
@@ -296,6 +321,8 @@ object RoutePlanner {
                 place = weather?.cwa?.township,
                 hour = weather?.let { nearestHour(it, eta) },
                 rainingNow = rainingNow,
+                county = weather?.cwa?.county,
+                alerts = weather?.cwa?.alerts.orEmpty(),
             )
         }
 
@@ -318,6 +345,90 @@ object RoutePlanner {
         weather.hourly
             .filter { abs(Duration.between(it.time, time).toMinutes()) <= 60 }
             .minByOrNull { abs(Duration.between(it.time, time).toMinutes()) }
+
+    /** 機車、單車騎乘時的平均車速（km/h），用來算風寒；步行與汽車為 0 */
+    private fun ridingKmh(mode: TravelMode) = when (mode) {
+        TravelMode.SCOOTER -> 40.0
+        TravelMode.BIKE -> 18.0
+        else -> 0.0
+    }
+
+    /**
+     * 風寒體感（加拿大／美國氣象局公式），v 為氣溫 15°C 以下時的相對風速 km/h；
+     * 公式原本適用 10°C 以下，台灣冬天騎車 15°C 也會覺得冷，延伸使用並不高於氣溫。
+     */
+    fun windChill(temperature: Double, windKmh: Double): Double {
+        if (temperature > 15 || windKmh < 4.8) return temperature
+        val v = Math.pow(windKmh, 0.16)
+        return minOf(temperature, 13.12 + 0.6215 * temperature - 11.37 * v + 0.3965 * temperature * v)
+    }
+
+    /**
+     * 沿途要注意的事：特報、強陣風、日落、冷、熱、紫外線。
+     * 汽車只看特報、陣風與日落（車內不受冷熱與日曬影響）。
+     */
+    fun hazards(forecast: RouteForecast): List<RouteHazard> {
+        val stops = forecast.stops
+        val mode = forecast.data.mode
+        val exposed = mode != TravelMode.CAR
+        val result = mutableListOf<RouteHazard>()
+
+        // 經過該縣市時仍生效的特報，同一種特報合併縣市
+        val alerts = linkedMapOf<String, LinkedHashSet<String>>()
+        stops.forEach { stop ->
+            stop.alerts
+                .filter { (it.start == null || !it.start.isAfter(stop.eta)) && (it.end == null || it.end.isAfter(stop.eta)) }
+                .forEach { alert -> alerts.getOrPut(alert.title) { linkedSetOf() }.apply { stop.county?.let(::add) } }
+        }
+        alerts.forEach { (title, counties) -> result += RouteHazard.Alert(title, counties.toList()) }
+
+        // 機車與單車 40 km/h（約 6 級）就容易被側風吹偏
+        val gustLimit = if (mode == TravelMode.SCOOTER || mode == TravelMode.BIKE) 40.0 else 55.0
+        stops.filter { it.hour?.windGusts?.isNaN() == false }
+            .maxByOrNull { it.hour!!.windGusts }
+            ?.takeIf { it.hour!!.windGusts >= gustLimit }
+            ?.let { result += RouteHazard.Wind(it.hour!!.windGusts, it) }
+
+        sunset(forecast)?.let { result += it }
+
+        if (exposed) {
+            val ride = ridingKmh(mode)
+            stops.mapNotNull { stop ->
+                val h = stop.hour ?: return@mapNotNull null
+                val feels = if (ride > 0 && h.temperature <= 15) {
+                    windChill(h.temperature, ride + (h.windSpeed.takeUnless { it.isNaN() } ?: 0.0))
+                } else {
+                    h.apparentTemperature.takeUnless { it.isNaN() } ?: h.temperature
+                }
+                Triple(stop, feels, h.temperature)
+            }.minByOrNull { it.second }
+                ?.takeIf { it.second <= if (ride > 0) 12.0 else 10.0 }
+                ?.let { (stop, feels, temperature) -> result += RouteHazard.Cold(feels, temperature, ride > 0, stop) }
+
+            stops.filter { it.hour?.apparentTemperature?.isNaN() == false }
+                .maxByOrNull { it.hour!!.apparentTemperature }
+                ?.takeIf { it.hour!!.apparentTemperature >= 36 }
+                ?.let { result += RouteHazard.Heat(it.hour!!.apparentTemperature, it) }
+
+            stops.filter { stop -> stop.hour?.let { it.isDay && !it.uvIndex.isNaN() } == true }
+                .maxByOrNull { it.hour!!.uvIndex }
+                ?.takeIf { it.hour!!.uvIndex >= 8 }
+                ?.let { result += RouteHazard.Uv(it.hour!!.uvIndex, it) }
+        }
+        return result
+    }
+
+    /** 經過兩個相鄰點之間時太陽下山 */
+    private fun sunset(forecast: RouteForecast): RouteHazard.Sunset? {
+        val stops = forecast.stops
+        for (i in 1 until stops.size) {
+            val stop = stops[i]
+            val sunset = forecast.data.weathers.getOrNull(i)?.daily
+                ?.firstOrNull { it.date == stop.eta.toLocalDate() }?.sunset ?: continue
+            if (stops[i - 1].eta.isBefore(sunset) && !stop.eta.isBefore(sunset)) return RouteHazard.Sunset(sunset, stop)
+        }
+        return null
+    }
 
     fun verdict(forecast: RouteForecast): RouteVerdict {
         val stops = forecast.stops

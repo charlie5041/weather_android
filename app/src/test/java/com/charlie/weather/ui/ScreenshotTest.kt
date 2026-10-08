@@ -109,6 +109,31 @@ class ScreenshotTest {
     }
 
     @Test
+    @Config(qualifiers = "w400dp-h360dp-xhdpi")
+    fun routeHazards() = capture("12_route_hazards") {
+        val now = java.time.LocalDateTime.of(2026, 1, 10, 17, 0)
+        val stop = com.charlie.weather.data.RouteStop(
+            com.charlie.weather.data.RoutePoint(com.charlie.weather.data.LatLon(24.5, 120.8), 0.4, 32.0),
+            now.plusMinutes(40), "后里區", null, rainingNow = false,
+        )
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).padding(16.dp),
+        ) {
+            Panel {
+                RouteHazards(
+                    listOf(
+                        com.charlie.weather.data.RouteHazard.Alert("大雨特報", listOf("苗栗縣", "臺中市")),
+                        com.charlie.weather.data.RouteHazard.Wind(52.0, stop),
+                        com.charlie.weather.data.RouteHazard.Sunset(now.plusMinutes(32), stop),
+                        com.charlie.weather.data.RouteHazard.Cold(8.6, 13.0, riding = true, stop = stop),
+                        com.charlie.weather.data.RouteHazard.Uv(9.0, stop),
+                    ),
+                )
+            }
+        }
+    }
+
+    @Test
     @Config(qualifiers = "w400dp-h420dp-xhdpi")
     fun commuteCard() = capture("10_commute") {
         val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")

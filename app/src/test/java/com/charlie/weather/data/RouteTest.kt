@@ -203,4 +203,50 @@ class RouteTest {
         assertEquals(RainLevel.UNKNOWN, far[1].level)
         assertNull(RoutePlanner.recommended(far, now))
     }
+
+    @Test
+    fun hazardsAlongTheRoute() {
+        val start = now.withHour(17)
+        fun h(time: LocalDateTime, temp: Double, gust: Double = 20.0) =
+            HourlyForecast(time, temp, 2, 0, 0.0, isDay = true, apparentTemperature = temp, windSpeed = 10.0, windGusts = gust, uvIndex = 0.0)
+        // 17:30 日落
+        val day = DailyForecast(start.toLocalDate(), 2, 20.0, 12.0, 0, 0.0, null, start.withMinute(30), 3.0)
+        val w = weather(0).copy(daily = listOf(day))
+        val route = data(listOf(w, w, w, w))
+        val rain = CwaAlert("大雨", "特報", null, start.plusHours(3))
+        val wind = CwaAlert("陸上強風", "特報", start.plusHours(4), null)
+        fun stop(i: Int, temp: Double, county: String, alerts: List<CwaAlert>, gust: Double = 20.0): RouteStop {
+            val eta = start.plusMinutes(40L * i)
+            return RouteStop(route.points[i], eta, null, h(eta, temp, gust), false, county, alerts)
+        }
+        val stops = listOf(
+            stop(0, 13.0, "苗栗縣", listOf(rain)),
+            stop(1, 14.0, "臺中市", listOf(rain, wind), gust = 45.0),
+            stop(2, 16.0, "臺中市", listOf(rain, wind)),
+            stop(3, 16.0, "彰化縣", emptyList()),
+        )
+
+        val scooter = RouteForecast(route, start, stops).hazards
+        // 強風特報 21:00 才生效，經過時還沒開始
+        assertEquals(RouteHazard.Alert("大雨特報", listOf("苗栗縣", "臺中市")), scooter[0])
+        assertEquals(RouteHazard.Wind(45.0, stops[1]), scooter[1])
+        assertEquals(RouteHazard.Sunset(start.withMinute(30), stops[1]), scooter[2])
+        // 13°C、騎乘 40 km/h ＋ 風 10 km/h → 體感約 9.6°
+        val cold = scooter[3] as RouteHazard.Cold
+        assertEquals(9.6, cold.feelsLike, 0.1)
+        assertTrue(cold.riding)
+        assertEquals(stops[0], cold.stop)
+        assertEquals(4, scooter.size)
+
+        // 汽車：陣風 45 未達 55，也不看冷熱
+        val car = RouteForecast(route.copy(mode = TravelMode.CAR), start, stops).hazards
+        assertEquals(listOf("Alert", "Sunset"), car.map { it::class.simpleName })
+    }
+
+    @Test
+    fun windChillOnlyWhenCool() {
+        assertEquals(20.0, RoutePlanner.windChill(20.0, 50.0), 0.0)
+        assertEquals(5.0, RoutePlanner.windChill(5.0, 3.0), 0.0)
+        assertTrue(RoutePlanner.windChill(10.0, 40.0) < 6.5)
+    }
 }

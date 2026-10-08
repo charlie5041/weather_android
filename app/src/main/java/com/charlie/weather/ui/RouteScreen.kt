@@ -90,6 +90,7 @@ import com.charlie.weather.data.MapTile
 import com.charlie.weather.data.MapTileCache
 import com.charlie.weather.data.MapViewport
 import com.charlie.weather.data.RainLevel
+import com.charlie.weather.data.RouteHazard
 import com.charlie.weather.data.WebMercator
 import com.charlie.weather.data.RouteData
 import com.charlie.weather.data.RouteForecast
@@ -384,6 +385,7 @@ fun RouteResult(
             )
             Spacer(Modifier.height(14.dp))
             RainTimeline(forecast)
+            RouteHazards(forecast.hazards, Modifier.padding(top = 4.dp))
             Text(
                 "%.1f 公里 · 約 %d 分鐘%s".format(
                     Locale.US,
@@ -463,6 +465,50 @@ fun RouteResult(
                 fontSize = 12.sp,
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
+        }
+    }
+}
+
+private fun stopWhere(stop: RouteStop) = stop.place ?: "%.0f 公里處".format(Locale.US, stop.point.distanceKm)
+
+private fun uvLevel(index: Double) = when {
+    index >= 11 -> "危險級"
+    index >= 8 -> "過量級"
+    index >= 6 -> "高量級"
+    else -> "中量級"
+}
+
+/** 一則沿途提醒的圖示與文字（依使用者的溫度、風速單位） */
+internal fun hazardLine(hazard: RouteHazard): Pair<String, String> = when (hazard) {
+    is RouteHazard.Alert -> "⚠️" to hazard.title + hazard.counties.takeIf { it.isNotEmpty() }?.joinToString("、", prefix = "：").orEmpty()
+    is RouteHazard.Wind -> "💨" to "${stopWhere(hazard.stop)}一帶陣風 ${windText(hazard.gustKmh)}，注意側風"
+    is RouteHazard.Sunset -> "🌇" to "${clock(hazard.time)} 日落，${stopWhere(hazard.stop)}之後天黑"
+    is RouteHazard.Cold -> "🥶" to if (hazard.riding) {
+        "騎乘體感約 ${hazard.feelsLike.deg()}（氣溫 ${hazard.temperature.deg()}），注意保暖"
+    } else {
+        "體感 ${hazard.feelsLike.deg()}，注意保暖"
+    }
+    is RouteHazard.Heat -> "🥵" to "體感 ${hazard.feelsLike.deg()}，注意防曬與補水"
+    is RouteHazard.Uv -> "☀️" to "紫外線 ${hazard.index.roundToInt()}（${uvLevel(hazard.index)}），注意防曬"
+}
+
+/** 雨以外的沿途提醒，一則一行；特報用橘色 */
+@Composable
+internal fun RouteHazards(hazards: List<RouteHazard>, modifier: Modifier = Modifier) {
+    if (hazards.isEmpty()) return
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        hazards.forEach { hazard ->
+            val (icon, text) = hazardLine(hazard)
+            Row {
+                Text(icon, fontSize = 14.sp, modifier = Modifier.width(24.dp))
+                Text(
+                    text,
+                    color = if (hazard is RouteHazard.Alert) Color(0xFFFF9F0A) else Color.White.copy(alpha = 0.85f),
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = if (hazard is RouteHazard.Alert) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
         }
     }
 }
