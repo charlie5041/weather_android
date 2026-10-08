@@ -157,6 +157,10 @@ fun RouteScreen(
     favorites: List<FavoriteRoute> = emptyList(),
     onSaveFavorite: (FavoriteRoute) -> Unit = {},
     onRemoveFavorite: (String) -> Unit = {},
+    /** 騎乘中模式是否進行中 */
+    rideActive: Boolean = false,
+    onStartRide: ((RouteData) -> Unit)? = null,
+    onStopRide: () -> Unit = {},
     onClose: () -> Unit,
 ) {
     val openedAt = remember { LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES) }
@@ -338,7 +342,12 @@ fun RouteScreen(
                     forecast != null -> {
                         val all = routes.orEmpty()
                         if (all.size > 1) RouteChoices(all, selected, ::departureFor) { selected = it }
-                        RouteResult(forecast)
+                        RouteResult(
+                            forecast,
+                            ride = onStartRide?.let { start ->
+                                RideControl(rideActive, onStart = { start(forecast.data) }, onStop = onStopRide)
+                            },
+                        )
                     }
                 }
                 Spacer(Modifier.height(24.dp))
@@ -485,6 +494,8 @@ private fun Hint(text: String) {
 @Composable
 fun RouteResult(
     forecast: RouteForecast,
+    /** 開始／結束騎乘中模式；null 時不顯示按鈕 */
+    ride: RideControl? = null,
     /** 有 Google 金鑰時用 Google 地圖；截圖測試固定用圖磚地圖 */
     googleMap: Boolean = BuildConfig.GOOGLE_MAPS_API_KEY.isNotBlank(),
 ) {
@@ -521,6 +532,27 @@ fun RouteResult(
                 color = Color.Gray,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+
+        ride?.let { control ->
+            val riding = data.mode == TravelMode.SCOOTER || data.mode == TravelMode.BIKE
+            Text(
+                when {
+                    control.active -> "■ 結束沿途提醒"
+                    riding -> "▶ 開始騎乘：前方下雨時通知"
+                    else -> "▶ 開始出發：前方下雨時通知"
+                },
+                color = if (control.active) Color.White else Color.Black,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (control.active) Color(0xFF3A3A3C) else Color.White)
+                    .clickable(role = Role.Button, onClick = if (control.active) control.onStop else control.onStart)
+                    .padding(vertical = 13.dp),
             )
         }
 
@@ -959,6 +991,9 @@ private fun StripCell(
         Text("建議", color = if (recommended) Accent else Color.Transparent, fontSize = 10.sp)
     }
 }
+
+/** 路線結果上的騎乘中模式按鈕 */
+class RideControl(val active: Boolean, val onStart: () -> Unit, val onStop: () -> Unit)
 
 /** 柱高：不靠顏色也看得出雨勢 */
 private fun RainLevel.barHeight() = when (this) {

@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 騎乘中模式：前景服務持續取得位置 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:allowBackup="false"
@@ -32,6 +35,11 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".sync.RideService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <receiver
             android:name=".widget.WeatherWidgetReceiver"

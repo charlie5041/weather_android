@@ -129,6 +129,18 @@ class WeatherRepository private constructor(context: Context) {
         }
     }
 
+    /** 最新的雷達短時預報（騎乘中每 10 分鐘更新一次）；不使用氣象署資料或失敗時為 null */
+    suspend fun nowcast(): RainNowcast? {
+        if (!settings.useCwa) return null
+        return try {
+            cwa.nowcast(allowNetwork = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private suspend fun cwaAt(p: LatLon): CwaData? = try {
         cwa.load(p.latitude, p.longitude, allowNetwork = true)
     } catch (e: CancellationException) {

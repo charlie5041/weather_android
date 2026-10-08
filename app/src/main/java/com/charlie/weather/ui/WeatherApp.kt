@@ -14,6 +14,7 @@ import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
 import com.charlie.weather.data.FavoriteRoute
+import com.charlie.weather.sync.RideService
 import com.charlie.weather.sync.WeatherNotifier
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -88,6 +89,7 @@ fun WeatherApp(
     val searching by vm.searching.collectAsStateWithLifecycle()
     val favorites by vm.favorites.collectAsStateWithLifecycle()
     val upcoming by vm.upcoming.collectAsStateWithLifecycle()
+    val riding by RideService.active.collectAsStateWithLifecycle()
 
     var showList by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -319,6 +321,16 @@ fun WeatherApp(
                             favorites = favorites,
                             onSaveFavorite = vm::saveFavorite,
                             onRemoveFavorite = vm::removeFavorite,
+                            rideActive = riding,
+                            onStartRide = { data ->
+                                if (!vm.hasLocationPermission()) {
+                                    Toast.makeText(context, "需要定位權限才能在路上提醒前方天氣", Toast.LENGTH_LONG).show()
+                                } else {
+                                    RideService.start(context, data)
+                                    Toast.makeText(context, "已開始：前方 20 分鐘內會下雨時通知", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onStopRide = { RideService.stop(context) },
                             onClose = { routeRequest = null },
                         )
                     }
