@@ -77,6 +77,15 @@ data class RouteStop(
     val probability: Int get() = if (rainingNow) 100 else hour?.precipitationProbability ?: 0
 }
 
+/** 沿途清單的一行：連續經過同一個鄉鎮的點。 */
+data class StopGroup(val stops: List<RouteStop>) {
+    val first: RouteStop get() = stops.first()
+    val last: RouteStop get() = stops.last()
+
+    /** 降雨機率最高（同機率取較早）的點，代表這一段的天氣 */
+    val worst: RouteStop get() = stops.maxWith(compareBy<RouteStop> { it.probability }.thenByDescending { it.eta })
+}
+
 data class RouteForecast(
     val data: RouteData,
     val departure: LocalDateTime,
@@ -161,9 +170,14 @@ object RouteApi {
 }
 
 object RoutePlanner {
-    /** 取樣間距：氣象署鄉鎮預報與 Open-Meteo 網格約數公里，再密也沒有更多資訊 */
+    /** 預設取樣間距：氣象署鄉鎮預報與 Open-Meteo 網格約數公里，再密也沒有更多資訊 */
     const val STEP_KM = 3.0
-    const val MAX_POINTS = 12
+
+    /** 設定裡可選的取樣間距（公里） */
+    val STEP_OPTIONS = listOf(1, 2, 3, 5, 10)
+
+    /** 一次最多查幾個點（一次 Open-Meteo 請求）；路線很長時間距會自動拉大 */
+    const val MAX_POINTS = 50
 
     /** 沿路線約每 [stepKm] 公里取一點（含起點與終點），最多 [maxPoints] 點。 */
     fun sample(path: RoutePath, stepKm: Double = STEP_KM, maxPoints: Int = MAX_POINTS): List<RoutePoint> {
@@ -225,6 +239,20 @@ object RoutePlanner {
                 rainingNow = rainingNow,
             )
         }
+
+    /**
+     * 把中途連續在同一個鄉鎮的點合併成一組，讓沿途清單短一點；起點與終點各自一組。
+     * 每組以降雨機率最高的點代表。
+     */
+    fun group(stops: List<RouteStop>): List<StopGroup> {
+        val groups = mutableListOf<MutableList<RouteStop>>()
+        stops.forEachIndexed { i, stop ->
+            // 中途點、前一點也是中途點，且同一個鄉鎮
+            val sameAsPrev = i >= 2 && i < stops.lastIndex && stop.place != null && stop.place == stops[i - 1].place
+            if (sameAsPrev) groups.last() += stop else groups += mutableListOf(stop)
+        }
+        return groups.map { StopGroup(it) }
+    }
 
     /** 取最接近經過時間的整點預報（1 小時內）；路上的時間不一定是整點。 */
     fun nearestHour(weather: Weather, time: LocalDateTime): HourlyForecast? =

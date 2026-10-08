@@ -64,7 +64,7 @@ class WeatherRepository private constructor(context: Context) {
     ): RouteData = coroutineScope {
         fun City.latLon() = LatLon(latitude, longitude)
         val path = RouteApi.route(from.latLon(), to.latLon(), mode, departure, googleRoutes, via.map { it.latLon() })
-        val points = RoutePlanner.sample(path)
+        val points = RoutePlanner.sample(path, stepKm = settings.routeStepKm.toDouble())
         val forecasts = async { WeatherApi.fetchForecastJsons(points.map { it.position }) }
         val cwaData = async {
             if (!settings.useCwa) return@async points.map<RoutePoint, CwaData?> { null }

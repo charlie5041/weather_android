@@ -80,6 +80,20 @@ class RouteTest {
         assertEquals(RoutePlanner.MAX_POINTS, RoutePlanner.sample(long).size)
     }
 
+    @Test
+    fun groupsConsecutiveStopsInSameTownship() {
+        val places = listOf("新店區", "新店區", "坪林區", "坪林區", "坪林區", "頭城鎮", "礁溪鄉", "礁溪鄉")
+        val stops = places.mapIndexed { i, place ->
+            RouteStop(RoutePoint(LatLon(25.0, 121.5), i / 7.0, i * 10.0), now.plusMinutes(10L * i), place, null, rainingNow = i == 3)
+        }
+        val groups = RoutePlanner.group(stops)
+        // 起點與終點各自一行；中途的坪林區三點合併
+        assertEquals(listOf(1, 1, 3, 1, 1, 1), groups.map { it.stops.size })
+        assertEquals(listOf("新店區", "新店區", "坪林區", "頭城鎮", "礁溪鄉", "礁溪鄉"), groups.map { it.first.place })
+        // 正在下雨的點代表坪林區這一段
+        assertEquals(stops[3], groups[2].worst)
+    }
+
     private fun data(weathers: List<Weather?>): RouteData {
         val path = RoutePath(listOf(LatLon(25.08, 121.57), LatLon(25.03, 121.56)), 9.0, 120.0)
         val points = RoutePlanner.sample(path)

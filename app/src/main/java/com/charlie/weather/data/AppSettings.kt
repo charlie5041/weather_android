@@ -48,6 +48,11 @@ class AppSettings(context: Context) {
         get() = prefs.getInt("commute_evening_hour", 18)
         set(value) = prefs.edit().putInt("commute_evening_hour", value).apply()
 
+    /** 路線降雨沿路線取樣的間距（公里） */
+    var routeStepKm: Int
+        get() = prefs.getInt("route_step_km", RoutePlanner.STEP_KM.toInt())
+        set(value) = prefs.edit().putInt("route_step_km", value).apply()
+
     /** "C" 或 "F" */
     var temperatureUnit: String
         get() = prefs.getString("temperature_unit", "C") ?: "C"
