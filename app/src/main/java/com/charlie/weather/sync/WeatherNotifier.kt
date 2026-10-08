@@ -15,8 +15,10 @@ import com.charlie.weather.MainActivity
 import com.charlie.weather.R
 import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
+import com.charlie.weather.data.CityStore
 import com.charlie.weather.data.Commute
 import com.charlie.weather.data.RoutePlanner
+import com.charlie.weather.data.TravelMode
 import com.charlie.weather.data.Weather
 import com.charlie.weather.data.WeatherRepository
 import com.charlie.weather.ui.WeatherCodes
@@ -159,9 +161,11 @@ object WeatherNotifier {
     private fun checkCommute(context: Context, settings: AppSettings, all: List<CityWeather>, now: LocalDateTime) {
         val (home, work) = Commute.homeAndWork(all.map { it.first }) ?: return
         val weatherOf = all.associate { it.first.id to it.second }
+        val mode = CityStore(context).loadLastRoute()?.mode ?: TravelMode.SCOOTER
         val trip = Commute.trip(
             home, work, weatherOf[home.id], weatherOf[work.id], now,
             settings.commuteMorningHour, settings.commuteEveningHour,
+            travelMinutes = settings.lastCommuteMinutes(Commute.routeKey(home, work, mode)),
         )
         val minutes = java.time.Duration.between(now, trip.departure).toMinutes()
         if (minutes !in 0..90) return

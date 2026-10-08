@@ -3,11 +3,15 @@ package com.charlie.weather.data
 import java.time.DayOfWeek
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 import kotlin.math.abs
 
 enum class CommuteLeg(val label: String) { TO_WORK("上班"), TO_HOME("下班") }
 
-/** 一趟通勤：出發地在出發時間的天氣、目的地在抵達時間（約 1 小時後）的天氣。 */
+/**
+ * 一趟通勤：出發地在出發時間的天氣、目的地在抵達時間的天氣。
+ * [travelMinutes] 是路線規劃算出的行車時間；還沒算過時為 null，抵達時間以 1 小時估計。
+ */
 data class CommuteTrip(
     val leg: CommuteLeg,
     val departure: LocalDateTime,
@@ -15,15 +19,23 @@ data class CommuteTrip(
     val to: City,
     val fromHour: HourlyForecast?,
     val toHour: HourlyForecast?,
+    val travelMinutes: Int? = null,
 ) {
-    val arrival: LocalDateTime get() = departure.plusHours(1)
+    val arrival: LocalDateTime get() = departure.plusMinutes((travelMinutes ?: Commute.DEFAULT_MINUTES).toLong())
     val advice: String get() = Commute.advice(fromHour, toHour)
 }
 
 /** 通勤時段預報：以「住家」與「公司」（沒有公司時用「學校」）兩個自訂地點計算。 */
 object Commute {
     const val HOME = "住家"
+
+    /** 還沒有路線行車時間時，假設通勤約 1 小時 */
+    const val DEFAULT_MINUTES = 60
     private val WORK = listOf("公司", "學校")
+
+    /** 行車時間快取的鍵：兩地座標與交通方式 */
+    fun routeKey(home: City, work: City, mode: TravelMode) =
+        String.format(Locale.US, "%.4f,%.4f>%.4f,%.4f|%s", home.latitude, home.longitude, work.latitude, work.longitude, mode.name)
 
     fun homeAndWork(cities: List<City>): Pair<City, City>? {
         val home = cities.firstOrNull { it.label == HOME } ?: return null
@@ -54,20 +66,23 @@ object Commute {
         now: LocalDateTime,
         morningHour: Int,
         eveningHour: Int,
+        travelMinutes: Int? = null,
     ): CommuteTrip {
         val (leg, departure) = nextDeparture(now, morningHour, eveningHour)
         val (from, to) = if (leg == CommuteLeg.TO_WORK) home to work else work to home
         val (fromWeather, toWeather) = if (leg == CommuteLeg.TO_WORK) homeWeather to workWeather else workWeather to homeWeather
+        val arrival = departure.plusMinutes((travelMinutes ?: DEFAULT_MINUTES).toLong())
         return CommuteTrip(
             leg, departure, from, to,
             fromHour = fromWeather?.let { hourAt(it, departure) },
-            toHour = toWeather?.let { hourAt(it, departure.plusHours(1)) },
+            toHour = toWeather?.let { hourAt(it, arrival) },
+            travelMinutes = travelMinutes,
         )
     }
 
-    /** 取該整點的逐時預報；沒有剛好的整點時取 1 小時內最接近的。 */
+    /** 取最接近的整點逐時預報（17:40 取 18:00）；沒有剛好的整點時取 1 小時內最接近的。 */
     fun hourAt(weather: Weather, time: LocalDateTime): HourlyForecast? {
-        val target = time.truncatedTo(ChronoUnit.HOURS)
+        val target = time.plusMinutes(30).truncatedTo(ChronoUnit.HOURS)
         return weather.hourly.firstOrNull { it.time.truncatedTo(ChronoUnit.HOURS) == target }
             ?: weather.hourly
                 .filter { abs(ChronoUnit.MINUTES.between(it.time, time)) <= 60 }

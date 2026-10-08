@@ -256,6 +256,15 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         return result?.toRouteCity()
     }
 
+    private val _commuteMinutes = MutableStateFlow<Int?>(null)
+
+    /** 住家到公司的行車時間（分鐘）；通勤卡片用來算抵達時間 */
+    val commuteMinutes: StateFlow<Int?> = _commuteMinutes.asStateFlow()
+
+    fun loadCommuteMinutes(home: City, work: City) {
+        viewModelScope.launch { _commuteMinutes.value = repository.commuteMinutes(home, work) }
+    }
+
     /** 行車時間含路況時，改出發時間要重新查詢路線 */
     val trafficAwareRoutes: Boolean get() = repository.trafficAwareRoutes
 
