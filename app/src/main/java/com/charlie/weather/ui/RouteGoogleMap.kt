@@ -19,6 +19,8 @@ import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.maps.model.RoundCap
 import com.google.maps.android.compose.Circle
 import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.GroundOverlayPosition
+import com.google.maps.android.compose.GroundOverlay
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.Polyline
@@ -54,6 +56,8 @@ fun GoogleRouteMap(forecast: RouteForecast, onOpenMaps: () -> Unit, modifier: Mo
         val bounds = LatLngBounds.builder().apply { path.forEach { include(it) } }.build()
         cameraState.move(CameraUpdateFactory.newLatLngBounds(bounds, padding))
     }
+    val radar = visibleNowcast(forecast)
+    val radarRaster = remember(radar, forecast.data.path) { radar?.let { nowcastRaster(it, forecast.data.path.points) } }
     val routeKm = forecast.data.path.distanceKm
     GoogleMap(
         modifier = modifier,
@@ -62,6 +66,14 @@ fun GoogleRouteMap(forecast: RouteForecast, onOpenMaps: () -> Unit, modifier: Mo
         onMapLoaded = { loaded = true },
         onMapClick = { onOpenMaps() },
     ) {
+        radarRaster?.let { raster ->
+            // 雷達格點拉伸成地面圖層；每格一個像素，放大後呈方格狀
+            val image = remember(raster) { BitmapDescriptorFactory.fromBitmap(raster.toBitmap()) }
+            GroundOverlay(
+                position = GroundOverlayPosition.create(LatLngBounds(LatLng(raster.south, raster.west), LatLng(raster.north, raster.east))),
+                image = image,
+            )
+        }
         if (path.size >= 2) {
             Polyline(points = path, color = Color.White, width = 22f, jointType = JointType.ROUND, startCap = RoundCap(), endCap = RoundCap())
             runs.forEach { (color, points) ->

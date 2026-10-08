@@ -94,6 +94,7 @@ import com.charlie.weather.data.MapTile
 import com.charlie.weather.data.MapTileCache
 import com.charlie.weather.data.MapViewport
 import com.charlie.weather.data.RainLevel
+import com.charlie.weather.data.RainNowcast
 import com.charlie.weather.data.RouteReminder
 import com.charlie.weather.data.RouteHazard
 import com.charlie.weather.data.WebMercator
@@ -538,6 +539,14 @@ fun RouteResult(
                         Text(" $label", color = Color.Gray, fontSize = 11.sp)
                     }
                 }
+            }
+            visibleNowcast(forecast)?.let { radar ->
+                Text(
+                    "藍色區塊：雷達預估未來 1 小時雨量（${clock(radar.issued)} 資料）",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
 
@@ -1047,6 +1056,59 @@ internal fun segmentColors(forecast: RouteForecast): List<Color> {
     }
 }
 
+/** 出發時間在雷達預報的 1 小時內時才顯示雷達圖層 */
+internal fun visibleNowcast(forecast: RouteForecast, now: LocalDateTime = LocalDateTime.now()): RainNowcast? =
+    forecast.data.nowcast?.takeIf { it.covers(forecast.departure, now) }
+
+/** 雷達格點的顏色（ARGB）：1 小時雨量越多越深，太少（< 0.1 mm）不畫 */
+internal fun nowcastArgb(mm: Float): Int = when {
+    mm < 0.1f -> 0
+    mm < 1f -> 0x663FA9F5
+    mm < 5f -> 0x88208CE8.toInt()
+    mm < 10f -> 0xAA1565C0.toInt()
+    else -> 0xAABF5AF2.toInt()
+}
+
+/** 路線範圍內的雷達格點影像：每格一個像素，第一列在北邊；西南角與東北角是格子的外緣 */
+internal class NowcastRaster(val south: Double, val west: Double, val north: Double, val east: Double, val width: Int, val height: Int, val argb: IntArray)
+
+internal fun nowcastRaster(nowcast: RainNowcast, points: List<LatLon>): NowcastRaster? {
+    if (points.isEmpty()) return null
+    val minLat = points.minOf { it.latitude }
+    val maxLat = points.maxOf { it.latitude }
+    val minLon = points.minOf { it.longitude }
+    val maxLon = points.maxOf { it.longitude }
+    // 地圖會比路線範圍大一些（四周留邊、長寬比不同），多取一點
+    val pad = maxOf(maxLat - minLat, maxLon - minLon) * 0.6 + 0.05
+    val i0 = nowcast.column(minLon - pad).coerceIn(0, nowcast.nx - 1)
+    val i1 = nowcast.column(maxLon + pad).coerceIn(0, nowcast.nx - 1)
+    val j0 = nowcast.row(minLat - pad).coerceIn(0, nowcast.ny - 1)
+    val j1 = nowcast.row(maxLat + pad).coerceIn(0, nowcast.ny - 1)
+    val width = i1 - i0 + 1
+    val height = j1 - j0 + 1
+    if (width <= 1 || height <= 1) return null
+    val argb = IntArray(width * height)
+    var any = false
+    for (j in j0..j1) {
+        val row = (j1 - j) * width
+        for (i in i0..i1) {
+            val c = nowcastArgb(nowcast.value(i, j))
+            if (c != 0) any = true
+            argb[row + i - i0] = c
+        }
+    }
+    if (!any) return null
+    val half = nowcast.step / 2
+    return NowcastRaster(
+        south = nowcast.latitude(j0) - half, west = nowcast.longitude(i0) - half,
+        north = nowcast.latitude(j1) + half, east = nowcast.longitude(i1) + half,
+        width = width, height = height, argb = argb,
+    )
+}
+
+internal fun NowcastRaster.toBitmap(): android.graphics.Bitmap =
+    android.graphics.Bitmap.createBitmap(argb, width, height, android.graphics.Bitmap.Config.ARGB_8888)
+
 /** 解碼後的圖磚放在記憶體，重開畫面或改出發時間時不必重新讀檔。 */
 internal object RouteMapTiles {
     private val bitmaps = LruCache<MapTile, ImageBitmap>(48)
@@ -1087,6 +1149,8 @@ internal fun TileRouteMap(forecast: RouteForecast, modifier: Modifier = Modifier
     val path = forecast.data.path.points
     val stops = forecast.stops
     val colors = remember(forecast) { segmentColors(forecast) }
+    val radar = visibleNowcast(forecast)
+    val radarImage = remember(radar, path) { radar?.let { nowcastRaster(it, path) }?.let { it to it.toBitmap().asImageBitmap() } }
     BoxWithConstraints(modifier.background(MapPlaceholder)) {
         val density = LocalDensity.current.density
         val widthPx = constraints.maxWidth.toFloat()
@@ -1113,6 +1177,16 @@ internal fun TileRouteMap(forecast: RouteForecast, modifier: Modifier = Modifier
                     dstOffset = IntOffset(offset.first.roundToInt(), offset.second.roundToInt()),
                     dstSize = IntSize(tileSize, tileSize),
                     filterQuality = FilterQuality.Medium,
+                )
+            }
+            radarImage?.let { (raster, image) ->
+                val (x0, y0) = viewport.project(LatLon(raster.north, raster.west))
+                val (x1, y1) = viewport.project(LatLon(raster.south, raster.east))
+                drawImage(
+                    image,
+                    dstOffset = IntOffset(x0.roundToInt(), y0.roundToInt()),
+                    dstSize = IntSize((x1 - x0).roundToInt(), (y1 - y0).roundToInt()),
+                    filterQuality = FilterQuality.None,
                 )
             }
             val pts = path.map { viewport.project(it).let { (x, y) -> Offset(x, y) } }
@@ -1163,6 +1237,7 @@ private fun StopRow(group: StopGroup, title: String, first: Boolean, last: Boole
             Text(title, color = Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val detail = when {
                 stop.rainingNow -> "附近雨量站：正在下雨"
+                stop.nowcastMm != null -> if (stop.nowcastMm >= 0.1) "雷達：1 小時 %.1f mm".format(Locale.US, stop.nowcastMm) else "雷達：無雨"
                 stop.hour != null -> WeatherCodes.description(stop.hour.weatherCode) +
                     (if (stop.hour.precipitation >= 0.1) " · %.1f mm".format(Locale.US, stop.hour.precipitation) else "")
                 else -> "暫無預報"

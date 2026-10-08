@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import java.time.Duration
 import java.time.LocalDateTime
 
 /** App、背景更新與小工具共用的天氣資料來源（Open-Meteo + 中央氣象署）。 */
@@ -86,9 +87,22 @@ class WeatherRepository private constructor(context: Context) {
             val first = cwaAt(points.first().position)
             listOf(first) + points.drop(1).map { p -> async { cwaAt(p.position) } }.map { it.await() }
         }
+        // 雷達短時預報只在 1 小時內出發時有用，其他時候不下載（約 2.7MB）
+        val nowcast = async {
+            val minutes = departure?.let { Duration.between(LocalDateTime.now(), it).toMinutes() } ?: 0
+            if (!settings.useCwa || minutes !in -15..60) return@async null
+            try {
+                cwa.nowcast(allowNetwork = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+        }
         val now = System.currentTimeMillis()
         val jsons = forecasts.await()
         val cwas = cwaData.await()
+        val radar = nowcast.await()
         val weathers = withContext(Dispatchers.Default) {
             points.indices.map { i ->
                 jsons.getOrNull(i)?.let { json ->
@@ -99,7 +113,7 @@ class WeatherRepository private constructor(context: Context) {
         var offset = 0
         paths.mapIndexed { k, path ->
             val count = sampled[k].size
-            RouteData(from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via).also { offset += count }
+            RouteData(from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via, radar).also { offset += count }
         }
     }
 

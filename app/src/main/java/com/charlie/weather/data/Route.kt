@@ -64,6 +64,8 @@ data class RouteData(
     val weathers: List<Weather?>,
     /** 途經點（從 Google 地圖分享的路線才有） */
     val via: List<City> = emptyList(),
+    /** 雷達短時預報（1 小時內出發時才有），用在 1 小時內會經過的點 */
+    val nowcast: RainNowcast? = null,
 )
 
 /** 路線上一點在「經過時間」的天氣。 */
@@ -78,14 +80,30 @@ data class RouteStop(
     val county: String? = null,
     /** 這個縣市發布中的天氣特報 */
     val alerts: List<CwaAlert> = emptyList(),
+    /** 雷達預估經過時那 1 小時的雨量（mm）；不在雷達預報的 1 小時內時為 null */
+    val nowcastMm: Double? = null,
 ) {
-    val wet: Boolean get() = rainingNow || hour?.let(Commute::isWet) == true
-    val probability: Int get() = if (rainingNow) 100 else hour?.precipitationProbability ?: 0
+    /** 1 小時內會經過的點以雷達為準（比鄉鎮逐時預報準），之後用逐時預報 */
+    val wet: Boolean
+        get() = rainingNow || nowcastMm?.let { it >= RainNowcast.WET_MM } ?: (hour?.let(Commute::isWet) == true)
+
+    val probability: Int
+        get() = when {
+            rainingNow -> 100
+            nowcastMm != null -> when {
+                nowcastMm >= 2 -> 90
+                nowcastMm >= RainNowcast.WET_MM -> 70
+                nowcastMm >= 0.1 -> 40
+                else -> 10
+            }
+            else -> hour?.precipitationProbability ?: 0
+        }
 
     val rainLevel: RainLevel get() = when {
-        rainingNow || (hour?.precipitation ?: 0.0) >= 10 || (hour?.weatherCode ?: 0) in 95..99 -> RainLevel.HEAVY
+        rainingNow || (nowcastMm ?: 0.0) >= 10 -> RainLevel.HEAVY
+        nowcastMm == null && ((hour?.precipitation ?: 0.0) >= 10 || (hour?.weatherCode ?: 0) in 95..99) -> RainLevel.HEAVY
         wet -> RainLevel.WET
-        hour == null -> RainLevel.UNKNOWN
+        hour == null && nowcastMm == null -> RainLevel.UNKNOWN
         probability >= 30 -> RainLevel.MAYBE
         else -> RainLevel.DRY
     }
@@ -363,6 +381,7 @@ object RoutePlanner {
                 rainingNow = rainingNow,
                 county = weather?.cwa?.county,
                 alerts = weather?.cwa?.alerts.orEmpty(),
+                nowcastMm = data.nowcast?.takeIf { it.covers(eta, now) }?.at(point.position.latitude, point.position.longitude),
             )
         }
 
@@ -487,9 +506,10 @@ object RoutePlanner {
             wet.isNotEmpty() -> {
                 val first = wet.first()
                 val rain = if (heavy) "有大雨" else "可能下雨"
+                val amount = first.nowcastMm?.let { "雷達預估 1 小時 %.1f mm".format(Locale.US, it) } ?: "降雨機率 ${first.probability}%"
                 RouteVerdict(
                     if (first == stops.first()) "一出發就$rain" else "${"%02d:%02d".format(first.eta.hour, first.eta.minute)} 起$rain",
-                    "${where(first)}一帶 · 降雨機率 ${first.probability}% · $gear",
+                    "${where(first)}一帶 · $amount · $gear",
                 )
             }
             forecast.maxProbability >= 30 -> RouteVerdict(
@@ -511,7 +531,7 @@ object RoutePlanner {
             wet.size == stops.size -> "沿途都可能下雨$gear"
             wet.isNotEmpty() -> {
                 val first = wet.first()
-                val heavy = wet.any { (it.hour?.precipitation ?: 0.0) >= 10 || (it.hour?.weatherCode ?: 0) in 95..99 }
+                val heavy = wet.any { it.rainLevel == RainLevel.HEAVY }
                 "約 ${"%02d:%02d".format(first.eta.hour, first.eta.minute)} 經過${where(first)}時可能${if (heavy) "有大雨" else "下雨"}" +
                     "（降雨機率 ${first.probability}%）$gear"
             }
