@@ -66,6 +66,8 @@ data class RouteData(
     val via: List<City> = emptyList(),
     /** 雷達短時預報（1 小時內出發時才有），用在 1 小時內會經過的點 */
     val nowcast: RainNowcast? = null,
+    /** 路線附近的即時道路事件（有 TDX 金鑰時才有） */
+    val roadEvents: List<RoadEvent> = emptyList(),
 )
 
 /** 路線上一點在「經過時間」的天氣。 */
@@ -125,6 +127,9 @@ data class RouteVerdict(val title: String, val detail: String)
 sealed interface RouteHazard {
     /** 經過時仍生效的天氣特報，與會經過的發布縣市 */
     data class Alert(val title: String, val counties: List<String>) : RouteHazard
+
+    /** 路線附近的道路事件（施工、事故、封閉…） */
+    data class Road(val event: RoadEvent) : RouteHazard
 
     /** 沿途最大的陣風（km/h） */
     data class Wind(val gustKmh: Double, val stop: RouteStop) : RouteHazard
@@ -440,6 +445,8 @@ object RoutePlanner {
                 .forEach { alert -> alerts.getOrPut(alert.title) { linkedSetOf() }.apply { stop.county?.let(::add) } }
         }
         alerts.forEach { (title, counties) -> result += RouteHazard.Alert(title, counties.toList()) }
+        // 道路事件最多列三則
+        forecast.data.roadEvents.take(3).forEach { result += RouteHazard.Road(it) }
 
         // 機車與單車 40 km/h（約 6 級）就容易被側風吹偏
         val gustLimit = if (mode == TravelMode.SCOOTER || mode == TravelMode.BIKE) 40.0 else 55.0

@@ -836,6 +836,10 @@ private fun uvLevel(index: Double) = when {
 /** 一則沿途提醒的圖示與文字（依使用者的溫度、風速單位） */
 internal fun hazardLine(hazard: RouteHazard): Pair<String, String> = when (hazard) {
     is RouteHazard.Alert -> "⚠️" to hazard.title + hazard.counties.takeIf { it.isNotEmpty() }?.joinToString("、", prefix = "：").orEmpty()
+    is RouteHazard.Road -> "🚧" to hazard.event.let { e ->
+        val text = listOfNotNull(e.location, e.description.takeIf { it != e.title }).joinToString(" ").ifEmpty { e.description }
+        "${e.title}：" + if (text.length > 60) text.take(59) + "…" else text
+    }
     is RouteHazard.Wind -> "💨" to "${stopWhere(hazard.stop)}一帶陣風 ${windText(hazard.gustKmh)}，注意側風"
     is RouteHazard.Sunset -> "🌇" to "${clock(hazard.time)} 日落，${stopWhere(hazard.stop)}之後天黑"
     is RouteHazard.Cold -> "🥶" to if (hazard.riding) {

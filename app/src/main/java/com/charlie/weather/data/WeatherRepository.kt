@@ -19,6 +19,10 @@ class WeatherRepository private constructor(context: Context) {
         GoogleRoutes(it, context.packageName, GoogleRoutes.certSha1(context))
     }
 
+    private val tdx = BuildConfig.TDX_CLIENT_ID.takeIf { it.isNotBlank() && BuildConfig.TDX_CLIENT_SECRET.isNotBlank() }?.let {
+        TdxRoadEvents(it, BuildConfig.TDX_CLIENT_SECRET)
+    }
+
     /** 有 Google 金鑰：行車時間含路況，會隨出發時間改變 */
     val trafficAwareRoutes: Boolean get() = googleRoutes != null
 
@@ -99,10 +103,17 @@ class WeatherRepository private constructor(context: Context) {
                 null
             }
         }
+        // 道路事件是「現在」的狀況，只在 3 小時內出發時查
+        val events = async {
+            val minutes = departure?.let { Duration.between(LocalDateTime.now(), it).toMinutes() } ?: 0
+            if (tdx == null || minutes !in -15..180) return@async emptyList()
+            tdx.events()
+        }
         val now = System.currentTimeMillis()
         val jsons = forecasts.await()
         val cwas = cwaData.await()
         val radar = nowcast.await()
+        val allEvents = events.await()
         val weathers = withContext(Dispatchers.Default) {
             points.indices.map { i ->
                 jsons.getOrNull(i)?.let { json ->
@@ -113,7 +124,8 @@ class WeatherRepository private constructor(context: Context) {
         var offset = 0
         paths.mapIndexed { k, path ->
             val count = sampled[k].size
-            RouteData(from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via, radar).also { offset += count }
+            val near = withContext(Dispatchers.Default) { TdxRoadEvents.near(allEvents, path.points) }
+            RouteData(from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via, radar, near).also { offset += count }
         }
     }
 
