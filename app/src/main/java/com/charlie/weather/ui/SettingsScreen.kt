@@ -200,7 +200,7 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
             fontSize = 13.sp,
         )
 
-        SectionTitle("路線降雨")
+        SectionTitle("沿路天氣")
         Section {
             ChoiceRow("取樣間距（公里）", RoutePlanner.STEP_OPTIONS, routeStep, { it.toString() }) {
                 routeStep = it

@@ -135,4 +135,146 @@ class RouteTest {
         assertEquals("沿途降雨機率低，適合出發", forecast.summary)
         assertNull(forecast.betterDeparture)
     }
+
+    @Test
+    fun timelineMergesNeighboursWithSameRain() {
+        // 07:00 乾、07:40 沒資料、08:20 與 09:00 降雨 80%
+        val dry = weather(0, 10, 10, 10, 10)
+        val wetLater = weather(0, 80, 80, 80, 80)
+        val forecast = RoutePlanner.evaluate(data(listOf(dry, null, wetLater, wetLater)), now, now)
+        val spans = RoutePlanner.timeline(forecast.stops)
+        assertEquals(listOf(RainLevel.DRY, RainLevel.UNKNOWN, RainLevel.WET), spans.map { it.level })
+        // 每點代表到前後兩點中間；兩個會下雨的點合併成一段直到抵達
+        assertEquals(0.0, spans[0].start, 1e-9)
+        assertEquals(1 / 6.0, spans[1].start, 1e-9)
+        assertEquals(0.5, spans[2].start, 1e-9)
+        assertEquals(1.0, spans[2].end, 1e-9)
+    }
+
+    @Test
+    fun rainLevelGradesProbabilityAndIntensity() {
+        fun stop(hour: HourlyForecast?, raining: Boolean = false) =
+            RouteStop(RoutePoint(LatLon(25.0, 121.5), 0.0, 0.0), now, null, hour, raining)
+        assertEquals(RainLevel.UNKNOWN, stop(null).rainLevel)
+        assertEquals(RainLevel.DRY, stop(hour(now, 20)).rainLevel)
+        assertEquals(RainLevel.MAYBE, stop(hour(now, 30)).rainLevel)
+        assertEquals(RainLevel.WET, stop(hour(now, 60, code = 61)).rainLevel)
+        assertEquals(RainLevel.HEAVY, stop(hour(now, 90, code = 63, mm = 12.0)).rainLevel)
+        assertEquals(RainLevel.HEAVY, stop(null, raining = true).rainLevel)
+    }
+
+    @Test
+    fun verdictLeadsWithWhenRainStarts() {
+        val dry = weather(0, 10, 10, 10, 10)
+        val wetLater = weather(0, 80, 80, 80, 80)
+        val verdict = RoutePlanner.evaluate(data(listOf(dry, dry, wetLater, wetLater)), now, now).verdict
+        assertEquals("08:20 起可能下雨", verdict.title)
+        assertTrue(verdict.detail, verdict.detail.contains("80%"))
+        assertTrue(verdict.detail, verdict.detail.contains("雨衣"))
+
+        val allDry = weather(0, 0, 0, 0, 0)
+        val dryVerdict = RoutePlanner.evaluate(data(listOf(allDry, allDry, allDry, allDry)), now, now).verdict
+        assertEquals("沿途不太會下雨", dryVerdict.title)
+
+        val allWet = weather(90, 90, 90, 90, 90)
+        assertEquals("一出發就可能下雨", RoutePlanner.evaluate(data(listOf(allWet, dry, dry, dry)), now, now).verdict.title)
+        assertEquals("沿途都會下雨", RoutePlanner.evaluate(data(listOf(allWet, allWet, allWet, allWet)), now, now).verdict.title)
+        assertEquals("暫無預報", RoutePlanner.evaluate(data(listOf(null, null, null, null)), now, now).verdict.title)
+    }
+
+    @Test
+    fun comparesDeparturesAndRecommendsDrierOne() {
+        // 雨在 7–8 點，9 點後停；20 分鐘的路
+        val w = weather(90, 90, 10, 10, 10, 10)
+        val path = RoutePath(listOf(LatLon(25.08, 121.57), LatLon(25.07, 121.57)), 1.0, 20.0)
+        val points = RoutePlanner.sample(path)
+        val route = RouteData(home, work, TravelMode.SCOOTER, path, points, points.map { w })
+        val departures = listOf(0L, 60L, 120L, 180L).map { now.plusMinutes(it) }
+        val options = RoutePlanner.compare(route, departures, now)
+        assertEquals(listOf(90, 90, 10, 10), options.map { it.risk })
+        assertEquals(RainLevel.WET, options[0].level)
+        assertEquals(RainLevel.DRY, options[2].level)
+        // 同樣乾時取較早的
+        assertEquals(now.plusHours(2), RoutePlanner.recommended(options, now)?.departure)
+        // 已經選了乾的時間就不再建議
+        assertNull(RoutePlanner.recommended(options, now.plusHours(2)))
+        // 超出預報範圍的時間不建議
+        val far = RoutePlanner.compare(route, listOf(now, now.plusDays(3)), now)
+        assertEquals(RainLevel.UNKNOWN, far[1].level)
+        assertNull(RoutePlanner.recommended(far, now))
+    }
+
+    @Test
+    fun hazardsAlongTheRoute() {
+        val start = now.withHour(17)
+        fun h(time: LocalDateTime, temp: Double, gust: Double = 20.0) =
+            HourlyForecast(time, temp, 2, 0, 0.0, isDay = true, apparentTemperature = temp, windSpeed = 10.0, windGusts = gust, uvIndex = 0.0)
+        // 17:30 日落
+        val day = DailyForecast(start.toLocalDate(), 2, 20.0, 12.0, 0, 0.0, null, start.withMinute(30), 3.0)
+        val w = weather(0).copy(daily = listOf(day))
+        val route = data(listOf(w, w, w, w))
+        val rain = CwaAlert("大雨", "特報", null, start.plusHours(3))
+        val wind = CwaAlert("陸上強風", "特報", start.plusHours(4), null)
+        fun stop(i: Int, temp: Double, county: String, alerts: List<CwaAlert>, gust: Double = 20.0): RouteStop {
+            val eta = start.plusMinutes(40L * i)
+            return RouteStop(route.points[i], eta, null, h(eta, temp, gust), false, county, alerts)
+        }
+        val stops = listOf(
+            stop(0, 13.0, "苗栗縣", listOf(rain)),
+            stop(1, 14.0, "臺中市", listOf(rain, wind), gust = 45.0),
+            stop(2, 16.0, "臺中市", listOf(rain, wind)),
+            stop(3, 16.0, "彰化縣", emptyList()),
+        )
+
+        val scooter = RouteForecast(route, start, stops).hazards
+        // 強風特報 21:00 才生效，經過時還沒開始
+        assertEquals(RouteHazard.Alert("大雨特報", listOf("苗栗縣", "臺中市")), scooter[0])
+        assertEquals(RouteHazard.Wind(45.0, stops[1]), scooter[1])
+        assertEquals(RouteHazard.Sunset(start.withMinute(30), stops[1]), scooter[2])
+        // 13°C、騎乘 40 km/h ＋ 風 10 km/h → 體感約 9.6°
+        val cold = scooter[3] as RouteHazard.Cold
+        assertEquals(9.6, cold.feelsLike, 0.1)
+        assertTrue(cold.riding)
+        assertEquals(stops[0], cold.stop)
+        assertEquals(4, scooter.size)
+
+        // 汽車：陣風 45 未達 55，也不看冷熱
+        val car = RouteForecast(route.copy(mode = TravelMode.CAR), start, stops).hazards
+        assertEquals(listOf("Alert", "Sunset"), car.map { it::class.simpleName })
+    }
+
+    @Test
+    fun windChillOnlyWhenCool() {
+        assertEquals(20.0, RoutePlanner.windChill(20.0, 50.0), 0.0)
+        assertEquals(5.0, RoutePlanner.windChill(5.0, 3.0), 0.0)
+        assertTrue(RoutePlanner.windChill(10.0, 40.0) < 6.5)
+    }
+
+    @Test
+    fun parsesOsrmAlternativesAndDropsNearDuplicates() {
+        val json = """
+            {"code":"Ok","routes":[
+              {"distance":8000,"duration":1200,"geometry":{"coordinates":[[121.57,25.08],[121.56,25.03]]}},
+              {"distance":9500,"duration":1500,"geometry":{"coordinates":[[121.57,25.08],[121.58,25.05],[121.56,25.03]]}}]}
+        """.trimIndent()
+        val paths = RouteApi.parseAll(json)
+        assertEquals(2, paths.size)
+        assertEquals(9.5, paths[1].distanceKm, 1e-9)
+        assertTrue(RouteApi.url(home.let { LatLon(it.latitude, it.longitude) }, LatLon(25.03, 121.56), TravelMode.CAR, alternatives = true).endsWith("&alternatives=true"))
+        assertFalse(RouteApi.url(LatLon(25.08, 121.57), LatLon(25.03, 121.56), TravelMode.CAR, listOf(LatLon(25.05, 121.6)), alternatives = true).contains("alternatives"))
+
+        val a = RoutePath(listOf(LatLon(25.0, 121.5), LatLon(25.1, 121.5)), 10.0, 30.0)
+        val almostSame = a.copy(distanceKm = 10.2, durationMinutes = 30.5)
+        val longer = a.copy(distanceKm = 12.0, durationMinutes = 31.0)
+        assertEquals(listOf(a, longer), RouteApi.distinct(listOf(a, almostSame, longer)))
+        assertEquals(3, RouteApi.distinct(List(5) { i -> a.copy(distanceKm = 10.0 + i * 2) }).size)
+    }
+
+    @Test
+    fun forecastDaysCoverTheDepartureDay() {
+        assertEquals(3, RoutePlanner.forecastDays(null, now))
+        assertEquals(3, RoutePlanner.forecastDays(now.plusHours(3), now))
+        assertEquals(5, RoutePlanner.forecastDays(now.plusDays(3), now))
+        assertEquals(7, RoutePlanner.forecastDays(now.plusDays(10), now))
+    }
 }

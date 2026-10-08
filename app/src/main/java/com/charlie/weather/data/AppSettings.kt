@@ -52,7 +52,7 @@ class AppSettings(context: Context) {
         get() = prefs.getInt("commute_evening_hour", 18)
         set(value) = prefs.edit().putInt("commute_evening_hour", value).apply()
 
-    /** 路線降雨沿路線取樣的間距（公里） */
+    /** 沿路天氣沿路線取樣的間距（公里） */
     var routeStepKm: Int
         get() = prefs.getInt("route_step_km", RoutePlanner.STEP_KM.toInt())
         set(value) = prefs.edit().putInt("route_step_km", value).apply()
@@ -109,6 +109,11 @@ class AppSettings(context: Context) {
     var lastMorningDate: String?
         get() = prefs.getString("last_morning_date", null)
         set(value) = prefs.edit().putString("last_morning_date", value).apply()
+
+    /** 已經通知過的常用路線出發，格式為「路線 id|出發時間」 */
+    var notifiedRouteReminders: Set<String>
+        get() = prefs.getStringSet("notified_route_reminders", emptySet()).orEmpty()
+        set(value) = prefs.edit().putStringSet("notified_route_reminders", value).apply()
 
     var notifiedWarnings: Set<String>
         get() = prefs.getStringSet("notified_warnings", emptySet()).orEmpty()

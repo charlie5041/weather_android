@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import java.time.Duration
 import java.time.LocalDateTime
 import kotlin.math.roundToInt
 
@@ -17,6 +18,10 @@ class WeatherRepository private constructor(context: Context) {
     private val cwa = CwaRepository(context.cacheDir)
     private val googleRoutes = BuildConfig.GOOGLE_MAPS_API_KEY.takeIf { it.isNotBlank() }?.let {
         GoogleRoutes(it, context.packageName, GoogleRoutes.certSha1(context))
+    }
+
+    private val tdx = BuildConfig.TDX_CLIENT_ID.takeIf { it.isNotBlank() && BuildConfig.TDX_CLIENT_SECRET.isNotBlank() }?.let {
+        TdxRoadEvents(it, BuildConfig.TDX_CLIENT_SECRET)
     }
 
     /**
@@ -41,7 +46,7 @@ class WeatherRepository private constructor(context: Context) {
         return minutes
     }
 
-    /** 通勤的交通方式：沿用上次在路線降雨選的方式，預設機車 */
+    /** 通勤的交通方式：沿用上次在沿路天氣選的方式，預設機車 */
     fun commuteMode(): TravelMode = store.loadLastRoute()?.mode ?: TravelMode.SCOOTER
 
     /** 有 Google 金鑰：行車時間含路況，會隨出發時間改變 */
@@ -87,20 +92,54 @@ class WeatherRepository private constructor(context: Context) {
         mode: TravelMode,
         departure: LocalDateTime? = null,
         via: List<City> = emptyList(),
-    ): RouteData = coroutineScope {
+    ): RouteData = routeOptions(from, to, mode, departure, via).first()
+
+    /**
+     * 同 [routeData]，[alternatives] 時另外規劃最多兩條替代路線，每條都查沿途天氣
+     * （所有取樣點一次向 Open-Meteo 查詢）。第一條是建議路線。
+     */
+    suspend fun routeOptions(
+        from: City,
+        to: City,
+        mode: TravelMode,
+        departure: LocalDateTime? = null,
+        via: List<City> = emptyList(),
+        alternatives: Boolean = false,
+    ): List<RouteData> = coroutineScope {
         fun City.latLon() = LatLon(latitude, longitude)
-        val path = RouteApi.route(from.latLon(), to.latLon(), mode, departure, googleRoutes, via.map { it.latLon() })
-        val points = RoutePlanner.sample(path, stepKm = settings.routeStepKm.toDouble())
-        val forecasts = async { WeatherApi.fetchForecastJsons(points.map { it.position }) }
+        val paths = RouteApi.routes(from.latLon(), to.latLon(), mode, departure, googleRoutes, via.map { it.latLon() }, alternatives)
+        val sampled = paths.map { RoutePlanner.sample(it, stepKm = settings.routeStepKm.toDouble()) }
+        val points = sampled.flatten()
+        val forecasts = async { WeatherApi.fetchForecastJsons(points.map { it.position }, RoutePlanner.forecastDays(departure)) }
         val cwaData = async {
             if (!settings.useCwa) return@async points.map<RoutePoint, CwaData?> { null }
             // 第一個點先下載共用的檔案（測站、縣市預報、雨量站），其他點再並行使用快取
             val first = cwaAt(points.first().position)
             listOf(first) + points.drop(1).map { p -> async { cwaAt(p.position) } }.map { it.await() }
         }
+        // 雷達短時預報只在 1 小時內出發時有用，其他時候不下載（約 2.7MB）
+        val nowcast = async {
+            val minutes = departure?.let { Duration.between(LocalDateTime.now(), it).toMinutes() } ?: 0
+            if (!settings.useCwa || minutes !in -15..60) return@async null
+            try {
+                cwa.nowcast(allowNetwork = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+        }
+        // 道路事件是「現在」的狀況，只在 3 小時內出發時查
+        val events = async {
+            val minutes = departure?.let { Duration.between(LocalDateTime.now(), it).toMinutes() } ?: 0
+            if (tdx == null || minutes !in -15..180) return@async emptyList()
+            tdx.events()
+        }
         val now = System.currentTimeMillis()
         val jsons = forecasts.await()
         val cwas = cwaData.await()
+        val radar = nowcast.await()
+        val allEvents = events.await()
         val weathers = withContext(Dispatchers.Default) {
             points.indices.map { i ->
                 jsons.getOrNull(i)?.let { json ->
@@ -108,7 +147,24 @@ class WeatherRepository private constructor(context: Context) {
                 }
             }
         }
-        RouteData(from, to, mode, path, points, weathers, via)
+        var offset = 0
+        paths.mapIndexed { k, path ->
+            val count = sampled[k].size
+            val near = withContext(Dispatchers.Default) { TdxRoadEvents.near(allEvents, path.points) }
+            RouteData(from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via, radar, near).also { offset += count }
+        }
+    }
+
+    /** 最新的雷達短時預報（騎乘中每 10 分鐘更新一次）；不使用氣象署資料或失敗時為 null */
+    suspend fun nowcast(): RainNowcast? {
+        if (!settings.useCwa) return null
+        return try {
+            cwa.nowcast(allowNetwork = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private suspend fun cwaAt(p: LatLon): CwaData? = try {

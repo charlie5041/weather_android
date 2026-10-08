@@ -7,10 +7,14 @@ import com.charlie.weather.data.AddressGeocoder
 import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
 import com.charlie.weather.data.CwaParser
+import com.charlie.weather.data.FavoriteRoute
+import com.charlie.weather.data.FavoriteRoutes
 import com.charlie.weather.data.GoogleMapsLink
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.PlaceSearch
 import com.charlie.weather.data.RouteData
+import com.charlie.weather.data.RouteForecast
+import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.data.SavedRoute
 import com.charlie.weather.data.TaiwanPlace
 import com.charlie.weather.data.TravelMode
@@ -38,6 +42,16 @@ data class CityWeatherUi(
     val error: String? = null,
 )
 
+/** 出門卡片的「下一趟」常用路線與沿路天氣 */
+data class UpcomingTrip(
+    val route: FavoriteRoute,
+    val departure: LocalDateTime,
+    val forecast: RouteForecast? = null,
+    val loading: Boolean = false,
+    val failed: Boolean = false,
+    val fetchedAtMillis: Long = 0,
+)
+
 class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     private val repository = WeatherRepository.get(app)
     private val store = repository.store
@@ -61,6 +75,13 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     private val _searching = MutableStateFlow(false)
     val searching: StateFlow<Boolean> = _searching.asStateFlow()
 
+    private val _favorites = MutableStateFlow(store.loadFavoriteRoutes())
+    val favorites: StateFlow<List<FavoriteRoute>> = _favorites.asStateFlow()
+
+    private val _upcoming = MutableStateFlow<UpcomingTrip?>(null)
+    val upcoming: StateFlow<UpcomingTrip?> = _upcoming.asStateFlow()
+
+    private var upcomingJob: Job? = null
     private var searchJob: Job? = null
     private var locationJob: Job? = null
 
@@ -93,6 +114,7 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshAll(force: Boolean = false) {
         if (locationProvider.hasPermission()) updateLocation(force)
         savedCities.forEach { refresh(it, force) }
+        refreshUpcoming(force)
     }
 
     fun refresh(city: City, force: Boolean = false) {
@@ -198,10 +220,10 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         return _cities.value.indexOfFirst { it.id == existingId }
     }
 
-    /** 路線沿途天氣（路線降雨畫面使用）；查詢的路線會記下來，下次開啟時直接帶入。 */
-    suspend fun routeData(from: City, to: City, via: List<City>, mode: TravelMode, departure: LocalDateTime): RouteData {
+    /** 建議與替代路線的沿途天氣（沿路天氣畫面使用）；查詢的路線會記下來，下次開啟時直接帶入。 */
+    suspend fun routeData(from: City, to: City, via: List<City>, mode: TravelMode, departure: LocalDateTime): List<RouteData> {
         store.saveLastRoute(SavedRoute(from, to, mode, via))
-        return repository.routeData(from, to, mode, departure, via)
+        return repository.routeOptions(from, to, mode, departure, via, alternatives = true)
     }
 
     /**
@@ -252,8 +274,59 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun lastRoute(): SavedRoute? {
         val saved = store.loadLastRoute() ?: return null
-        fun latest(city: City) = _cities.value.firstOrNull { it.id == city.id } ?: city
         return saved.copy(from = latest(saved.from), to = latest(saved.to))
+    }
+
+    private fun latest(city: City) = _cities.value.firstOrNull { it.id == city.id } ?: city
+
+    /** 常用路線的起終點換成最新的座標（同 [lastRoute]） */
+    fun latestRoute(route: FavoriteRoute): FavoriteRoute =
+        route.copy(from = latest(route.from), to = latest(route.to), via = route.via.map(::latest))
+
+    fun saveFavorite(route: FavoriteRoute) {
+        _favorites.update { list ->
+            if (list.any { it.id == route.id }) list.map { if (it.id == route.id) route else it } else list + route
+        }
+        store.saveFavoriteRoutes(_favorites.value)
+        refreshUpcoming(force = true)
+    }
+
+    fun removeFavorite(id: String) {
+        _favorites.update { list -> list.filterNot { it.id == id } }
+        store.saveFavoriteRoutes(_favorites.value)
+        refreshUpcoming(force = true)
+    }
+
+    /**
+     * 查 12 小時內最早出發的常用路線沿路天氣，給主頁的出門卡片；
+     * 同一趟 30 分鐘內不重查。
+     */
+    fun refreshUpcoming(force: Boolean = false) {
+        val next = FavoriteRoutes.upcoming(_favorites.value, LocalDateTime.now())
+        if (next == null) {
+            upcomingJob?.cancel()
+            _upcoming.value = null
+            return
+        }
+        val (route, departure) = next
+        val current = _upcoming.value?.takeIf { it.route == route && it.departure == departure }
+        if (!force && current != null) {
+            if (current.loading) return
+            if (current.forecast != null && System.currentTimeMillis() - current.fetchedAtMillis < 30 * 60_000) return
+        }
+        upcomingJob?.cancel()
+        _upcoming.value = UpcomingTrip(route, departure, forecast = current?.forecast, loading = true)
+        upcomingJob = viewModelScope.launch {
+            val r = latestRoute(route)
+            _upcoming.value = try {
+                val data = repository.routeData(r.from, r.to, r.mode, departure, r.via)
+                UpcomingTrip(route, departure, RoutePlanner.evaluate(data, departure), fetchedAtMillis = System.currentTimeMillis())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                UpcomingTrip(route, departure, forecast = current?.forecast, failed = true)
+            }
+        }
     }
 
     private val taiwanPlaces: List<TaiwanPlace> by lazy {

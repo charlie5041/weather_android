@@ -8,6 +8,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Duration
 import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -44,6 +45,8 @@ data class RoutePath(
     val distanceKm: Double,
     val durationMinutes: Double,
     val source: RouteSource = RouteSource.OSM,
+    /** 主要道路（Google 才有），用來分辨替代路線 */
+    val description: String? = null,
 ) {
     val approximate: Boolean get() = source == RouteSource.ESTIMATE
 }
@@ -61,6 +64,10 @@ data class RouteData(
     val weathers: List<Weather?>,
     /** 途經點（從 Google 地圖分享的路線才有） */
     val via: List<City> = emptyList(),
+    /** 雷達短時預報（1 小時內出發時才有），用在 1 小時內會經過的點 */
+    val nowcast: RainNowcast? = null,
+    /** 路線附近的即時道路事件（有 TDX 金鑰時才有） */
+    val roadEvents: List<RoadEvent> = emptyList(),
 )
 
 /** 路線上一點在「經過時間」的天氣。 */
@@ -72,10 +79,76 @@ data class RouteStop(
     val hour: HourlyForecast?,
     /** 附近雨量站顯示現在正在下雨（只在即將經過的點才採用） */
     val rainingNow: Boolean,
+    val county: String? = null,
+    /** 這個縣市發布中的天氣特報 */
+    val alerts: List<CwaAlert> = emptyList(),
+    /** 雷達預估經過時那 1 小時的雨量（mm）；不在雷達預報的 1 小時內時為 null */
+    val nowcastMm: Double? = null,
 ) {
-    val wet: Boolean get() = rainingNow || hour?.let(Commute::isWet) == true
-    val probability: Int get() = if (rainingNow) 100 else hour?.precipitationProbability ?: 0
+    /** 1 小時內會經過的點以雷達為準（比鄉鎮逐時預報準），之後用逐時預報 */
+    val wet: Boolean
+        get() = rainingNow || nowcastMm?.let { it >= RainNowcast.WET_MM } ?: (hour?.let(Commute::isWet) == true)
+
+    val probability: Int
+        get() = when {
+            rainingNow -> 100
+            nowcastMm != null -> when {
+                nowcastMm >= 2 -> 90
+                nowcastMm >= RainNowcast.WET_MM -> 70
+                nowcastMm >= 0.1 -> 40
+                else -> 10
+            }
+            else -> hour?.precipitationProbability ?: 0
+        }
+
+    val rainLevel: RainLevel get() = when {
+        rainingNow || (nowcastMm ?: 0.0) >= 10 -> RainLevel.HEAVY
+        nowcastMm == null && ((hour?.precipitation ?: 0.0) >= 10 || (hour?.weatherCode ?: 0) in 95..99) -> RainLevel.HEAVY
+        wet -> RainLevel.WET
+        hour == null && nowcastMm == null -> RainLevel.UNKNOWN
+        probability >= 30 -> RainLevel.MAYBE
+        else -> RainLevel.DRY
+    }
 }
+
+/** 一個點的雨況分級；地圖、沿途清單與雨況時間軸共用。 */
+enum class RainLevel { UNKNOWN, DRY, MAYBE, WET, HEAVY }
+
+/**
+ * 雨況時間軸的一段：行程時間的 [start, end)（0 是出發、1 是抵達）都是同一個雨況。
+ * 經過時間與距離成正比，所以比例也就是路線上的位置。
+ */
+data class RainSpan(val start: Double, val end: Double, val level: RainLevel)
+
+/** 結果最上方的大字結論，與一行補充說明。 */
+data class RouteVerdict(val title: String, val detail: String)
+
+/** 沿途除了雨以外要注意的事；文字在畫面上依使用者的單位組成。 */
+sealed interface RouteHazard {
+    /** 經過時仍生效的天氣特報，與會經過的發布縣市 */
+    data class Alert(val title: String, val counties: List<String>) : RouteHazard
+
+    /** 路線附近的道路事件（施工、事故、封閉…） */
+    data class Road(val event: RoadEvent) : RouteHazard
+
+    /** 沿途最大的陣風（km/h） */
+    data class Wind(val gustKmh: Double, val stop: RouteStop) : RouteHazard
+
+    /** 路上會日落；stop 是日落後經過的第一個點 */
+    data class Sunset(val time: LocalDateTime, val stop: RouteStop) : RouteHazard
+
+    /** 沿途最低的體感溫度；騎車時含車速造成的風寒 */
+    data class Cold(val feelsLike: Double, val temperature: Double, val riding: Boolean, val stop: RouteStop) : RouteHazard
+
+    /** 沿途最高的體感溫度 */
+    data class Heat(val feelsLike: Double, val stop: RouteStop) : RouteHazard
+
+    /** 沿途最高的紫外線指數 */
+    data class Uv(val index: Double, val stop: RouteStop) : RouteHazard
+}
+
+/** 出發時間比較條的一欄：在這個時間出發，沿途最高的降雨機率與最嚴重的雨況。 */
+data class DepartureOption(val departure: LocalDateTime, val risk: Int, val level: RainLevel)
 
 /** 沿途清單的一行：連續經過同一個鄉鎮的點。 */
 data class StopGroup(val stops: List<RouteStop>) {
@@ -96,6 +169,8 @@ data class RouteForecast(
     val arrival: LocalDateTime get() = departure.plusSeconds((data.path.durationMinutes * 60).roundToLong())
     val maxProbability: Int get() = stops.maxOfOrNull { it.probability } ?: 0
     val summary: String get() = RoutePlanner.summary(this)
+    val verdict: RouteVerdict get() = RoutePlanner.verdict(this)
+    val hazards: List<RouteHazard> get() = RoutePlanner.hazards(this)
 }
 
 /**
@@ -112,28 +187,61 @@ object RouteApi {
         departure: LocalDateTime? = null,
         google: GoogleRoutes? = null,
         via: List<LatLon> = emptyList(),
-    ): RoutePath {
-        google?.route(from, to, mode, departure, via)?.let { return it }
-        return try {
-            parse(get(url(from, to, mode, via)))?.let { withCityPace(it, mode) } ?: straightLine(from, to, mode, via)
+    ): RoutePath = routes(from, to, mode, departure, google, via).first()
+
+    /**
+     * 建議路線與（[alternatives] 時）最多兩條替代路線；第一條是建議路線，
+     * 幾乎一樣的路線只留一條。至少會有一條（都失敗時是直線估計）。
+     */
+    suspend fun routes(
+        from: LatLon,
+        to: LatLon,
+        mode: TravelMode,
+        departure: LocalDateTime? = null,
+        google: GoogleRoutes? = null,
+        via: List<LatLon> = emptyList(),
+        alternatives: Boolean = false,
+    ): List<RoutePath> {
+        google?.routes(from, to, mode, departure, via, alternatives)?.takeIf { it.isNotEmpty() }?.let { return distinct(it) }
+        val osm = try {
+            parseAll(get(url(from, to, mode, via, alternatives))).map { withCityPace(it, mode) }
         } catch (e: IOException) {
-            straightLine(from, to, mode, via)
+            emptyList()
         } catch (e: org.json.JSONException) {
-            straightLine(from, to, mode, via)
+            emptyList()
         }
+        return distinct(osm).ifEmpty { listOf(straightLine(from, to, mode, via)) }
     }
 
-    fun url(from: LatLon, to: LatLon, mode: TravelMode, via: List<LatLon> = emptyList()): String {
+    /** 距離與時間都相差不到 3% 的路線視為同一條；最多三條 */
+    fun distinct(paths: List<RoutePath>): List<RoutePath> {
+        fun close(a: Double, b: Double) = abs(a - b) <= 0.03 * maxOf(a, b, 0.001)
+        val kept = mutableListOf<RoutePath>()
+        paths.forEach { p ->
+            if (kept.none { close(it.distanceKm, p.distanceKm) && close(it.durationMinutes, p.durationMinutes) }) kept += p
+        }
+        return kept.take(3)
+    }
+
+    fun url(from: LatLon, to: LatLon, mode: TravelMode, via: List<LatLon> = emptyList(), alternatives: Boolean = false): String {
         fun p(l: LatLon) = String.format(Locale.US, "%.5f,%.5f", l.longitude, l.latitude)
         val coords = (listOf(from) + via + to).joinToString(";", transform = ::p)
-        return "$BASE_URL/${mode.profile}/route/v1/driving/$coords?overview=full&geometries=geojson"
+        val alt = if (alternatives && via.isEmpty()) "&alternatives=true" else ""
+        return "$BASE_URL/${mode.profile}/route/v1/driving/$coords?overview=full&geometries=geojson$alt"
     }
 
-    /** 解析 OSRM 回應（座標為 [經度, 緯度]）。 */
-    fun parse(json: String): RoutePath? {
+    /** 解析 OSRM 回應的第一條路線 */
+    fun parse(json: String): RoutePath? = parseAll(json).firstOrNull()
+
+    /** 解析 OSRM 回應的所有路線（座標為 [經度, 緯度]）。 */
+    fun parseAll(json: String): List<RoutePath> {
         val root = JSONObject(json)
-        if (root.optString("code") != "Ok") return null
-        val route = root.optJSONArray("routes")?.optJSONObject(0) ?: return null
+        if (root.optString("code") != "Ok") return emptyList()
+        val routes = root.optJSONArray("routes") ?: return emptyList()
+        return (0 until routes.length()).mapNotNull { i -> routes.optJSONObject(i)?.let(::parseRoute) }
+    }
+
+    private fun parseRoute(route: JSONObject): RoutePath? {
         val coords = route.optJSONObject("geometry")?.optJSONArray("coordinates") ?: return null
         val points = (0 until coords.length()).mapNotNull { i ->
             coords.optJSONArray(i)?.let { LatLon(it.getDouble(1), it.getDouble(0)) }
@@ -220,6 +328,45 @@ object RoutePlanner {
         return RouteForecast(data, departure, stops, better)
     }
 
+    /**
+     * 雨況時間軸：每個取樣點代表它到前後兩點中間的那一段，相鄰同一雨況的段合併。
+     */
+    fun timeline(stops: List<RouteStop>): List<RainSpan> {
+        val spans = mutableListOf<RainSpan>()
+        stops.forEachIndexed { i, stop ->
+            val start = if (i == 0) 0.0 else (stops[i - 1].point.fraction + stop.point.fraction) / 2
+            val end = if (i == stops.lastIndex) 1.0 else (stop.point.fraction + stops[i + 1].point.fraction) / 2
+            val level = stop.rainLevel
+            val prev = spans.lastOrNull()
+            if (prev != null && prev.level == level) spans[spans.lastIndex] = prev.copy(end = end)
+            else spans += RainSpan(start, end, level)
+        }
+        return spans
+    }
+
+    /** 路線各點要下載幾天的逐時預報：涵蓋出發日的隔天（行程可能跨日），3–7 天 */
+    fun forecastDays(departure: LocalDateTime?, now: LocalDateTime = LocalDateTime.now()): Int =
+        ((departure?.let { ChronoUnit.DAYS.between(now.toLocalDate(), it.toLocalDate()) } ?: 0) + 2).toInt().coerceIn(3, 7)
+
+    /** 依各個出發時間重新計算沿途雨況（路線與行車時間不變）。 */
+    fun compare(data: RouteData, departures: List<LocalDateTime>, now: LocalDateTime = LocalDateTime.now()): List<DepartureOption> =
+        departures.map { departure ->
+            val stops = stopsAt(data, departure, now)
+            DepartureOption(departure, risk(stops), stops.maxOfOrNull { it.rainLevel } ?: RainLevel.UNKNOWN)
+        }
+
+    /**
+     * 比較條上建議的出發時間：降雨機率比目前選的低 20% 以上的最低者（同機率取較早）；
+     * 沒有的話為 null。
+     */
+    fun recommended(options: List<DepartureOption>, selected: LocalDateTime): DepartureOption? {
+        val current = options.firstOrNull { it.departure == selected } ?: return null
+        if (current.level == RainLevel.UNKNOWN) return null
+        return options
+            .filter { it.level != RainLevel.UNKNOWN && it.risk <= current.risk - 20 }
+            .minWithOrNull(compareBy<DepartureOption> { it.risk }.thenBy { it.departure })
+    }
+
     private fun risk(stops: List<RouteStop>) = stops.maxOfOrNull { it.probability } ?: 0
 
     private fun stopsAt(data: RouteData, departure: LocalDateTime, now: LocalDateTime): List<RouteStop> =
@@ -237,6 +384,9 @@ object RoutePlanner {
                 place = weather?.cwa?.township,
                 hour = weather?.let { nearestHour(it, eta) },
                 rainingNow = rainingNow,
+                county = weather?.cwa?.county,
+                alerts = weather?.cwa?.alerts.orEmpty(),
+                nowcastMm = data.nowcast?.takeIf { it.covers(eta, now) }?.at(point.position.latitude, point.position.longitude),
             )
         }
 
@@ -260,6 +410,123 @@ object RoutePlanner {
             .filter { abs(Duration.between(it.time, time).toMinutes()) <= 60 }
             .minByOrNull { abs(Duration.between(it.time, time).toMinutes()) }
 
+    /** 機車、單車騎乘時的平均車速（km/h），用來算風寒；步行與汽車為 0 */
+    private fun ridingKmh(mode: TravelMode) = when (mode) {
+        TravelMode.SCOOTER -> 40.0
+        TravelMode.BIKE -> 18.0
+        else -> 0.0
+    }
+
+    /**
+     * 風寒體感（加拿大／美國氣象局公式），v 為氣溫 15°C 以下時的相對風速 km/h；
+     * 公式原本適用 10°C 以下，台灣冬天騎車 15°C 也會覺得冷，延伸使用並不高於氣溫。
+     */
+    fun windChill(temperature: Double, windKmh: Double): Double {
+        if (temperature > 15 || windKmh < 4.8) return temperature
+        val v = Math.pow(windKmh, 0.16)
+        return minOf(temperature, 13.12 + 0.6215 * temperature - 11.37 * v + 0.3965 * temperature * v)
+    }
+
+    /**
+     * 沿途要注意的事：特報、強陣風、日落、冷、熱、紫外線。
+     * 汽車只看特報、陣風與日落（車內不受冷熱與日曬影響）。
+     */
+    fun hazards(forecast: RouteForecast): List<RouteHazard> {
+        val stops = forecast.stops
+        val mode = forecast.data.mode
+        val exposed = mode != TravelMode.CAR
+        val result = mutableListOf<RouteHazard>()
+
+        // 經過該縣市時仍生效的特報，同一種特報合併縣市
+        val alerts = linkedMapOf<String, LinkedHashSet<String>>()
+        stops.forEach { stop ->
+            stop.alerts
+                .filter { (it.start == null || !it.start.isAfter(stop.eta)) && (it.end == null || it.end.isAfter(stop.eta)) }
+                .forEach { alert -> alerts.getOrPut(alert.title) { linkedSetOf() }.apply { stop.county?.let(::add) } }
+        }
+        alerts.forEach { (title, counties) -> result += RouteHazard.Alert(title, counties.toList()) }
+        // 道路事件最多列三則
+        forecast.data.roadEvents.take(3).forEach { result += RouteHazard.Road(it) }
+
+        // 機車與單車 40 km/h（約 6 級）就容易被側風吹偏
+        val gustLimit = if (mode == TravelMode.SCOOTER || mode == TravelMode.BIKE) 40.0 else 55.0
+        stops.filter { it.hour?.windGusts?.isNaN() == false }
+            .maxByOrNull { it.hour!!.windGusts }
+            ?.takeIf { it.hour!!.windGusts >= gustLimit }
+            ?.let { result += RouteHazard.Wind(it.hour!!.windGusts, it) }
+
+        sunset(forecast)?.let { result += it }
+
+        if (exposed) {
+            val ride = ridingKmh(mode)
+            stops.mapNotNull { stop ->
+                val h = stop.hour ?: return@mapNotNull null
+                val feels = if (ride > 0 && h.temperature <= 15) {
+                    windChill(h.temperature, ride + (h.windSpeed.takeUnless { it.isNaN() } ?: 0.0))
+                } else {
+                    h.apparentTemperature.takeUnless { it.isNaN() } ?: h.temperature
+                }
+                Triple(stop, feels, h.temperature)
+            }.minByOrNull { it.second }
+                ?.takeIf { it.second <= if (ride > 0) 12.0 else 10.0 }
+                ?.let { (stop, feels, temperature) -> result += RouteHazard.Cold(feels, temperature, ride > 0, stop) }
+
+            stops.filter { it.hour?.apparentTemperature?.isNaN() == false }
+                .maxByOrNull { it.hour!!.apparentTemperature }
+                ?.takeIf { it.hour!!.apparentTemperature >= 36 }
+                ?.let { result += RouteHazard.Heat(it.hour!!.apparentTemperature, it) }
+
+            stops.filter { stop -> stop.hour?.let { it.isDay && !it.uvIndex.isNaN() } == true }
+                .maxByOrNull { it.hour!!.uvIndex }
+                ?.takeIf { it.hour!!.uvIndex >= 8 }
+                ?.let { result += RouteHazard.Uv(it.hour!!.uvIndex, it) }
+        }
+        return result
+    }
+
+    /** 經過兩個相鄰點之間時太陽下山 */
+    private fun sunset(forecast: RouteForecast): RouteHazard.Sunset? {
+        val stops = forecast.stops
+        for (i in 1 until stops.size) {
+            val stop = stops[i]
+            val sunset = forecast.data.weathers.getOrNull(i)?.daily
+                ?.firstOrNull { it.date == stop.eta.toLocalDate() }?.sunset ?: continue
+            if (stops[i - 1].eta.isBefore(sunset) && !stop.eta.isBefore(sunset)) return RouteHazard.Sunset(sunset, stop)
+        }
+        return null
+    }
+
+    fun verdict(forecast: RouteForecast): RouteVerdict {
+        val stops = forecast.stops
+        if (stops.all { it.hour == null && !it.rainingNow }) return RouteVerdict("暫無預報", "這段時間還沒有逐時預報資料")
+        val gear = forecast.data.mode.rainGear?.let { "記得帶$it" } ?: "注意路面濕滑"
+        fun where(s: RouteStop) = s.place ?: "距起點 ${"%.1f".format(Locale.US, s.point.distanceKm)} 公里處"
+        val wet = stops.filter { it.wet }
+        val heavy = wet.any { it.rainLevel == RainLevel.HEAVY }
+        val raining = stops.firstOrNull { it.rainingNow }
+        return when {
+            raining != null -> RouteVerdict("${where(raining)}正在下雨", gear)
+            wet.size == stops.size -> RouteVerdict(
+                if (heavy) "沿途都有雨，部分大雨" else "沿途都會下雨",
+                "降雨機率最高 ${forecast.maxProbability}% · $gear",
+            )
+            wet.isNotEmpty() -> {
+                val first = wet.first()
+                val rain = if (heavy) "有大雨" else "可能下雨"
+                val amount = first.nowcastMm?.let { "雷達預估 1 小時 %.1f mm".format(Locale.US, it) } ?: "降雨機率 ${first.probability}%"
+                RouteVerdict(
+                    if (first == stops.first()) "一出發就$rain" else "${"%02d:%02d".format(first.eta.hour, first.eta.minute)} 起$rain",
+                    "${where(first)}一帶 · $amount · $gear",
+                )
+            }
+            forecast.maxProbability >= 30 -> RouteVerdict(
+                "可能會下雨",
+                "降雨機率最高 ${forecast.maxProbability}% · 可以備著${forecast.data.mode.rainGear ?: "雨具"}",
+            )
+            else -> RouteVerdict("沿途不太會下雨", "降雨機率最高 ${forecast.maxProbability}%")
+        }
+    }
+
     fun summary(forecast: RouteForecast): String {
         val stops = forecast.stops
         if (stops.all { it.hour == null && !it.rainingNow }) return "暫無這段時間的預報資料"
@@ -271,7 +538,7 @@ object RoutePlanner {
             wet.size == stops.size -> "沿途都可能下雨$gear"
             wet.isNotEmpty() -> {
                 val first = wet.first()
-                val heavy = wet.any { (it.hour?.precipitation ?: 0.0) >= 10 || (it.hour?.weatherCode ?: 0) in 95..99 }
+                val heavy = wet.any { it.rainLevel == RainLevel.HEAVY }
                 "約 ${"%02d:%02d".format(first.eta.hour, first.eta.minute)} 經過${where(first)}時可能${if (heavy) "有大雨" else "下雨"}" +
                     "（降雨機率 ${first.probability}%）$gear"
             }

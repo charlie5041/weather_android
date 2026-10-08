@@ -20,6 +20,7 @@ class CwaRepository(cacheDir: File) {
     private val locks = mutableMapOf<String, Mutex>()
     private val stationCache = mutableMapOf<String, Pair<Long, List<CwaStation>>>()
     private val gaugeCache = mutableMapOf<String, Pair<Long, List<RainGauge>>>()
+    private var nowcastCache: Pair<Long, RainNowcast?>? = null
 
     /**
      * 台灣（含離島）範圍外直接回傳 null。
@@ -122,6 +123,19 @@ class CwaRepository(cacheDir: File) {
             ?.let { runCatching { TyphoonParser.parse(it) }.getOrNull() }
             .orEmpty()
 
+    /** 未來 1 小時雷達定量降雨預報（約 2.7MB，每 10 分鐘更新；解析結果依檔案時間快取在記憶體） */
+    suspend fun nowcast(allowNetwork: Boolean): RainNowcast? {
+        val path = "Forecast/F-B0046-001.json"
+        val text = file(path, NOWCAST_TTL, allowNetwork) ?: return null
+        val modified = cacheFile(path).lastModified()
+        synchronized(this) {
+            nowcastCache?.takeIf { it.first == modified }?.let { return it.second }
+        }
+        val parsed = withContext(Dispatchers.Default) { runCatching { RainNowcast.parse(text) }.getOrNull() }
+        synchronized(this) { nowcastCache = modified to parsed }
+        return parsed
+    }
+
     private fun download(url: String): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
@@ -144,5 +158,6 @@ class CwaRepository(cacheDir: File) {
         private const val LOW_DATA_FORECAST_TTL = 3 * 60 * 60_000L
         private const val MAX_STATION_KM = 10.0
         private const val TYPHOON_TTL = 30 * 60_000L
+        private const val NOWCAST_TTL = 10 * 60_000L
     }
 }
