@@ -135,4 +135,31 @@ class RouteTest {
         assertEquals("沿途降雨機率低，適合出發", forecast.summary)
         assertNull(forecast.betterDeparture)
     }
+
+    @Test
+    fun timelineMergesNeighboursWithSameRain() {
+        // 07:00 乾、07:40 沒資料、08:20 與 09:00 降雨 80%
+        val dry = weather(0, 10, 10, 10, 10)
+        val wetLater = weather(0, 80, 80, 80, 80)
+        val forecast = RoutePlanner.evaluate(data(listOf(dry, null, wetLater, wetLater)), now, now)
+        val spans = RoutePlanner.timeline(forecast.stops)
+        assertEquals(listOf(RainLevel.DRY, RainLevel.UNKNOWN, RainLevel.WET), spans.map { it.level })
+        // 每點代表到前後兩點中間；兩個會下雨的點合併成一段直到抵達
+        assertEquals(0.0, spans[0].start, 1e-9)
+        assertEquals(1 / 6.0, spans[1].start, 1e-9)
+        assertEquals(0.5, spans[2].start, 1e-9)
+        assertEquals(1.0, spans[2].end, 1e-9)
+    }
+
+    @Test
+    fun rainLevelGradesProbabilityAndIntensity() {
+        fun stop(hour: HourlyForecast?, raining: Boolean = false) =
+            RouteStop(RoutePoint(LatLon(25.0, 121.5), 0.0, 0.0), now, null, hour, raining)
+        assertEquals(RainLevel.UNKNOWN, stop(null).rainLevel)
+        assertEquals(RainLevel.DRY, stop(hour(now, 20)).rainLevel)
+        assertEquals(RainLevel.MAYBE, stop(hour(now, 30)).rainLevel)
+        assertEquals(RainLevel.WET, stop(hour(now, 60, code = 61)).rainLevel)
+        assertEquals(RainLevel.HEAVY, stop(hour(now, 90, code = 63, mm = 12.0)).rainLevel)
+        assertEquals(RainLevel.HEAVY, stop(null, raining = true).rainLevel)
+    }
 }

@@ -75,7 +75,24 @@ data class RouteStop(
 ) {
     val wet: Boolean get() = rainingNow || hour?.let(Commute::isWet) == true
     val probability: Int get() = if (rainingNow) 100 else hour?.precipitationProbability ?: 0
+
+    val rainLevel: RainLevel get() = when {
+        rainingNow || (hour?.precipitation ?: 0.0) >= 10 || (hour?.weatherCode ?: 0) in 95..99 -> RainLevel.HEAVY
+        wet -> RainLevel.WET
+        hour == null -> RainLevel.UNKNOWN
+        probability >= 30 -> RainLevel.MAYBE
+        else -> RainLevel.DRY
+    }
 }
+
+/** 一個點的雨況分級；地圖、沿途清單與雨況時間軸共用。 */
+enum class RainLevel { UNKNOWN, DRY, MAYBE, WET, HEAVY }
+
+/**
+ * 雨況時間軸的一段：行程時間的 [start, end)（0 是出發、1 是抵達）都是同一個雨況。
+ * 經過時間與距離成正比，所以比例也就是路線上的位置。
+ */
+data class RainSpan(val start: Double, val end: Double, val level: RainLevel)
 
 /** 沿途清單的一行：連續經過同一個鄉鎮的點。 */
 data class StopGroup(val stops: List<RouteStop>) {
@@ -218,6 +235,22 @@ object RoutePlanner {
             .filter { (_, r) -> r <= risk - 20 }
             .minByOrNull { (_, r) -> r }
         return RouteForecast(data, departure, stops, better)
+    }
+
+    /**
+     * 雨況時間軸：每個取樣點代表它到前後兩點中間的那一段，相鄰同一雨況的段合併。
+     */
+    fun timeline(stops: List<RouteStop>): List<RainSpan> {
+        val spans = mutableListOf<RainSpan>()
+        stops.forEachIndexed { i, stop ->
+            val start = if (i == 0) 0.0 else (stops[i - 1].point.fraction + stop.point.fraction) / 2
+            val end = if (i == stops.lastIndex) 1.0 else (stop.point.fraction + stops[i + 1].point.fraction) / 2
+            val level = stop.rainLevel
+            val prev = spans.lastOrNull()
+            if (prev != null && prev.level == level) spans[spans.lastIndex] = prev.copy(end = end)
+            else spans += RainSpan(start, end, level)
+        }
+        return spans
     }
 
     private fun risk(stops: List<RouteStop>) = stops.maxOfOrNull { it.probability } ?: 0

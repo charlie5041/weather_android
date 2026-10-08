@@ -53,7 +53,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
@@ -64,7 +66,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,6 +84,7 @@ import com.charlie.weather.data.LatLon
 import com.charlie.weather.data.MapTile
 import com.charlie.weather.data.MapTileCache
 import com.charlie.weather.data.MapViewport
+import com.charlie.weather.data.RainLevel
 import com.charlie.weather.data.WebMercator
 import com.charlie.weather.data.RouteData
 import com.charlie.weather.data.RouteForecast
@@ -89,12 +97,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 internal val RouteDry = Color(0xFF30D158)
 internal val RouteMaybe = Color(0xFFFFD60A)
@@ -273,11 +283,14 @@ private fun routeDay(time: LocalDateTime, today: LocalDate = LocalDate.now()) = 
     else -> "${time.monthValue}/${time.dayOfMonth}"
 }
 
-internal fun rainColor(stop: RouteStop): Color = when {
-    stop.rainingNow || (stop.hour?.precipitation ?: 0.0) >= 10 || (stop.hour?.weatherCode ?: 0) in 95..99 -> RouteHeavy
-    stop.wet -> RouteWet
-    stop.probability >= 30 -> RouteMaybe
-    else -> RouteDry
+internal fun rainColor(stop: RouteStop): Color = rainLevelColor(stop.rainLevel)
+
+internal fun rainLevelColor(level: RainLevel): Color = when (level) {
+    RainLevel.HEAVY -> RouteHeavy
+    RainLevel.WET -> RouteWet
+    RainLevel.MAYBE -> RouteMaybe
+    RainLevel.DRY -> RouteDry
+    RainLevel.UNKNOWN -> Color.Gray
 }
 
 @Composable
@@ -377,6 +390,8 @@ fun RouteResult(
             )
             Spacer(Modifier.height(6.dp))
             Text(forecast.summary, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium, lineHeight = 23.sp)
+            Spacer(Modifier.height(12.dp))
+            RainTimeline(forecast)
             forecast.betterDeparture?.let { (time, _) ->
                 Text(
                     "改成 ${clock(time)} 出發 ›",
@@ -449,6 +464,63 @@ fun RouteResult(
                 fontSize = 12.sp,
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
+        }
+    }
+}
+
+/** 柱高：不靠顏色也看得出雨勢 */
+private fun RainLevel.barHeight() = when (this) {
+    RainLevel.UNKNOWN, RainLevel.DRY -> 0.25f
+    RainLevel.MAYBE -> 0.5f
+    RainLevel.WET -> 0.75f
+    RainLevel.HEAVY -> 1f
+}
+
+/**
+ * 雨況時間軸：整條的寬度是這趟行程的時間，每段的顏色與高度表示經過時的雨勢；
+ * 下方標出發、抵達，以及第一次遇到雨（沒有的話是可能下雨）的時間。
+ */
+@Composable
+internal fun RainTimeline(forecast: RouteForecast, modifier: Modifier = Modifier) {
+    val spans = remember(forecast) { RoutePlanner.timeline(forecast.stops) }
+    val rain = spans.firstOrNull { it.level >= RainLevel.WET } ?: spans.firstOrNull { it.level == RainLevel.MAYBE }
+    val seconds = Duration.between(forecast.departure, forecast.arrival).seconds
+    val measurer = rememberTextMeasurer()
+    Canvas(modifier.fillMaxWidth().height(54.dp).semantics { contentDescription = forecast.summary }) {
+        val barHeight = 30.dp.toPx()
+        val gap = 1.5.dp.toPx()
+        val radius = CornerRadius(3.dp.toPx())
+        drawRoundRect(Color.White.copy(alpha = 0.08f), size = Size(size.width, barHeight), cornerRadius = radius)
+        spans.forEach { span ->
+            val x0 = (span.start * size.width).toFloat() + gap / 2
+            val x1 = (span.end * size.width).toFloat() - gap / 2
+            val h = barHeight * span.level.barHeight()
+            drawRoundRect(
+                rainLevelColor(span.level),
+                topLeft = Offset(x0, barHeight - h),
+                size = Size((x1 - x0).coerceAtLeast(gap), h),
+                cornerRadius = radius,
+            )
+        }
+
+        val style = TextStyle(color = Color.Gray, fontSize = 12.sp)
+        val y = barHeight + 5.dp.toPx()
+        val start = measurer.measure(clock(forecast.departure), style)
+        val end = measurer.measure(clock(forecast.arrival), style)
+        drawText(start, topLeft = Offset(0f, y))
+        drawText(end, topLeft = Offset(size.width - end.size.width, y))
+        rain?.let { span ->
+            val color = rainLevelColor(span.level)
+            val time = forecast.departure.plusSeconds((seconds * span.start).roundToLong())
+            val label = measurer.measure("${clock(time)} 起", style.copy(color = color, fontWeight = FontWeight.SemiBold))
+            val x = (span.start * size.width).toFloat()
+            val left = (x - label.size.width / 2f).coerceIn(0f, maxOf(0f, size.width - label.size.width))
+            // 一出發就遇雨，或太靠近兩端時不標，免得和出發、抵達時間重疊
+            val pad = 6.dp.toPx()
+            if (left > start.size.width + pad && left + label.size.width < size.width - end.size.width - pad) {
+                drawLine(Color.White.copy(alpha = 0.7f), Offset(x, 0f), Offset(x, y), strokeWidth = 1.dp.toPx())
+                drawText(label, topLeft = Offset(left, y))
+            }
         }
     }
 }
