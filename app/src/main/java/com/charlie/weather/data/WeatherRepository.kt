@@ -25,9 +25,16 @@ class WeatherRepository private constructor(context: Context) {
     }
 
     private val speedCameras = SpeedCameraRepository(context.filesDir)
+    val cameraReports = CameraReportRepository(context)
 
-    /** 測速照相清單（設定關閉時是空的）；騎乘中模式開始時用來補上路線的測速照相 */
+    /** 固定式測速照相清單（設定關閉時是空的）；騎乘中模式開始時用來補上路線的測速照相 */
     suspend fun speedCameras(): List<SpeedCamera> = if (settings.speedCameras) speedCameras.cameras() else emptyList()
+
+    /** 固定式測速照相，不管設定（使用者自己開了行車提醒） */
+    suspend fun allSpeedCameras(): List<SpeedCamera> = speedCameras.cameras()
+
+    /** 使用者回報、還沒失效的移動式測速（設定關閉時是空的） */
+    suspend fun mobileCameras(): List<SpeedCamera> = if (settings.speedCameras) cameraReports.recent() else emptyList()
 
     /**
      * 住家到公司的行車時間（分鐘），一天查一次路線並記下來。
@@ -145,7 +152,12 @@ class WeatherRepository private constructor(context: Context) {
             if (tdx == null || minutes !in -15..180) return@async emptyList()
             tdx.events()
         }
-        val cameras = async { speedCameras() }
+        val cameras = async {
+            // 移動式測速的回報 2 小時內失效，只在 2 小時內出發時一起列出
+            val minutes = departure?.let { Duration.between(LocalDateTime.now(), it).toMinutes() } ?: 0
+            val mobile = if (minutes in -15..120) async { mobileCameras() } else null
+            speedCameras() + mobile?.await().orEmpty()
+        }
         val now = System.currentTimeMillis()
         val jsons = forecasts.await()
         val cwas = cwaData.await()

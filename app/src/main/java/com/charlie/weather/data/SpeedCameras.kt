@@ -15,7 +15,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sqrt
 
-/** 固定式測速照相（警政署「測速執法設置點」）。 */
+/** 測速照相：固定式來自警政署「測速執法設置點」，移動式來自使用者回報。 */
 data class SpeedCamera(
     val position: LatLon,
     /** 設置地點（例如「臺北市內湖區成功路四段」） */
@@ -24,7 +24,16 @@ data class SpeedCamera(
     val limit: Int?,
     /** 拍攝方向的原文（例如「南向北」「雙向」） */
     val direction: String?,
-)
+    /** 使用者回報的移動式測速 */
+    val mobile: Boolean = false,
+    /** 回報者當時的行進方位角；固定式為 null，改用 [direction] */
+    val bearing: Double? = null,
+    /** 回報時間（epoch 毫秒） */
+    val reportedAt: Long? = null,
+) {
+    /** 會被拍的行進方位角；雙向或不明時為 null */
+    val travelHeading: Double? get() = bearing ?: SpeedCameraRepository.heading(direction)
+}
 
 /** 路線上會經過的測速照相；[fraction] 是在路線上的位置（0 是起點、1 是終點）。 */
 data class RouteCamera(val camera: SpeedCamera, val fraction: Double, val distanceKm: Double)
@@ -95,7 +104,7 @@ class SpeedCameraRepository(private val dir: File) {
         const val NEAR_KM = 0.06
 
         /** 路線方向與拍攝方向相差超過這個角度就不是這個方向的照相 */
-        private const val MAX_ANGLE = 75.0
+        const val MAX_ANGLE = 75.0
 
         /**
          * 解析警政署的資料：記錄在 result.records（也接受 records 或直接是陣列），
@@ -203,7 +212,7 @@ class SpeedCameraRepository(private val dir: File) {
             val found = cameras.mapNotNull { camera ->
                 val p = camera.position
                 if (p.latitude !in minLat..maxLat || p.longitude !in minLon..maxLon) return@mapNotNull null
-                val heading = heading(camera.direction)
+                val heading = camera.travelHeading
                 var best = Double.MAX_VALUE
                 var bestAt = 0.0
                 for (i in 1 until pts.size) {

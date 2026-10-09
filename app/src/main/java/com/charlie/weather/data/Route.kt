@@ -133,8 +133,8 @@ sealed interface RouteHazard {
     /** 路線附近的道路事件（施工、事故、封閉…） */
     data class Road(val event: RoadEvent) : RouteHazard
 
-    /** 沿途的測速照相：支數與速限範圍 */
-    data class Cameras(val count: Int, val minLimit: Int?, val maxLimit: Int?) : RouteHazard
+    /** 沿途的測速照相：處數（含 [mobile] 處使用者回報的移動式）與固定式的速限範圍 */
+    data class Cameras(val count: Int, val minLimit: Int?, val maxLimit: Int?, val mobile: Int = 0) : RouteHazard
 
     /** 沿途最大的陣風（km/h） */
     data class Wind(val gustKmh: Double, val stop: RouteStop) : RouteHazard
@@ -536,7 +536,7 @@ object RoutePlanner {
         // 測速照相與天氣無關，放最後（卡片只顯示前兩則）
         forecast.data.cameras.takeIf { it.isNotEmpty() }?.let { cameras ->
             val limits = cameras.mapNotNull { it.camera.limit }
-            result += RouteHazard.Cameras(cameras.size, limits.minOrNull(), limits.maxOrNull())
+            result += RouteHazard.Cameras(cameras.size, limits.minOrNull(), limits.maxOrNull(), cameras.count { it.camera.mobile })
         }
         return result
     }

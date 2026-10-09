@@ -19,13 +19,16 @@
   - 雷達短時預報：1 小時內出發時，1 小時內會經過的點改用中央氣象署「未來1小時雷達定量降雨預報」判斷會不會下雨，並把雨區畫在路線地圖上
   - 道路事件（有 TDX 金鑰時）：3 小時內出發時列出路線 0.5 公里內的國道、省道即時事件（施工、事故、封閉…）
   - 騎乘中模式：按「開始騎乘」後以前景服務持續定位，常駐通知顯示前方天氣與抵達時間，前方 20 分鐘內會下雨時跳出提醒；抵達終點自動結束
-  - 測速照相（設定開啟後，機車與汽車）：沿途提醒列出路線會經過的固定式測速照相支數與速限，地圖標出位置；騎乘中模式在前方 500 公尺內提醒，超過速限時提醒減速。依拍攝方向排除對向車道，不含移動式測速
+  - 測速照相（設定開啟後，機車與汽車）：沿途提醒列出路線會經過的測速照相處數與速限，地圖標出位置（2 小時內出發時含使用者回報的移動式測速）；騎乘中模式在前方 500 公尺內提醒，超過速限時提醒減速。依拍攝方向排除對向車道
+- 行車提醒（不設目的地）：在設定或快速設定的「測速提醒」方塊開始，依行進方向提醒前方 500 公尺內的測速照相；停留超過 20 分鐘自動結束
+- 移動式測速回報：騎乘中或行車提醒時按通知的「回報測速」，分享目前位置與行進方向，2 小時內提醒經過的其他使用者（需要 Firebase，見下方）
+- 語音播報：騎乘中與行車提醒用語音念出測速照相與前方降雨
   - 沿途清單把連續經過同一鄉鎮的點合併成一行（可展開）；路線畫在地圖上，可開啟 Google 地圖導航，並記住上次查詢的路線
   - 也可以在 Google 地圖規劃好路線（含途經點）後，用「分享」傳給本 App 查沿途天氣。沒有 Google 金鑰時，行車時間依市區常見速度（機車 25、汽車 22、腳踏車 13、步行 4.5 km/h）估算並標示為預估
 - 常用路線：在沿路天氣按「☆ 常用」存下路線，可設定每週哪幾天、幾點出發；主畫面第一頁的「出門」卡片顯示 12 小時內下一趟的沿路結論與雨況時間軸，出發前 1.5 小時內推送沿路天氣通知
 - Android Auto（天氣類 App）：車機上顯示目前天氣與常用路線現在出發的沿路結論
 - 桌面小工具（小／中／大）；主要城市與常用地點的降雨提醒、天氣特報，以及每日早晨通知
-- 設定：°C/°F、風速單位、是否使用中央氣象署資料、通勤卡片與通勤通知、沿路天氣的取樣間距、測速照相提醒
+- 設定：°C/°F、風速單位、是否使用中央氣象署資料、通勤卡片與通勤通知、沿路天氣的取樣間距、測速照相提醒、語音播報
 
 ## 資料來源與授權
 
@@ -34,6 +37,7 @@
 | 台灣測站觀測、鄉鎮預報、天氣特報、颱風路徑、未來 1 小時雷達定量降雨預報 | [中央氣象署開放資料](https://opendata.cwa.gov.tw/) | [政府資料開放授權條款－第 1 版](https://data.gov.tw/license) |
 | 國道、省道即時道路事件（有金鑰時） | [交通部 TDX 運輸資料流通服務](https://tdx.transportdata.tw/) | [政府資料開放授權條款－第 1 版](https://data.gov.tw/license) |
 | 固定式測速照相地點（設定開啟時，每週更新） | [警政署「測速執法設置點」](https://data.gov.tw/dataset/7320) | [政府資料開放授權條款－第 1 版](https://data.gov.tw/license) |
+| 移動式測速 | 使用者回報（Firebase Firestore） | — |
 | 台灣測站空氣品質（AQI） | [環境部環境資料開放平臺](https://data.moenv.gov.tw/) | [政府資料開放授權條款－第 1 版](https://data.gov.tw/license) |
 | 全球天氣預報、空氣品質 | [Open-Meteo](https://open-meteo.com/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | 線上城市搜尋 | [Open-Meteo Geocoding API](https://open-meteo.com/en/docs/geocoding-api)（GeoNames 資料） | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
@@ -62,7 +66,7 @@
 | --- | --- |
 | `KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD` | APK 簽章（同一把金鑰才能覆蓋更新） |
 | `FIREBASE_APP_ID`、`FIREBASE_SERVICE_ACCOUNT`、`FIREBASE_TESTERS` | 發佈到 App Tester |
-| `GOOGLE_SERVICES_JSON` | Crashlytics（選用） |
+| `GOOGLE_SERVICES_JSON` | Crashlytics 與移動式測速回報（選用） |
 | `MOENV_API_KEY` | 環境部 AQI（選用；沒有時使用 Open-Meteo） |
 | `TDX_CLIENT_ID`、`TDX_CLIENT_SECRET` | 交通部 TDX（選用）：沿路天氣顯示路線附近的即時道路事件；在 [TDX 會員中心](https://tdx.transportdata.tw/) 申請 API 金鑰取得 |
 | `GOOGLE_MAPS_API_KEY` | Google 地圖（選用）：沿路天氣用 Google 地圖顯示，路線與行車時間含路況；沒有時使用 OpenStreetMap、未含路況 |
@@ -72,6 +76,14 @@
 2. 「API 限制」只勾選 **Maps SDK for Android** 與 **Routes API**
 
 金鑰會包含在 APK 內，上述限制可以避免被其他 App 盜用。
+
+移動式測速回報使用與 Crashlytics 同一個 Firebase 專案（`GOOGLE_SERVICES_JSON`），另外要在 Firebase 主控台：
+1. **Authentication** → 登入方式 → 啟用「匿名」
+2. **Firestore Database** → 建立資料庫（地區建議 `asia-east1` 台灣）
+3. Firestore → **規則**：貼上 repo 根目錄的 [`firestore.rules`](firestore.rules) 並發布（只允許登入者讀取、新增自己的回報，座標限台灣附近、2.5 小時內失效）
+4. （選用）Firestore → **TTL 政策**：集合 `camera_reports`、欄位 `expiresAt`，讓失效的回報自動刪除
+
+沒有 `GOOGLE_SERVICES_JSON` 時通知不顯示「回報測速」，只提醒固定式測速照相。
 
 Fork 這個專案自行建置時，沒有這些 Secrets 也能編譯，只是會用臨時的 debug 金鑰簽章，也不會發佈。
 

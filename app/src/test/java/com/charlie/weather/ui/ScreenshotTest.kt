@@ -164,7 +164,7 @@ class ScreenshotTest {
                         com.charlie.weather.data.RouteHazard.Sunset(now.plusMinutes(32), stop),
                         com.charlie.weather.data.RouteHazard.Cold(8.6, 13.0, riding = true, stop = stop),
                         com.charlie.weather.data.RouteHazard.Uv(9.0, stop),
-                        com.charlie.weather.data.RouteHazard.Cameras(4, 50, 70),
+                        com.charlie.weather.data.RouteHazard.Cameras(4, 50, 70, mobile = 1),
                     ),
                 )
             }

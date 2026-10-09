@@ -6,7 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Crashlytics：只有在 CI 從 Secrets 放入 google-services.json 時才啟用
+// Crashlytics 與測速回報（Firestore）：只有在 CI 從 Secrets 放入 google-services.json 時才啟用
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
     apply(plugin = "com.google.firebase.crashlytics")
@@ -107,6 +107,10 @@ dependencies {
     implementation("com.google.maps.android:maps-compose:6.4.1")
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-crashlytics")
+    // 移動式測速的使用者回報（Firestore + 匿名登入）；沒有 google-services.json 時不會啟用
+    implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.firebase:firebase-auth")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
     testImplementation("junit:junit:4.13.2")
     // Android 內建的 org.json 在 JVM 單元測試中只是空殼，改用真正的實作
