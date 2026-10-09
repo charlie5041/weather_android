@@ -1,6 +1,10 @@
 package com.charlie.weather.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,6 +24,10 @@ object WeatherApi {
     private const val FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
     private const val AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
     private const val GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
+
+    /** 沿途預報每個請求的地點數 */
+    private const val CHUNK = 40
+    private const val RETRY_MS = 800L
 
     private const val CURRENT_VARS = "temperature_2m,relative_humidity_2m,apparent_temperature,is_day," +
         "precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m," +
@@ -54,6 +62,34 @@ object WeatherApi {
         if (!trimmed.startsWith("[")) return listOf(text)
         val arr = JSONArray(trimmed)
         return (0 until arr.length()).map { arr.getJSONObject(it).toString() }
+    }
+
+    /**
+     * 沿途多點的預報：每 [CHUNK] 個地點一個請求並行查詢，失敗的批次等一下再試一次；
+     * 仍然失敗的批次對應的位置為 null，只讓那幾個點「暫無預報」，不讓整條路線失敗。
+     * 全部失敗時才拋出 [IOException]。
+     */
+    suspend fun fetchForecastJsonsChunked(points: List<LatLon>, days: Int = 3): List<String?> = coroutineScope {
+        if (points.isEmpty()) return@coroutineScope emptyList()
+        val chunks = points.chunked(CHUNK)
+        val results = chunks.map { chunk -> async { fetchWithRetry(chunk, days) } }.map { it.await() }
+        if (results.all { it == null }) throw IOException("無法取得沿途預報")
+        results.flatMapIndexed { i, jsons -> jsons ?: List(chunks[i].size) { null } }
+    }
+
+    private suspend fun fetchWithRetry(chunk: List<LatLon>, days: Int): List<String>? {
+        repeat(2) { attempt ->
+            try {
+                return fetchForecastJsons(chunk, days).takeIf { it.size == chunk.size }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                if (attempt == 0) delay(RETRY_MS)
+            } catch (e: org.json.JSONException) {
+                if (attempt == 0) delay(RETRY_MS)
+            }
+        }
+        return null
     }
 
     suspend fun fetchAirQualityJson(latitude: Double, longitude: Double): String? = try {

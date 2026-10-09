@@ -110,7 +110,12 @@ class WeatherRepository private constructor(context: Context) {
         val paths = RouteApi.routes(from.latLon(), to.latLon(), mode, departure, googleRoutes, via.map { it.latLon() }, alternatives)
         val sampled = paths.map { RoutePlanner.sample(it, stepKm = settings.routeStepKm.toDouble()) }
         val points = sampled.flatten()
-        val forecasts = async { WeatherApi.fetchForecastJsons(points.map { it.position }, RoutePlanner.forecastDays(departure)) }
+        // 相近的點合併查詢；分批並行，單一批次失敗只影響那些點
+        val forecasts = async {
+            val (sites, siteOf) = RoutePlanner.forecastGroups(points.map { it.position })
+            val jsons = WeatherApi.fetchForecastJsonsChunked(sites, RoutePlanner.forecastDays(departure))
+            siteOf.map { jsons.getOrNull(it) }
+        }
         val cwaData = async {
             if (!settings.useCwa) return@async points.map<RoutePoint, CwaData?> { null }
             // 第一個點先下載共用的檔案（測站、縣市預報、雨量站），其他點再並行使用快取

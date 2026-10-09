@@ -148,6 +148,10 @@ data class RouteRequest(
 fun RouteScreen(
     request: RouteRequest,
     places: List<City>,
+    /** 最近搜尋選用的地點 */
+    recentPlaces: List<City> = emptyList(),
+    onRememberPlace: (City) -> Unit = {},
+    onClearRecentPlaces: () -> Unit = {},
     onSearch: suspend (String) -> List<AddressResult>,
     onUseCurrentLocation: suspend () -> AddressResult?,
     /** 建議路線與替代路線（第一條是建議路線） */
@@ -180,12 +184,14 @@ fun RouteScreen(
     // 比較條從這個時間起每 30 分鐘一欄（通勤時間或自訂時間）；沒有時從現在起
     var anchor by remember { mutableStateOf(request.departure?.takeIf { it != openedAt }) }
     var editFavorite by remember { mutableStateOf(false) }
+    // 按「重試」時加一，重新查詢
+    var reload by remember { mutableIntStateOf(0) }
     val favorite = favorites.firstOrNull { f -> from?.let { a -> to?.let { b -> f.sameRoute(a, b, via) } } == true }
 
     fun departureFor(route: RouteData?): LocalDateTime =
         arriveBy?.let { a -> route?.let { a.minusSeconds((it.path.durationMinutes * 60).roundToLong()) } ?: a.minusMinutes(30) } ?: departure
 
-    LaunchedEffect(from, to, via, mode, if (trafficAware) arriveBy ?: departure else null) {
+    LaunchedEffect(from, to, via, mode, if (trafficAware) arriveBy ?: departure else null, reload) {
         val a = from
         val b = to
         val previous = routes?.getOrNull(selected)
@@ -212,6 +218,9 @@ fun RouteScreen(
         EndpointSearch(
             title = if (endpoint == Endpoint.FROM) "選擇起點" else "選擇終點",
             places = places,
+            recent = recentPlaces,
+            onRemember = onRememberPlace,
+            onClearRecent = onClearRecentPlaces,
             onSearch = onSearch,
             onUseCurrentLocation = onUseCurrentLocation,
             onPick = { city ->
@@ -338,7 +347,10 @@ fun RouteScreen(
                     loading -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = Color.White)
                     }
-                    error != null -> Hint(error!!)
+                    error != null -> Column {
+                        Hint(error!!)
+                        TextButton(onClick = { reload++ }) { Text("重試", color = Accent, fontSize = 16.sp) }
+                    }
                     forecast != null -> {
                         val all = routes.orEmpty()
                         if (all.size > 1) RouteChoices(all, selected, ::departureFor) { selected = it }
@@ -1337,6 +1349,9 @@ private fun StopRow(group: StopGroup, title: String, first: Boolean, last: Boole
 private fun EndpointSearch(
     title: String,
     places: List<City>,
+    recent: List<City>,
+    onRemember: (City) -> Unit,
+    onClearRecent: () -> Unit,
     onSearch: suspend (String) -> List<AddressResult>,
     onUseCurrentLocation: suspend () -> AddressResult?,
     onPick: (City) -> Unit,
@@ -1412,12 +1427,46 @@ private fun EndpointSearch(
                 }
                 results.forEachIndexed { i, r ->
                     if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-                    Column(Modifier.fillMaxWidth().clickable { onPick(r.toRouteCity()) }.padding(vertical = 10.dp)) {
+                    Column(
+                        Modifier.fillMaxWidth().clickable {
+                            val city = r.toRouteCity()
+                            onRemember(city)
+                            onPick(city)
+                        }.padding(vertical = 10.dp),
+                    ) {
                         Text(r.address, color = Color.White, fontSize = 15.sp)
                         Text(if (r.approximate) "${r.area}（大概位置）" else r.area, color = Color.Gray, fontSize = 13.sp)
                     }
                 }
                 message?.let { Text(it, color = Color(0xFFFF9F0A), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
+            }
+            if (recent.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { SectionLabel("最近搜尋") }
+                    Text(
+                        "清除",
+                        color = Accent,
+                        fontSize = 13.sp,
+                        modifier = Modifier.clickable(role = Role.Button, onClick = onClearRecent).padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+                Panel {
+                    recent.forEachIndexed { i, place ->
+                        if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                        Column(
+                            Modifier.fillMaxWidth().clickable {
+                                onRemember(place)
+                                onPick(place)
+                            }.padding(vertical = 10.dp),
+                        ) {
+                            Text(place.displayName, color = Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val sub = place.address ?: place.subtitle
+                            if (sub.isNotBlank() && sub != place.displayName) {
+                                Text(sub, color = Color.Gray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
             }
             if (places.isNotEmpty()) {
                 SectionLabel("我的地點")

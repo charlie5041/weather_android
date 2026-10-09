@@ -82,6 +82,27 @@ class CityStore(context: Context) {
         prefs.edit().putString(KEY_LAST_ROUTE, o.toString()).apply()
     }
 
+    /** 沿路天氣搜尋過並選用的地點，新的在前 */
+    fun loadRecentPlaces(): List<City> {
+        val raw = prefs.getString(KEY_RECENT_PLACES, null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getJSONObject(it).toCity() }
+        }.getOrDefault(emptyList())
+    }
+
+    /** 記下搜尋選用的地點（同一個位置只留最新的一筆，最多 [MAX_RECENT] 筆），回傳新的清單 */
+    fun addRecentPlace(city: City): List<City> {
+        fun key(c: City) = "%.4f,%.4f".format(java.util.Locale.US, c.latitude, c.longitude)
+        val list = (listOf(city) + loadRecentPlaces().filterNot { key(it) == key(city) }).take(MAX_RECENT)
+        prefs.edit().putString(KEY_RECENT_PLACES, JSONArray(list.map { it.toJson() }).toString()).apply()
+        return list
+    }
+
+    fun clearRecentPlaces() {
+        prefs.edit().remove(KEY_RECENT_PLACES).apply()
+    }
+
     /** 常用路線（出門卡片與出發前提醒） */
     fun loadFavoriteRoutes(): List<FavoriteRoute> =
         prefs.getString(KEY_FAVORITE_ROUTES, null)?.let { FavoriteRoutes.parse(it) }.orEmpty()
@@ -95,6 +116,8 @@ class CityStore(context: Context) {
         const val KEY_LOCATION = "location_city"
         const val KEY_LAST_ROUTE = "last_route"
         const val KEY_FAVORITE_ROUTES = "favorite_routes"
+        const val KEY_RECENT_PLACES = "recent_places"
+        const val MAX_RECENT = 8
     }
 }
 
