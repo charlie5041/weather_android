@@ -43,6 +43,22 @@ class CwaTest {
     }
 
     @Test
+    fun townshipIndexGivesTheSameForecastAsTheFullFile() {
+        // 路線上多點共用同一份索引，結果要和每次解析整個檔案相同
+        val threeDay = CwaParser.indexTownships(fixture("F-D0047-061.json"))!!
+        val weekly = CwaParser.indexTownships(fixture("F-D0047-063.json"))!!
+        assertEquals("臺北市", threeDay.county)
+        assertTrue(threeDay.towns.isNotEmpty())
+        for ((lat, lon) in listOf(25.0516 to 121.5690, taipei101Lat to taipei101Lon, 25.13 to 121.50)) {
+            assertEquals(
+                CwaParser.parseTownshipForecast(fixture("F-D0047-061.json"), fixture("F-D0047-063.json"), lat, lon),
+                CwaParser.parseTownshipForecast(threeDay, weekly, lat, lon),
+            )
+        }
+        assertNull(CwaParser.indexTownships("{}"))
+    }
+
+    @Test
     fun parsesTownshipForecast() {
         val fc = CwaParser.parseTownshipForecast(fixture("F-D0047-061.json"), fixture("F-D0047-063.json"), 25.0516, 121.5690)
         assertNotNull(fc)

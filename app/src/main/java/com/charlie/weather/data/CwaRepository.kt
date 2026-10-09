@@ -18,8 +18,14 @@ import java.time.ZoneOffset
 class CwaRepository(cacheDir: File) {
     private val dir = File(cacheDir, "cwa").apply { mkdirs() }
     private val locks = mutableMapOf<String, Mutex>()
+    private val parseLocks = mutableMapOf<String, Mutex>()
     private val stationCache = mutableMapOf<String, Pair<Long, List<CwaStation>>>()
     private val gaugeCache = mutableMapOf<String, Pair<Long, List<RainGauge>>>()
+
+    /** 鄉鎮預報索引；一個縣市兩個檔案，只留最近用過的幾個（每個約為檔案大小的兩倍） */
+    private val townshipCache = object : LinkedHashMap<String, Pair<Long, TownshipIndex?>>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, TownshipIndex?>>) = size > MAX_TOWNSHIP_FILES
+    }
     private var nowcastCache: Pair<Long, RainNowcast?>? = null
 
     /**
@@ -45,8 +51,8 @@ class CwaRepository(cacheDir: File) {
             ?: return@withContext observation?.let { CwaData(it, null, emptyList()) }
 
         val forecast = runCatching {
-            val threeDay = CwaParser.threeDayForecastId(county)?.let { file("Forecast/$it.json", forecastTtl, allowNetwork) }
-            val weekly = CwaParser.weeklyForecastId(county)?.let { file("Forecast/$it.json", forecastTtl, allowNetwork) }
+            val threeDay = CwaParser.threeDayForecastId(county)?.let { townships("Forecast/$it.json", forecastTtl, allowNetwork) }
+            val weekly = CwaParser.weeklyForecastId(county)?.let { townships("Forecast/$it.json", forecastTtl, allowNetwork) }
             CwaParser.parseTownshipForecast(threeDay, weekly, latitude, longitude)
         }.getOrNull()
 
@@ -66,27 +72,46 @@ class CwaRepository(cacheDir: File) {
         }
     }
 
-    private suspend fun rainGauges(ttl: Long, allowNetwork: Boolean): List<RainGauge> {
-        val path = "Observation/O-A0002-001.json"
-        val text = file(path, ttl, allowNetwork) ?: return emptyList()
-        val modified = cacheFile(path).lastModified()
-        synchronized(gaugeCache) {
-            gaugeCache[path]?.takeIf { it.first == modified }?.let { return it.second }
-        }
-        val parsed = runCatching { CwaParser.parseRainGauges(text) }.getOrDefault(emptyList())
-        synchronized(gaugeCache) { gaugeCache[path] = modified to parsed }
-        return parsed
-    }
+    private suspend fun rainGauges(ttl: Long, allowNetwork: Boolean): List<RainGauge> =
+        parsed("Observation/O-A0002-001.json", ttl, allowNetwork, gaugeCache) {
+            runCatching { CwaParser.parseRainGauges(it) }.getOrDefault(emptyList())
+        }.orEmpty()
 
-    private suspend fun stations(path: String, ttl: Long, allowNetwork: Boolean): List<CwaStation> {
-        val text = file(path, ttl, allowNetwork) ?: return emptyList()
-        val modified = cacheFile(path).lastModified()
-        synchronized(stationCache) {
-            stationCache[path]?.takeIf { it.first == modified }?.let { return it.second }
+    private suspend fun stations(path: String, ttl: Long, allowNetwork: Boolean): List<CwaStation> =
+        parsed(path, ttl, allowNetwork, stationCache) {
+            runCatching { CwaParser.parseStations(it) }.getOrDefault(emptyList())
+        }.orEmpty()
+
+    private suspend fun townships(path: String, ttl: Long, allowNetwork: Boolean): TownshipIndex? =
+        parsed(path, ttl, allowNetwork, townshipCache) { runCatching { CwaParser.indexTownships(it) }.getOrNull() }
+
+    /**
+     * 解析過的檔案內容，依檔案時間快取在記憶體。路線上很多點同時查詢時，
+     * 同一個檔案只讀取、解析一次（其他點等待後直接用結果）；快取還有效時不必讀檔，
+     * 避免多個執行緒同時把數 MB 的檔案讀進記憶體而用光記憶體。
+     */
+    private suspend fun <T> parsed(
+        path: String,
+        ttl: Long,
+        allowNetwork: Boolean,
+        cache: MutableMap<String, Pair<Long, T>>,
+        parse: (String) -> T,
+    ): T? {
+        val lock = synchronized(parseLocks) { parseLocks.getOrPut(path) { Mutex() } }
+        return lock.withLock {
+            val f = cacheFile(path)
+            val fresh = f.exists() && System.currentTimeMillis() - f.lastModified() < ttl
+            if (fresh || !allowNetwork) {
+                val modified = f.lastModified()
+                synchronized(cache) { cache[path]?.takeIf { it.first == modified } }?.let { return@withLock it.second }
+            }
+            val text = file(path, ttl, allowNetwork) ?: return@withLock null
+            val modified = f.lastModified()
+            synchronized(cache) { cache[path]?.takeIf { it.first == modified } }?.let { return@withLock it.second }
+            val value = parse(text)
+            synchronized(cache) { cache[path] = modified to value }
+            value
         }
-        val parsed = runCatching { CwaParser.parseStations(text) }.getOrDefault(emptyList())
-        synchronized(stationCache) { stationCache[path] = modified to parsed }
-        return parsed
     }
 
     private fun cacheFile(path: String) = File(dir, path.replace('/', '_'))
@@ -159,5 +184,6 @@ class CwaRepository(cacheDir: File) {
         private const val MAX_STATION_KM = 10.0
         private const val TYPHOON_TTL = 30 * 60_000L
         private const val NOWCAST_TTL = 10 * 60_000L
+        private const val MAX_TOWNSHIP_FILES = 6
     }
 }
