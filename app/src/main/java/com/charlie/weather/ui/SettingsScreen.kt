@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -49,8 +50,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.charlie.weather.data.AppSettings
+import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.RoutePlanner
+import com.charlie.weather.sync.RideService
 import com.charlie.weather.sync.WeatherNotifier
 import com.charlie.weather.sync.WeatherSyncWorker
 
@@ -72,6 +76,9 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
     var commuteMorning by remember { mutableIntStateOf(settings.commuteMorningHour) }
     var commuteEvening by remember { mutableIntStateOf(settings.commuteEveningHour) }
     var routeStep by remember { mutableIntStateOf(settings.routeStepKm) }
+    var speedCameras by remember { mutableStateOf(settings.speedCameras) }
+    var voiceAlerts by remember { mutableStateOf(settings.voiceAlerts) }
+    val driving by RideService.driving.collectAsStateWithLifecycle()
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
 
@@ -206,9 +213,45 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
                 routeStep = it
                 settings.routeStepKm = it
             }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow("測速照相提醒", "機車與汽車路線列出沿途的測速照相；騎乘中模式接近前 500 公尺提醒", speedCameras) {
+                speedCameras = it
+                settings.speedCameras = it
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow("語音播報", "騎乘中與行車提醒時，用語音念出測速照相與前方降雨", voiceAlerts) {
+                voiceAlerts = it
+                settings.voiceAlerts = it
+            }
+        }
+
+        SectionTitle("行車提醒（不設目的地）")
+        Section {
+            Text(
+                if (driving) "行車提醒進行中" else "不用輸入目的地，依行進方向提醒前方的測速照相",
+                color = Color.White,
+                fontSize = 15.sp,
+            )
+            Text(
+                "常駐通知可按「回報測速」分享看到的移動式測速，2 小時內會提醒經過的人。停留超過 20 分鐘自動結束；" +
+                    "也可以在通知欄的快速設定加入「測速提醒」方塊。",
+                color = Color.Gray,
+                fontSize = 14.sp,
+            )
+            TextButton(onClick = {
+                when {
+                    driving -> RideService.stop(context)
+                    !LocationProvider(context).hasPermission() ->
+                        Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
+                    else -> RideService.startDrive(context)
+                }
+            }) {
+                Text(if (driving) "結束行車提醒" else "開始行車提醒", color = Color(0xFF0A84FF), fontSize = 16.sp)
+            }
         }
         Text(
-            "沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。",
+"沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。\n" +
+                "測速照相使用警政署公布的固定式測速執法地點（每週更新）與使用者回報的移動式測速，與現場可能不同，請依實際速限行駛。",
             color = Color.Gray,
             fontSize = 13.sp,
         )
@@ -226,7 +269,7 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
             runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
         }
         Text(
-            "版本 ${version ?: "-"}\n資料來源：中央氣象署、環境部（政府資料開放授權條款）、Open-Meteo（CC BY 4.0）、" +
+            "版本 ${version ?: "-"}\n資料來源：中央氣象署、環境部、警政署（政府資料開放授權條款）、Open-Meteo（CC BY 4.0）、" +
                 "GeoNames（CC BY 4.0）、Natural Earth",
             color = Color.Gray,
             fontSize = 12.sp,

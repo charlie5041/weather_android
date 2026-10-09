@@ -85,6 +85,16 @@ class AppSettings(context: Context) {
         get() = prefs.getString("wind_unit", "KMH") ?: "KMH"
         set(value) = prefs.edit().putString("wind_unit", value).apply()
 
+    /** 沿路天氣列出測速照相，騎乘中接近時提醒 */
+    var speedCameras: Boolean
+        get() = prefs.getBoolean("speed_cameras", false)
+        set(value) = prefs.edit().putBoolean("speed_cameras", value).apply()
+
+    /** 騎乘中與行車提醒用語音播報測速照相與前方降雨 */
+    var voiceAlerts: Boolean
+        get() = prefs.getBoolean("voice_alerts", true)
+        set(value) = prefs.edit().putBoolean("voice_alerts", value).apply()
+
     /** 在台灣使用中央氣象署的觀測與預報 */
     var useCwa: Boolean
         get() = prefs.getBoolean("use_cwa", true)

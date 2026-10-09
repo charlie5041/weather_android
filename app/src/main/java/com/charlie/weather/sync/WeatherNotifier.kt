@@ -45,6 +45,7 @@ object WeatherNotifier {
     /** 騎乘中的常駐通知與前方降雨提醒 */
     const val CHANNEL_RIDE = "ride"
     const val CHANNEL_RIDE_ALERT = "ride_alert"
+    const val CHANNEL_CAMERA = "speed_camera"
 
     /** 通知帶的常用路線 id，開啟 App 時直接開這條路線 */
     const val EXTRA_FAVORITE_ROUTE = "favorite_route_id"
@@ -80,6 +81,9 @@ object WeatherNotifier {
                 },
                 NotificationChannel(CHANNEL_RIDE_ALERT, "前方降雨", NotificationManager.IMPORTANCE_HIGH).apply {
                     description = "騎乘中前方 20 分鐘內會遇到雨時通知"
+                },
+                NotificationChannel(CHANNEL_CAMERA, "測速照相", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "騎乘中接近固定式測速照相時通知"
                 },
             ),
         )

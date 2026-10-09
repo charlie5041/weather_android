@@ -68,6 +68,8 @@ data class RouteData(
     val nowcast: RainNowcast? = null,
     /** 路線附近的即時道路事件（有 TDX 金鑰時才有） */
     val roadEvents: List<RoadEvent> = emptyList(),
+    /** 路線會經過的固定式測速照相（設定開啟時才有），依經過順序 */
+    val cameras: List<RouteCamera> = emptyList(),
 )
 
 /** 路線上一點在「經過時間」的天氣。 */
@@ -130,6 +132,9 @@ sealed interface RouteHazard {
 
     /** 路線附近的道路事件（施工、事故、封閉…） */
     data class Road(val event: RoadEvent) : RouteHazard
+
+    /** 沿途的測速照相：處數（含 [mobile] 處使用者回報的移動式）與固定式的速限範圍 */
+    data class Cameras(val count: Int, val minLimit: Int?, val maxLimit: Int?, val mobile: Int = 0) : RouteHazard
 
     /** 沿途最大的陣風（km/h） */
     data class Wind(val gustKmh: Double, val stop: RouteStop) : RouteHazard
@@ -475,7 +480,7 @@ object RoutePlanner {
     }
 
     /**
-     * 沿途要注意的事：特報、強陣風、日落、冷、熱、紫外線。
+     * 沿途要注意的事：特報、道路事件、強陣風、日落、冷、熱、紫外線，最後是測速照相。
      * 汽車只看特報、陣風與日落（車內不受冷熱與日曬影響）。
      */
     fun hazards(forecast: RouteForecast): List<RouteHazard> {
@@ -527,6 +532,11 @@ object RoutePlanner {
                 .maxByOrNull { it.hour!!.uvIndex }
                 ?.takeIf { it.hour!!.uvIndex >= 8 }
                 ?.let { result += RouteHazard.Uv(it.hour!!.uvIndex, it) }
+        }
+        // 測速照相與天氣無關，放最後（卡片只顯示前兩則）
+        forecast.data.cameras.takeIf { it.isNotEmpty() }?.let { cameras ->
+            val limits = cameras.mapNotNull { it.camera.limit }
+            result += RouteHazard.Cameras(cameras.size, limits.minOrNull(), limits.maxOrNull(), cameras.count { it.camera.mobile })
         }
         return result
     }

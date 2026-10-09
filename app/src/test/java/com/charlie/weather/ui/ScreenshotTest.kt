@@ -146,7 +146,7 @@ class ScreenshotTest {
     }
 
     @Test
-    @Config(qualifiers = "w400dp-h360dp-xhdpi")
+    @Config(qualifiers = "w400dp-h400dp-xhdpi")
     fun routeHazards() = capture("12_route_hazards") {
         val now = java.time.LocalDateTime.of(2026, 1, 10, 17, 0)
         val stop = com.charlie.weather.data.RouteStop(
@@ -164,6 +164,7 @@ class ScreenshotTest {
                         com.charlie.weather.data.RouteHazard.Sunset(now.plusMinutes(32), stop),
                         com.charlie.weather.data.RouteHazard.Cold(8.6, 13.0, riding = true, stop = stop),
                         com.charlie.weather.data.RouteHazard.Uv(9.0, stop),
+                        com.charlie.weather.data.RouteHazard.Cameras(4, 50, 70, mobile = 1),
                     ),
                 )
             }

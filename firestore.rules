@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// 出行看天氣：使用者回報的移動式測速（app/src/main/java/com/charlie/weather/data/CameraReports.kt）
+// 在 Firebase 主控台 → Firestore Database → 規則 貼上並發布；另需在 Authentication 啟用「匿名」登入。
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /camera_reports/{report} {
+      // 登入（含匿名）才能讀
+      allow read: if request.auth != null;
+
+      // 只能新增自己的回報；座標在台灣附近，2 小時多一點內失效，欄位固定
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['lat', 'lon', 'heading', 'createdAt', 'expiresAt', 'uid'])
+        && request.resource.data.keys().hasAll(['lat', 'lon', 'createdAt', 'expiresAt', 'uid'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.lat is number
+        && request.resource.data.lat >= 21.5 && request.resource.data.lat <= 26.6
+        && request.resource.data.lon is number
+        && request.resource.data.lon >= 118.0 && request.resource.data.lon <= 122.6
+        && (!('heading' in request.resource.data)
+            || (request.resource.data.heading is number
+                && request.resource.data.heading >= 0 && request.resource.data.heading < 360))
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(150, 'm');
+
+      // 回報不能修改；回報者可以刪除自己的回報
+      allow update: if false;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+  }
+}

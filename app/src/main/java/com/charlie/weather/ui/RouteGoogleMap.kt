@@ -92,6 +92,18 @@ fun GoogleRouteMap(forecast: RouteForecast, onOpenMaps: () -> Unit, modifier: Mo
                 zIndex = 2f,
             )
         }
+        forecast.data.cameras.forEach { c ->
+            val position = LatLng(c.camera.position.latitude, c.camera.position.longitude)
+            Marker(
+                state = rememberMarkerState(key = "camera_$position", position = position),
+                title = (if (c.camera.mobile) "移動式測速（使用者回報）" else "測速照相") + (c.camera.limit?.let { "・速限 $it" } ?: ""),
+                snippet = c.camera.address,
+                icon = BitmapDescriptorFactory.defaultMarker(
+                    if (c.camera.mobile) BitmapDescriptorFactory.HUE_RED else BitmapDescriptorFactory.HUE_ORANGE,
+                ),
+                alpha = 0.9f,
+            )
+        }
         path.firstOrNull()?.let {
             Marker(
                 state = rememberMarkerState(key = "from_$it", position = it),
