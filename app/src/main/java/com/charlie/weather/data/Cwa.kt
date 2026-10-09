@@ -10,6 +10,14 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/**
+ * 一個縣市鄉鎮預報檔（F-D0047 系列，數 MB）的索引：每個鄉鎮的座標與各自的 JSON。
+ * 解析一次後給路線上的各點共用，每點只需解析最近那個鄉鎮的小段 JSON。
+ */
+class TownshipIndex(val county: String, val towns: List<Town>) {
+    class Town(val name: String, val latitude: Double?, val longitude: Double?, val json: String)
+}
+
 /** 中央氣象署測站觀測（O-A0003-001 / O-A0001-001）。數值缺測時為 null。 */
 data class CwaStation(
     val id: String,
@@ -204,9 +212,13 @@ object CwaParser {
      * @param threeDayJson 未來 3 天逐 3 小時（含逐時溫度）
      * @param weeklyJson 未來 1 週逐 12 小時
      */
-    fun parseTownshipForecast(threeDayJson: String?, weeklyJson: String?, latitude: Double, longitude: Double): CwaForecast? {
-        val threeDay = threeDayJson?.let { nearestTownship(it, latitude, longitude, preferredName = null) }
-        val weekly = weeklyJson?.let { nearestTownship(it, latitude, longitude, preferredName = threeDay?.second?.optString("LocationName")) }
+    fun parseTownshipForecast(threeDayJson: String?, weeklyJson: String?, latitude: Double, longitude: Double): CwaForecast? =
+        parseTownshipForecast(threeDayJson?.let(::indexTownships), weeklyJson?.let(::indexTownships), latitude, longitude)
+
+    /** 同上，使用已建立的索引（路線上多點共用，不必每點重新解析整個檔案） */
+    fun parseTownshipForecast(threeDayIndex: TownshipIndex?, weeklyIndex: TownshipIndex?, latitude: Double, longitude: Double): CwaForecast? {
+        val threeDay = threeDayIndex?.let { nearestTownship(it, latitude, longitude, preferredName = null) }
+        val weekly = weeklyIndex?.let { nearestTownship(it, latitude, longitude, preferredName = threeDay?.second?.optString("LocationName")) }
         if (threeDay == null && weekly == null) return null
         val (county, location) = threeDay ?: weekly!!
 
@@ -329,20 +341,32 @@ object CwaParser {
 
     // ---------- JSON helpers ----------
 
-    private fun nearestTownship(json: String, latitude: Double, longitude: Double, preferredName: String?): Pair<String, JSONObject>? {
+    /** 建立鄉鎮預報檔的索引；格式不對時為 null */
+    fun indexTownships(json: String): TownshipIndex? {
         val dataset = JSONObject(json).optJSONObject("cwaopendata")?.let { it.optJSONObject("Dataset") ?: it.optJSONObject("dataset") }
             ?: return null
         val group = dataset.opt("Locations").asObjects().firstOrNull() ?: return null
-        val county = group.optString("LocationsName")
-        val locations = group.opt("Location").asObjects()
-        val chosen = preferredName?.let { name -> locations.firstOrNull { it.optString("LocationName") == name } }
-            ?: locations.minByOrNull { loc ->
-                val lat = loc.opt("Latitude").asDouble() ?: return@minByOrNull Double.MAX_VALUE
-                val lon = loc.opt("Longitude").asDouble() ?: return@minByOrNull Double.MAX_VALUE
+        val towns = group.opt("Location").asObjects().map { loc ->
+            TownshipIndex.Town(
+                name = loc.optString("LocationName"),
+                latitude = loc.opt("Latitude").asDouble(),
+                longitude = loc.opt("Longitude").asDouble(),
+                json = loc.toString(),
+            )
+        }
+        return TownshipIndex(group.optString("LocationsName"), towns)
+    }
+
+    private fun nearestTownship(index: TownshipIndex, latitude: Double, longitude: Double, preferredName: String?): Pair<String, JSONObject>? {
+        val towns = index.towns
+        val chosen = preferredName?.let { name -> towns.firstOrNull { it.name == name } }
+            ?: towns.minByOrNull { town ->
+                val lat = town.latitude ?: return@minByOrNull Double.MAX_VALUE
+                val lon = town.longitude ?: return@minByOrNull Double.MAX_VALUE
                 distanceKm(latitude, longitude, lat, lon)
             }
             ?: return null
-        return county to chosen
+        return index.county to JSONObject(chosen.json)
     }
 
     private fun JSONObject.elements(): Map<String, JSONArray> =
