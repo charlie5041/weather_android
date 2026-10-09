@@ -355,6 +355,20 @@ object RoutePlanner {
         return spans
     }
 
+    /**
+     * 把相近的取樣點（同一個 [cellDeg] 度的格子，約 2 公里）合成一個預報地點：Open-Meteo 的模式格點
+     * 本來就這麼粗，替代路線起終點附近的點也大多重疊。回傳要查的地點，以及每個取樣點對應第幾個地點。
+     */
+    fun forecastGroups(points: List<LatLon>, cellDeg: Double = 0.02): Pair<List<LatLon>, List<Int>> {
+        val index = LinkedHashMap<Pair<Long, Long>, Int>()
+        val reps = mutableListOf<LatLon>()
+        val of = points.map { p ->
+            val key = Math.round(p.latitude / cellDeg) to Math.round(p.longitude / cellDeg)
+            index.getOrPut(key) { reps += p; reps.lastIndex }
+        }
+        return reps to of
+    }
+
     /** 路線各點要下載幾天的逐時預報：涵蓋出發日的隔天（行程可能跨日），3–7 天 */
     fun forecastDays(departure: LocalDateTime?, now: LocalDateTime = LocalDateTime.now()): Int =
         ((departure?.let { ChronoUnit.DAYS.between(now.toLocalDate(), it.toLocalDate()) } ?: 0) + 2).toInt().coerceIn(3, 7)

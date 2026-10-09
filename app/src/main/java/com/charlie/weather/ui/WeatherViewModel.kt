@@ -78,6 +78,20 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     private val _favorites = MutableStateFlow(store.loadFavoriteRoutes())
     val favorites: StateFlow<List<FavoriteRoute>> = _favorites.asStateFlow()
 
+    private val _recentPlaces = MutableStateFlow(store.loadRecentPlaces())
+
+    /** 沿路天氣最近搜尋過的地點 */
+    val recentPlaces: StateFlow<List<City>> = _recentPlaces.asStateFlow()
+
+    fun rememberPlace(city: City) {
+        _recentPlaces.value = store.addRecentPlace(city)
+    }
+
+    fun clearRecentPlaces() {
+        store.clearRecentPlaces()
+        _recentPlaces.value = emptyList()
+    }
+
     private val _upcoming = MutableStateFlow<UpcomingTrip?>(null)
     val upcoming: StateFlow<UpcomingTrip?> = _upcoming.asStateFlow()
 

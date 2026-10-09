@@ -302,4 +302,17 @@ class RouteTest {
         // 少淋雨不到 5 分鐘不算明顯
         assertFalse(RoutePlanner.clearlyDrier(a.copy(wetMinutes = 0), a.copy(wetMinutes = 4)))
     }
+
+    @Test
+    fun nearbyPointsShareOneForecastSite() {
+        val points = listOf(
+            LatLon(25.0000, 121.5000),
+            LatLon(25.0010, 121.5020), // 同一格，約 200 公尺
+            LatLon(25.1000, 121.5000), // 約 11 公里外
+            LatLon(25.0005, 121.5005), // 又回到第一格（替代路線的起點）
+        )
+        val (sites, siteOf) = RoutePlanner.forecastGroups(points)
+        assertEquals(listOf(LatLon(25.0, 121.5), LatLon(25.1, 121.5)), sites)
+        assertEquals(listOf(0, 0, 1, 0), siteOf)
+    }
 }

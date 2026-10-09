@@ -89,6 +89,7 @@ fun WeatherApp(
     val searching by vm.searching.collectAsStateWithLifecycle()
     val favorites by vm.favorites.collectAsStateWithLifecycle()
     val upcoming by vm.upcoming.collectAsStateWithLifecycle()
+    val recentPlaces by vm.recentPlaces.collectAsStateWithLifecycle()
     val riding by RideService.active.collectAsStateWithLifecycle()
 
     var showList by rememberSaveable { mutableStateOf(false) }
@@ -320,6 +321,9 @@ fun WeatherApp(
                         RouteScreen(
                             request = req,
                             places = cities,
+                            recentPlaces = recentPlaces,
+                            onRememberPlace = vm::rememberPlace,
+                            onClearRecentPlaces = vm::clearRecentPlaces,
                             onSearch = vm::searchAddress,
                             onUseCurrentLocation = vm::currentAddress,
                             onLoad = vm::routeData,
