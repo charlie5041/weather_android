@@ -24,6 +24,11 @@ class WeatherRepository private constructor(context: Context) {
         TdxRoadEvents(it, BuildConfig.TDX_CLIENT_SECRET)
     }
 
+    private val speedCameras = SpeedCameraRepository(context.filesDir)
+
+    /** 測速照相清單（設定關閉時是空的）；騎乘中模式開始時用來補上路線的測速照相 */
+    suspend fun speedCameras(): List<SpeedCamera> = if (settings.speedCameras) speedCameras.cameras() else emptyList()
+
     /**
      * 住家到公司的行車時間（分鐘），一天查一次路線並記下來。
      * [allowNetwork] 為 false（背景通知）時只用記下的值；查不到路線時回傳 null。
@@ -140,11 +145,13 @@ class WeatherRepository private constructor(context: Context) {
             if (tdx == null || minutes !in -15..180) return@async emptyList()
             tdx.events()
         }
+        val cameras = async { speedCameras() }
         val now = System.currentTimeMillis()
         val jsons = forecasts.await()
         val cwas = cwaData.await()
         val radar = nowcast.await()
         val allEvents = events.await()
+        val allCameras = cameras.await()
         val weathers = withContext(Dispatchers.Default) {
             points.indices.map { i ->
                 jsons.getOrNull(i)?.let { json ->
@@ -156,7 +163,9 @@ class WeatherRepository private constructor(context: Context) {
         paths.mapIndexed { k, path ->
             val count = sampled[k].size
             val near = withContext(Dispatchers.Default) { TdxRoadEvents.near(allEvents, path.points) }
-            RouteData(from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via, radar, near).also { offset += count }
+            // 步行與單車不會被測速
+            val onRoute = if (mode == TravelMode.WALK || mode == TravelMode.BIKE) emptyList<RouteCamera>() else withContext(Dispatchers.Default) { SpeedCameraRepository.along(allCameras, path) }
+            RouteData(from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via, radar, near, onRoute).also { offset += count }
         }
     }
 

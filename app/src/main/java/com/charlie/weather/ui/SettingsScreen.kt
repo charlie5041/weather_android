@@ -72,6 +72,7 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
     var commuteMorning by remember { mutableIntStateOf(settings.commuteMorningHour) }
     var commuteEvening by remember { mutableIntStateOf(settings.commuteEveningHour) }
     var routeStep by remember { mutableIntStateOf(settings.routeStepKm) }
+    var speedCameras by remember { mutableStateOf(settings.speedCameras) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
 
@@ -206,9 +207,15 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
                 routeStep = it
                 settings.routeStepKm = it
             }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow("測速照相提醒", "機車與汽車路線列出沿途的固定式測速照相；騎乘中模式接近前 500 公尺提醒", speedCameras) {
+                speedCameras = it
+                settings.speedCameras = it
+            }
         }
         Text(
-            "沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。",
+"沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。\n" +
+                "測速照相使用警政署公布的固定式測速執法地點（每週更新），不含移動式測速，與現場可能不同，請依實際速限行駛。",
             color = Color.Gray,
             fontSize = 13.sp,
         )
@@ -226,7 +233,7 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
             runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
         }
         Text(
-            "版本 ${version ?: "-"}\n資料來源：中央氣象署、環境部（政府資料開放授權條款）、Open-Meteo（CC BY 4.0）、" +
+            "版本 ${version ?: "-"}\n資料來源：中央氣象署、環境部、警政署（政府資料開放授權條款）、Open-Meteo（CC BY 4.0）、" +
                 "GeoNames（CC BY 4.0）、Natural Earth",
             color = Color.Gray,
             fontSize = 12.sp,

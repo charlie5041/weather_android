@@ -24,6 +24,8 @@ import com.charlie.weather.data.LatLon
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.RideTracker
 import com.charlie.weather.data.RouteData
+import com.charlie.weather.data.SpeedCameraRepository
+import com.charlie.weather.data.TravelMode
 import com.charlie.weather.data.WeatherRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,16 +39,20 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
+import kotlin.math.roundToInt
 
 /**
  * 騎乘中模式：前景服務持續取得位置，常駐通知顯示前方天氣與抵達時間；
- * 前方 20 分鐘內會遇到雨時另外跳出提醒（同一段雨只提醒一次）。抵達終點或按「結束」時停止。
+ * 前方 20 分鐘內會遇到雨時另外跳出提醒（同一段雨只提醒一次）；開啟測速照相提醒時，
+ * 前方 [CAMERA_ALERT_KM] 公里內有測速照相也會提醒（每處一次）。抵達終點或按「結束」時停止。
  * 路線資料只放在記憶體（[start] 傳入）；程序被系統回收後服務不會自行恢復。
  */
 class RideService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var lastLocation: Location? = null
     private var alertedPlace: String? = null
+    private val alertedCameras = mutableSetOf<Int>()
+    private var lastStatusAt = 0L
     private var listener: LocationListener? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -67,9 +73,34 @@ class RideService : Service() {
         }
         _active.value = true
         alertedPlace = null
+        alertedCameras.clear()
         startLocationUpdates()
         scope.launch { refreshLoop() }
+        scope.launch {
+            // 補上測速照相後改用較頻繁的定位
+            if (loadCameras()) {
+                stopLocationUpdates()
+                startLocationUpdates()
+            }
+        }
         return START_NOT_STICKY
+    }
+
+    /** 設定開啟後才查的路線（或查詢時沒抓到）：開始騎乘時補上沿途的測速照相 */
+    private suspend fun loadCameras(): Boolean {
+        val data = route ?: return false
+        if (data.cameras.isNotEmpty() || data.mode == TravelMode.WALK || data.mode == TravelMode.BIKE) return false
+        val cameras = withContext(Dispatchers.IO) { WeatherRepository.get(this@RideService).speedCameras() }
+        if (cameras.isEmpty()) return false
+        val along = withContext(Dispatchers.Default) { SpeedCameraRepository.along(cameras, data.path) }
+        if (along.isEmpty() || route?.path != data.path) return false
+        route = route?.copy(cameras = along)
+        return true
+    }
+
+    private fun stopLocationUpdates() {
+        listener?.let { l -> getSystemService(LocationManager::class.java)?.removeUpdates(l) }
+        listener = null
     }
 
     /** 沒有新位置時也每 2 分鐘重算（時間在走）；每 10 分鐘更新雷達短時預報 */
@@ -93,7 +124,9 @@ class RideService : Service() {
         val l = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 lastLocation = location
-                update()
+                checkCameras(location)
+                // 有測速照相時定位很頻繁，天氣不必每次都重算
+                if (System.currentTimeMillis() - lastStatusAt >= STATUS_MS) update()
             }
 
             @Deprecated("Deprecated in Java")
@@ -101,17 +134,59 @@ class RideService : Service() {
             override fun onProviderEnabled(provider: String) = Unit
             override fun onProviderDisabled(provider: String) = Unit
         }
+        // 要提醒測速照相時需要每幾秒一次的位置，否則 20 秒、100 公尺一次就夠
+        val cameras = route?.cameras?.isNotEmpty() == true
+        val interval = if (cameras) CAMERA_LOCATION_MS else LOCATION_MS
+        val distance = if (cameras) CAMERA_LOCATION_M else LOCATION_M
         listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             .filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
             .forEach { provider ->
-                runCatching { lm.requestLocationUpdates(provider, LOCATION_MS, LOCATION_M, l, Looper.getMainLooper()) }
+                runCatching { lm.requestLocationUpdates(provider, interval, distance, l, Looper.getMainLooper()) }
             }
         listener = l
+    }
+
+    /** 前方 [CAMERA_ALERT_KM] 公里內有測速照相時提醒；偏離路線時不提醒（可能在別條路上） */
+    private fun checkCameras(location: Location) {
+        val data = route ?: return
+        if (data.cameras.isEmpty()) return
+        val progress = RideTracker.progress(data.path, LatLon(location.latitude, location.longitude))
+        if (progress.offRouteKm > CAMERA_OFF_ROUTE_KM) return
+        val here = data.path.distanceKm * progress.fraction
+        val index = data.cameras.indexOfFirst { it.distanceKm >= here - 0.02 }
+        if (index < 0 || index in alertedCameras) return
+        val next = data.cameras[index]
+        val aheadKm = next.distanceKm - here
+        if (aheadKm > CAMERA_ALERT_KM) return
+        alertedCameras += index
+        val meters = ((aheadKm * 1000).coerceAtLeast(0.0) / 50).roundToInt() * 50
+        val limit = next.camera.limit
+        val speed = if (location.hasSpeed()) (location.speed * 3.6).roundToInt() else null
+        val title = buildString {
+            append(if (meters <= 50) "📷 測速照相" else "📷 前方 $meters 公尺測速照相")
+            limit?.let { append("・速限 $it") }
+        }
+        val text = buildString {
+            if (limit != null && speed != null && speed > limit) append("目前時速約 $speed，請減速。")
+            append(next.camera.address)
+        }
+        notify(
+            ID_CAMERA,
+            NotificationCompat.Builder(this, WeatherNotifier.CHANNEL_CAMERA)
+                .setSmallIcon(R.drawable.ic_stat_weather)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setContentIntent(openApp())
+                .setAutoCancel(true)
+                .setTimeoutAfter(CAMERA_NOTIFICATION_MS)
+                .build(),
+        )
     }
 
     private fun update() {
         val data = route ?: return
         val location = lastLocation ?: return
+        lastStatusAt = System.currentTimeMillis()
         val now = LocalDateTime.now()
         val progress = RideTracker.progress(data.path, LatLon(location.latitude, location.longitude))
         val status = RideTracker.status(data, progress, now)
@@ -174,8 +249,7 @@ class RideService : Service() {
     }
 
     private fun stopRide() {
-        listener?.let { l -> getSystemService(LocationManager::class.java)?.removeUpdates(l) }
-        listener = null
+        stopLocationUpdates()
         route = null
         _active.value = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -193,6 +267,15 @@ class RideService : Service() {
         private const val ACTION_STOP = "com.charlie.weather.ride.STOP"
         private const val ID_ONGOING = 5001
         private const val ID_ALERT = 5002
+        private const val ID_CAMERA = 5003
+        private const val STATUS_MS = 15_000L
+        private const val CAMERA_LOCATION_MS = 2_000L
+        private const val CAMERA_LOCATION_M = 10f
+
+        /** 前方這麼近（公里）的測速照相就提醒；時速 50 約 36 秒 */
+        private const val CAMERA_ALERT_KM = 0.5
+        private const val CAMERA_OFF_ROUTE_KM = 0.1
+        private const val CAMERA_NOTIFICATION_MS = 90_000L
         private const val REFRESH_MS = 2 * 60_000L
         private const val RADAR_MS = 10 * 60_000L
         private const val LOCATION_MS = 20_000L

@@ -126,6 +126,9 @@ internal val RouteWet = Color(0xFF0A84FF)
 internal val RouteHeavy = Color(0xFFBF5AF2)
 private val MapPlaceholder = Color(0xFFE8E6E1)
 
+/** 地圖上的測速照相標記（深色方塊，與雨況的圓點區分） */
+private val CameraMarker = Color(0xFF1C1C1E)
+
 private enum class Endpoint { FROM, TO }
 
 /**
@@ -911,6 +914,11 @@ internal fun hazardLine(hazard: RouteHazard): Pair<String, String> = when (hazar
         val text = listOfNotNull(e.location, e.description.takeIf { it != e.title }).joinToString(" ").ifEmpty { e.description }
         "${e.title}：" + if (text.length > 60) text.take(59) + "…" else text
     }
+    is RouteHazard.Cameras -> "📷" to "沿途 ${hazard.count} 處測速照相" + when {
+        hazard.minLimit == null -> ""
+        hazard.minLimit == hazard.maxLimit -> "，速限 ${hazard.minLimit}"
+        else -> "，速限 ${hazard.minLimit}–${hazard.maxLimit}"
+    }
     is RouteHazard.Wind -> "💨" to "${stopWhere(hazard.stop)}一帶陣風 ${windText(hazard.gustKmh)}，注意側風"
     is RouteHazard.Sunset -> "🌇" to "${clock(hazard.time)} 日落，${stopWhere(hazard.stop)}之後天黑"
     is RouteHazard.Cold -> "🥶" to if (hazard.riding) {
@@ -1279,6 +1287,11 @@ internal fun TileRouteMap(forecast: RouteForecast, modifier: Modifier = Modifier
                 val (x, y) = viewport.project(stop.point.position)
                 drawCircle(Color.White, 4.5.dp.toPx(), Offset(x, y))
                 drawCircle(rainColor(stop), 3.dp.toPx(), Offset(x, y))
+            }
+            forecast.data.cameras.forEach { c ->
+                val (x, y) = viewport.project(c.camera.position)
+                drawRect(Color.White, Offset(x - 5.dp.toPx(), y - 5.dp.toPx()), Size(10.dp.toPx(), 10.dp.toPx()))
+                drawRect(CameraMarker, Offset(x - 3.5.dp.toPx(), y - 3.5.dp.toPx()), Size(7.dp.toPx(), 7.dp.toPx()))
             }
             drawCircle(Color.White, 9.dp.toPx(), pts.first())
             drawCircle(RouteDry, 6.5.dp.toPx(), pts.first())
