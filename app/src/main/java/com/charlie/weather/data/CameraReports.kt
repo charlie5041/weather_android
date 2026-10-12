@@ -135,18 +135,24 @@ class CameraReportRepository(context: Context) {
         fun describe(e: Exception): String = when (e) {
             is TimeoutCancellationException -> "連線逾時，請檢查網路"
             is FirebaseNetworkException -> "網路連線失敗"
-            is FirebaseAuthException -> when (e.errorCode) {
-                "ERROR_OPERATION_NOT_ALLOWED", "ERROR_ADMIN_RESTRICTED_OPERATION" -> "Firebase 尚未啟用匿名登入"
-                else -> "Firebase 登入失敗（${e.errorCode}）"
-            }
-            is FirebaseFirestoreException -> when (e.code) {
-                FirebaseFirestoreException.Code.PERMISSION_DENIED -> "Firestore 規則不允許（請確認已發布 firestore.rules）"
-                FirebaseFirestoreException.Code.NOT_FOUND -> "找不到 Firestore 資料庫"
-                FirebaseFirestoreException.Code.UNAVAILABLE -> "連不上 Firestore，請檢查網路"
-                FirebaseFirestoreException.Code.UNAUTHENTICATED -> "Firebase 尚未登入（請確認已啟用匿名登入）"
-                else -> "Firestore 錯誤（${e.code.name}）"
-            }
+            is FirebaseAuthException -> authReason(e.errorCode)
+            is FirebaseFirestoreException -> firestoreReason(e.code.name)
             else -> e.message?.take(80) ?: e.javaClass.simpleName
+        }
+
+        /** Firebase Auth 錯誤碼（例如 ERROR_OPERATION_NOT_ALLOWED）的原因 */
+        fun authReason(code: String): String = when (code) {
+            "ERROR_OPERATION_NOT_ALLOWED", "ERROR_ADMIN_RESTRICTED_OPERATION" -> "Firebase 尚未啟用匿名登入"
+            else -> "Firebase 登入失敗（$code）"
+        }
+
+        /** Firestore 錯誤碼（FirebaseFirestoreException.Code 的名稱）的原因 */
+        fun firestoreReason(code: String): String = when (code) {
+            "PERMISSION_DENIED" -> "Firestore 規則不允許（請確認已發布 firestore.rules）"
+            "NOT_FOUND" -> "找不到 Firestore 資料庫"
+            "UNAVAILABLE" -> "連不上 Firestore，請檢查網路"
+            "UNAUTHENTICATED" -> "Firebase 尚未登入（請確認已啟用匿名登入）"
+            else -> "Firestore 錯誤（$code）"
         }
 
         fun fromFields(lat: Double?, lon: Double?, heading: Double?, createdAt: Long?, expiresAt: Long?, now: Long): SpeedCamera? {
