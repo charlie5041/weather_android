@@ -59,7 +59,7 @@ class WeatherCarScreen(carContext: CarContext) : Screen(carContext) {
 
     @Suppress("DEPRECATION")
     override fun onGetTemplate(): Template {
-        val builder = ListTemplate.Builder().setTitle("出行看天氣").setHeaderAction(Action.APP_ICON)
+        val builder = ListTemplate.Builder().setTitle("一路晴").setHeaderAction(Action.APP_ICON)
         if (loading) return builder.setLoading(true).build()
 
         val now = ItemList.Builder()
