@@ -24,7 +24,7 @@ import kotlin.math.sqrt
 enum class ReportResult { SENT, DUPLICATE, TOO_SOON, UNAVAILABLE, FAILED }
 
 /**
- * 使用者回報的移動式測速，存在 Firebase Firestore 的 camera_reports（以匿名登入讀寫）。
+ * 使用者回報的移動式測速，存在 Firebase Firestore 資料庫 [DATABASE_ID] 的 camera_reports（以匿名登入讀寫）。
  * 每筆回報 [TTL_MS] 後失效。需要 CI 放入 google-services.json，並在 Firebase 主控台啟用
  * Firestore 與匿名登入、部署 firestore.rules；沒有設定時回報功能不顯示，查詢結果是空的。
  */
@@ -50,7 +50,7 @@ class CameraReportRepository(context: Context) {
         try {
             withTimeout(TIMEOUT_MS) {
                 signIn()
-                val snapshot = FirebaseFirestore.getInstance().collection(COLLECTION)
+                val snapshot = FirebaseFirestore.getInstance(DATABASE_ID).collection(COLLECTION)
                     .whereGreaterThan("expiresAt", Timestamp.now())
                     .limit(MAX_REPORTS)
                     .get()
@@ -92,7 +92,7 @@ class CameraReportRepository(context: Context) {
                     "uid" to uid,
                 )
                 heading?.let { fields["heading"] = it }
-                FirebaseFirestore.getInstance().collection(COLLECTION).add(fields).await()
+                FirebaseFirestore.getInstance(DATABASE_ID).collection(COLLECTION).add(fields).await()
             }
             lastReportAt = now
             lock.withLock { cache = null }
@@ -120,6 +120,9 @@ class CameraReportRepository(context: Context) {
 
     companion object {
         const val COLLECTION = "camera_reports"
+
+        /** Firebase 專案裡 Firestore 資料庫的 ID（不是預設的 (default)） */
+        const val DATABASE_ID = "weather"
 
         /** 回報有效時間：移動式測速通常只在一個地方停一兩個小時 */
         const val TTL_MS = 2 * 60 * 60_000L
