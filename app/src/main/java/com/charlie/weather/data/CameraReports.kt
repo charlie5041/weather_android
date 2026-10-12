@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -112,9 +113,20 @@ class CameraReportRepository(context: Context) {
         return ReportResult.FAILED
     }
 
+    /**
+     * 匿名登入。手機上記著的匿名帳號可能已被 Firebase 自動清除（主控台可設定 30 天刪除匿名帳號），
+     * 這時確認權杖會失敗，就登出後重新建立一個。
+     */
     private suspend fun signIn(): String {
         val auth = FirebaseAuth.getInstance()
-        auth.currentUser?.let { return it.uid }
+        auth.currentUser?.let { user ->
+            try {
+                user.getIdToken(false).await()
+                return user.uid
+            } catch (e: FirebaseAuthInvalidUserException) {
+                auth.signOut()
+            }
+        }
         return auth.signInAnonymously().await().user?.uid ?: throw IllegalStateException("no user")
     }
 
