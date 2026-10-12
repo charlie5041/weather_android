@@ -9,12 +9,23 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: App URL
+      - name: CSV download
         run: |
-          curl -sS -m 60 -D - -o moi.json "https://od.moi.gov.tw/api/v1/rest/datastore/A01010000C-000674-011?limit=1000&offset=0" || true
-          echo "--- size"; wc -c moi.json || true
-          echo "--- head"; head -c 1500 moi.json || true; echo
-          python3 -c "import json;d=json.load(open('moi.json'));r=d.get('result',d);print('keys',list(d)[:10]);recs=r.get('records',[]) if isinstance(r,dict) else r;print('records',len(recs));print(recs[:3]);print('total',r.get('total') if isinstance(r,dict) else None)" || true
-      - name: data.gov.tw dataset metadata
-        run: |
-          curl -sS -m 60 "https://data.gov.tw/api/v2/rest/dataset/7320" | head -c 4000 || true
+          URL="https://opdadm.moi.gov.tw/api/v1/no-auth/resource/api/dataset/EA5E6FCD-B82D-43B7-A5CF-E9893253187E/resource/9E768F2D-7E01-4101-AE26-7778E7E7026F/download"
+          curl -sS -m 90 -L -D headers.txt -o cams.bin "$URL" || true
+          cat headers.txt || true
+          echo "--- size"; wc -c cams.bin || true
+          echo "--- file"; file cams.bin || true
+          echo "--- first bytes (hex)"; head -c 64 cams.bin | xxd || true
+          echo "--- head"; head -n 8 cams.bin || true
+          echo "--- lines"; wc -l cams.bin || true
+          echo "--- direct values"; python3 - <<'PY' || true
+          import csv, collections, io
+          raw = open('cams.bin','rb').read().decode('utf-8-sig', errors='replace')
+          rows = list(csv.DictReader(io.StringIO(raw)))
+          print('rows', len(rows), 'fields', list(rows[0].keys()) if rows else None)
+          for k in ('direct', 'limit'):
+              c = collections.Counter(r.get(k, '') for r in rows)
+              print(k, c.most_common(40))
+          print('sample', rows[:3])
+          PY
