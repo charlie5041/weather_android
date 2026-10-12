@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.charlie.weather.data.FavoriteRoute
+import com.charlie.weather.data.RouteHazard
 import com.charlie.weather.data.RouteReminder
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -91,7 +92,7 @@ fun TripCard(
                         Spacer(Modifier.height(10.dp))
                         RainTimeline(forecast, labelColor = TripSecondary)
                         // 最多兩則其他提醒，特報優先（hazards 已依重要性排序）
-                        RouteHazards(forecast.hazards.take(2), Modifier.padding(top = 2.dp))
+                        RouteHazards(forecast.hazards.filterNot { it == RouteHazard.NoCameras }.take(2), Modifier.padding(top = 2.dp))
                     }
                     upcoming.loading -> Text("正在查沿路天氣…", fontSize = 14.sp, color = TripSecondary, modifier = Modifier.padding(top = 6.dp))
                     else -> Text("無法取得沿路天氣，點這裡開啟路線", fontSize = 14.sp, color = TripSecondary, modifier = Modifier.padding(top = 6.dp))

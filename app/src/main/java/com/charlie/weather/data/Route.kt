@@ -70,6 +70,10 @@ data class RouteData(
     val roadEvents: List<RoadEvent> = emptyList(),
     /** 路線會經過的固定式測速照相（設定開啟時才有），依經過順序 */
     val cameras: List<RouteCamera> = emptyList(),
+    /** 有查測速照相（設定開啟，機車或汽車） */
+    val camerasChecked: Boolean = false,
+    /** 設定開啟了測速照相提醒，但資料下載失敗、也沒有舊資料 */
+    val camerasUnavailable: Boolean = false,
 )
 
 /** 路線上一點在「經過時間」的天氣。 */
@@ -135,6 +139,12 @@ sealed interface RouteHazard {
 
     /** 沿途的測速照相：處數（含 [mobile] 處使用者回報的移動式）與固定式的速限範圍 */
     data class Cameras(val count: Int, val minLimit: Int?, val maxLimit: Int?, val mobile: Int = 0) : RouteHazard
+
+    /** 開啟了測速照相提醒，但資料無法下載 */
+    object CamerasUnavailable : RouteHazard
+
+    /** 有查測速照相，沿途沒有（只在沿路天氣畫面顯示，讓使用者知道功能有在運作） */
+    object NoCameras : RouteHazard
 
     /** 沿途最大的陣風（km/h） */
     data class Wind(val gustKmh: Double, val stop: RouteStop) : RouteHazard
@@ -537,6 +547,12 @@ object RoutePlanner {
         forecast.data.cameras.takeIf { it.isNotEmpty() }?.let { cameras ->
             val limits = cameras.mapNotNull { it.camera.limit }
             result += RouteHazard.Cameras(cameras.size, limits.minOrNull(), limits.maxOrNull(), cameras.count { it.camera.mobile })
+        }
+        if (forecast.data.cameras.isEmpty()) {
+            when {
+                forecast.data.camerasUnavailable -> result += RouteHazard.CamerasUnavailable
+                forecast.data.camerasChecked -> result += RouteHazard.NoCameras
+            }
         }
         return result
     }

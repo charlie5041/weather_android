@@ -31,6 +31,27 @@ class SpeedCamerasTest {
     }
 
     @Test
+    fun parsesTheNpaCsv() {
+        // 警政署 CSV 的實際開頭：BOM、欄位名稱、中文欄位說明，之後才是資料
+        val csv = "\uFEFFCityName,RegionName,Address,DeptNm,BranchNm,Longitude,Latitude,direct,limit\r\n" +
+            "設置縣市,設置市區鄉鎮,設置地址,管轄警局,管轄分局,經度,緯度,拍攝方向,速限\r\n" +
+            "金門縣,金湖鎮,金湖鎮黃海路(陽明湖路段),金門縣警察局,金湖分局,118.43147,24.458809,南北雙向,60\r\n" +
+            "臺北市,內湖區,\"成功路四段,近民權東路\",臺北市政府警察局,內湖分局,121.59,25.08,北往南,50\r\n" +
+            "桃園市,大溪區,員林路,桃園市政府警察局,大溪分局,121.28,24.88,往大溪方向,\r\n"
+        val cameras = SpeedCameraRepository.parseCsv(csv)
+        assertEquals(3, cameras.size)
+        assertEquals(SpeedCamera(LatLon(24.458809, 118.43147), "金湖鎮黃海路(陽明湖路段)", 60, "南北雙向"), cameras[0])
+        // 引號內的逗號屬於同一欄
+        assertEquals("成功路四段,近民權東路", cameras[1].address)
+        assertEquals(180.0, cameras[1].travelHeading!!, 0.0)
+        // 沒有速限、方向看不懂的照相：任何方向都算
+        assertNull(cameras[2].limit)
+        assertNull(cameras[2].travelHeading)
+        assertNull(cameras[0].travelHeading)
+        assertEquals(emptyList<SpeedCamera>(), SpeedCameraRepository.parseCsv(""))
+    }
+
+    @Test
     fun readsTheShootingDirection() {
         assertEquals(0.0, SpeedCameraRepository.heading("南向北")!!, 0.0)
         assertEquals(180.0, SpeedCameraRepository.heading("北向南")!!, 0.0)
@@ -42,6 +63,10 @@ class SpeedCamerasTest {
         assertNull(SpeedCameraRepository.heading("雙向"))
         assertNull(SpeedCameraRepository.heading("東西向"))
         assertNull(SpeedCameraRepository.heading("往臺北"))
+        assertEquals(180.0, SpeedCameraRepository.heading("北往南")!!, 0.0)
+        assertEquals(0.0, SpeedCameraRepository.heading("北上車道")!!, 0.0)
+        assertNull(SpeedCameraRepository.heading("南北雙向(區間測速)"))
+        assertNull(SpeedCameraRepository.heading("往大溪方向"))
         assertNull(SpeedCameraRepository.heading(null))
     }
 
@@ -82,5 +107,13 @@ class SpeedCamerasTest {
         )
         val hazards = RouteForecast(route, java.time.LocalDateTime.of(2026, 10, 9, 8, 0), emptyList()).hazards
         assertEquals(RouteHazard.Cameras(3, 50, 70), hazards.last())
+        // 有查但沿途沒有、或資料無法下載時也要讓使用者知道
+        val start = java.time.LocalDateTime.of(2026, 10, 9, 8, 0)
+        assertEquals(RouteHazard.NoCameras, RouteForecast(route.copy(cameras = emptyList(), camerasChecked = true), start, emptyList()).hazards.last())
+        assertEquals(
+            RouteHazard.CamerasUnavailable,
+            RouteForecast(route.copy(cameras = emptyList(), camerasChecked = true, camerasUnavailable = true), start, emptyList()).hazards.last(),
+        )
+        assertTrue(RouteForecast(route.copy(cameras = emptyList()), start, emptyList()).hazards.isEmpty())
     }
 }

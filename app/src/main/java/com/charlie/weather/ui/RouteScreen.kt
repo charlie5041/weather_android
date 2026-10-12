@@ -920,6 +920,8 @@ internal fun hazardLine(hazard: RouteHazard): Pair<String, String> = when (hazar
         hazard.minLimit == hazard.maxLimit -> "，速限 ${hazard.minLimit}"
         else -> "，速限 ${hazard.minLimit}–${hazard.maxLimit}"
     } + if (hazard.mobile > 0) "（${hazard.mobile} 處是 2 小時內回報的移動式）" else ""
+    RouteHazard.CamerasUnavailable -> "📷" to "測速照相資料暫時無法下載，稍後再查一次"
+    RouteHazard.NoCameras -> "📷" to "沿途沒有固定式測速照相"
     is RouteHazard.Wind -> "💨" to "${stopWhere(hazard.stop)}一帶陣風 ${windText(hazard.gustKmh)}，注意側風"
     is RouteHazard.Sunset -> "🌇" to "${clock(hazard.time)} 日落，${stopWhere(hazard.stop)}之後天黑"
     is RouteHazard.Cold -> "🥶" to if (hazard.riding) {
