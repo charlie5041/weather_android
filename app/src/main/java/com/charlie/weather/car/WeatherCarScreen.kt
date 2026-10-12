@@ -14,6 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import com.charlie.weather.data.City
 import com.charlie.weather.data.FavoriteRoute
 import com.charlie.weather.data.RouteForecast
+import com.charlie.weather.data.RouteHazard
 import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.data.Weather
 import com.charlie.weather.data.WeatherRepository
@@ -155,7 +156,7 @@ class RouteCarScreen(carContext: CarContext, private val route: FavoriteRoute) :
                         .build(),
                 )
                 // 面板最多 4 列
-                f.hazards.take(2).forEach { hazard ->
+                f.hazards.filterNot { it == RouteHazard.NoCameras }.take(2).forEach { hazard ->
                     val (icon, text) = hazardLine(hazard)
                     pane.addRow(Row.Builder().setTitle("$icon $text").build())
                 }

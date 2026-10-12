@@ -39,12 +39,17 @@ data class SpeedCamera(
 data class RouteCamera(val camera: SpeedCamera, val fraction: Double, val distanceKm: Double)
 
 /**
- * 警政署開放資料「測速執法設置點」（政府資料開放平臺 7320），全國約 2,500 筆。
+ * 警政署開放資料「測速執法設置點」（政府資料開放平臺 7320），全國約 1,900 筆的 CSV（約 240KB）。
  * 下載後存在 [dir]，7 天更新一次；下載失敗時沿用舊檔。資料不定期更新，與現場可能不同。
  */
 class SpeedCameraRepository(private val dir: File) {
     private val lock = Mutex()
     private var memory: List<SpeedCamera>? = null
+
+    /** 最近一次下載失敗而且沒有舊檔可用（沿路天氣用來提示「資料無法下載」） */
+    @Volatile
+    var unavailable = false
+        private set
 
     suspend fun cameras(): List<SpeedCamera> = lock.withLock {
         val file = File(dir, FILE_NAME)
@@ -64,22 +69,15 @@ class SpeedCameraRepository(private val dir: File) {
                 // 沿用舊檔
             }
         }
-        memory ?: withContext(Dispatchers.IO) {
+        (memory ?: withContext(Dispatchers.IO) {
             runCatching { fromJson(file.readText()) }.getOrDefault(emptyList())
-        }.also { if (it.isNotEmpty()) memory = it }
+        }).also {
+            if (it.isNotEmpty()) memory = it
+            unavailable = it.isEmpty()
+        }
     }
 
-    /** 分頁下載；伺服器不理會分頁參數時，重複的資料會被排除，沒有新資料就停止 */
-    private suspend fun download(): List<SpeedCamera> {
-        val all = LinkedHashMap<Triple<Double, Double, String?>, SpeedCamera>()
-        for (page in 0 until MAX_PAGES) {
-            val (cameras, rows) = parse(get("$URL?limit=$PAGE_SIZE&offset=${page * PAGE_SIZE}"))
-            val before = all.size
-            cameras.forEach { all.putIfAbsent(Triple(it.position.latitude, it.position.longitude, it.direction), it) }
-            if (rows < PAGE_SIZE || all.size == before) break
-        }
-        return all.values.toList()
-    }
+    private suspend fun download(): List<SpeedCamera> = parseCsv(get(URL)).also { unavailable = it.isEmpty() }
 
     private suspend fun get(url: String): String = withContext(Dispatchers.IO) {
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -87,18 +85,18 @@ class SpeedCameraRepository(private val dir: File) {
             conn.connectTimeout = 10_000
             conn.readTimeout = 30_000
             if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
-            conn.inputStream.bufferedReader().use { it.readText() }
+            conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         } finally {
             conn.disconnect()
         }
     }
 
     companion object {
-        private const val URL = "https://od.moi.gov.tw/api/v1/rest/datastore/A01010000C-000674-011"
+        /** 政府資料開放平臺 7320 的「資料資源下載網址」（CSV） */
+        private const val URL = "https://opdadm.moi.gov.tw/api/v1/no-auth/resource/api/dataset/" +
+            "EA5E6FCD-B82D-43B7-A5CF-E9893253187E/resource/9E768F2D-7E01-4101-AE26-7778E7E7026F/download"
         private const val FILE_NAME = "speed_cameras.json"
         private const val REFRESH_MS = 7 * 24 * 60 * 60_000L
-        private const val PAGE_SIZE = 1000
-        private const val MAX_PAGES = 10
 
         /** 測速照相離路線多近才算在路上（公里）；資料座標有誤差，但太寬會算到旁邊的平行道路 */
         const val NEAR_KM = 0.06
@@ -107,10 +105,67 @@ class SpeedCameraRepository(private val dir: File) {
         const val MAX_ANGLE = 75.0
 
         /**
-         * 解析警政署的資料：記錄在 result.records（也接受 records 或直接是陣列），
-         * 欄位 Latitude、Longitude、Address、limit、direct 等多為字串。
-         * 第一筆常是欄位說明，經緯度不是數字或不在台灣附近的會略過。
-         * 回傳測速照相與原始筆數（判斷是否還有下一頁）。
+         * 解析警政署的 CSV：第一列是欄位名稱（CityName、RegionName、Address、DeptNm、BranchNm、
+         * Longitude、Latitude、direct、limit），第二列是中文欄位說明；開頭可能有 BOM。
+         * 經緯度不是數字或不在台灣附近的列會略過。
+         */
+        fun parseCsv(text: String): List<SpeedCamera> {
+            val rows = csvRows(text.removePrefix("\uFEFF"))
+            val header = rows.firstOrNull()?.map { it.trim() } ?: return emptyList()
+            return rows.drop(1).mapNotNull { row ->
+                camera { name ->
+                    val i = header.indexOfFirst { it.equals(name, ignoreCase = true) }
+                    row.getOrNull(i)?.trim()?.takeIf { it.isNotEmpty() }
+                }
+            }
+        }
+
+        /** 簡單的 CSV 解析：支援雙引號包住含逗號或換行的欄位、"" 代表一個引號 */
+        fun csvRows(text: String): List<List<String>> {
+            val rows = mutableListOf<List<String>>()
+            var row = mutableListOf<String>()
+            val cell = StringBuilder()
+            var quoted = false
+            var i = 0
+            while (i < text.length) {
+                val c = text[i]
+                when {
+                    quoted && c == '"' && text.getOrNull(i + 1) == '"' -> { cell.append('"'); i++ }
+                    c == '"' -> quoted = !quoted
+                    !quoted && c == ',' -> { row += cell.toString(); cell.clear() }
+                    !quoted && (c == '\n' || c == '\r') -> {
+                        if (c == '\r' && text.getOrNull(i + 1) == '\n') i++
+                        row += cell.toString(); cell.clear()
+                        if (row.any { it.isNotBlank() }) rows += row
+                        row = mutableListOf()
+                    }
+                    else -> cell.append(c)
+                }
+                i++
+            }
+            row += cell.toString()
+            if (row.any { it.isNotBlank() }) rows += row
+            return rows
+        }
+
+        /** 依欄位名稱取值建立一筆；經緯度不對時為 null */
+        private fun camera(field: (String) -> String?): SpeedCamera? {
+            val lat = field("Latitude")?.toDoubleOrNull() ?: return null
+            val lon = field("Longitude")?.toDoubleOrNull() ?: return null
+            if (lat !in 21.5..26.6 || lon !in 118.0..122.6) return null
+            val address = field("Address")
+                ?: listOfNotNull(field("CityName"), field("RegionName")).joinToString("").ifEmpty { "測速照相" }
+            return SpeedCamera(
+                position = LatLon(lat, lon),
+                address = address,
+                limit = field("limit")?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }?.takeIf { it in 5..130 },
+                direction = field("direct"),
+            )
+        }
+
+        /**
+         * 解析 JSON 格式（App 內的快取檔；也接受 result.records 或 records 包住的陣列），
+         * 欄位與 CSV 相同。回傳測速照相與原始筆數。
          */
         fun parse(json: String): Pair<List<SpeedCamera>, Int> {
             val trimmed = json.trimStart()
@@ -122,21 +177,10 @@ class SpeedCameraRepository(private val dir: File) {
             }
             val cameras = (0 until array.length()).mapNotNull { i ->
                 val r = array.optJSONObject(i) ?: return@mapNotNull null
-                fun field(name: String): String? {
-                    val key = r.keys().asSequence().firstOrNull { it.equals(name, ignoreCase = true) } ?: return null
-                    return r.optString(key).trim().takeIf { it.isNotEmpty() && it != "null" }
+                camera { name ->
+                    val key = r.keys().asSequence().firstOrNull { it.equals(name, ignoreCase = true) } ?: return@camera null
+                    r.optString(key).trim().takeIf { it.isNotEmpty() && it != "null" }
                 }
-                val lat = field("Latitude")?.toDoubleOrNull() ?: return@mapNotNull null
-                val lon = field("Longitude")?.toDoubleOrNull() ?: return@mapNotNull null
-                if (lat !in 21.5..26.6 || lon !in 118.0..122.6) return@mapNotNull null
-                val address = field("Address")
-                    ?: listOfNotNull(field("CityName"), field("RegionName")).joinToString("").ifEmpty { "測速照相" }
-                SpeedCamera(
-                    position = LatLon(lat, lon),
-                    address = address,
-                    limit = field("limit")?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }?.takeIf { it in 5..130 },
-                    direction = field("direct"),
-                )
             }
             return cameras to array.length()
         }

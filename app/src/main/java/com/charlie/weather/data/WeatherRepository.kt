@@ -30,6 +30,9 @@ class WeatherRepository private constructor(context: Context) {
     /** 固定式測速照相清單（設定關閉時是空的）；騎乘中模式開始時用來補上路線的測速照相 */
     suspend fun speedCameras(): List<SpeedCamera> = if (settings.speedCameras) speedCameras.cameras() else emptyList()
 
+    /** 開啟了測速照相提醒，但資料下載失敗、也沒有舊資料 */
+    val speedCamerasUnavailable: Boolean get() = settings.speedCameras && speedCameras.unavailable
+
     /** 固定式測速照相，不管設定（使用者自己開了行車提醒） */
     suspend fun allSpeedCameras(): List<SpeedCamera> = speedCameras.cameras()
 
@@ -176,8 +179,13 @@ class WeatherRepository private constructor(context: Context) {
             val count = sampled[k].size
             val near = withContext(Dispatchers.Default) { TdxRoadEvents.near(allEvents, path.points) }
             // 步行與單車不會被測速
-            val onRoute = if (mode == TravelMode.WALK || mode == TravelMode.BIKE) emptyList<RouteCamera>() else withContext(Dispatchers.Default) { SpeedCameraRepository.along(allCameras, path) }
-            RouteData(from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via, radar, near, onRoute).also { offset += count }
+            val cameraMode = settings.speedCameras && mode != TravelMode.WALK && mode != TravelMode.BIKE
+            val onRoute = if (!cameraMode) emptyList<RouteCamera>() else withContext(Dispatchers.Default) { SpeedCameraRepository.along(allCameras, path) }
+            RouteData(
+                from, to, mode, path, sampled[k], weathers.subList(offset, offset + count), via, radar, near, onRoute,
+                camerasChecked = cameraMode,
+                camerasUnavailable = cameraMode && speedCamerasUnavailable,
+            ).also { offset += count }
         }
     }
 
