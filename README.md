@@ -78,9 +78,9 @@
 金鑰會包含在 APK 內，上述限制可以避免被其他 App 盜用。
 
 移動式測速回報使用與 Crashlytics 同一個 Firebase 專案（`GOOGLE_SERVICES_JSON`），另外要在 Firebase 主控台：
-1. **Authentication** → 登入方式 → 啟用「匿名」
-2. **Firestore Database** → 建立資料庫（地區建議 `asia-east1` 台灣）
-3. Firestore → **規則**：貼上 repo 根目錄的 [`firestore.rules`](firestore.rules) 並發布（只允許登入者讀取、新增自己的回報，座標限台灣附近、2.5 小時內失效）
+1. **Authentication** → 登入方式 → 啟用「匿名」（可以勾選 30 天後自動刪除匿名帳號；App 發現帳號被刪會自動重新建立）
+2. **Firestore Database** → 建立資料庫，資料庫 ID 填 **`weather`**（App 連這個 ID，見 `CameraReportRepository.DATABASE_ID`；地區建議 `asia-east1` 台灣）
+3. Firestore → 選 `weather` 資料庫 → **規則**：貼上 repo 根目錄的 [`firestore.rules`](firestore.rules) 並發布（只允許登入者讀取、新增自己的回報，座標限台灣附近、2.5 小時內失效）
 4. （選用）Firestore → **TTL 政策**：集合 `camera_reports`、欄位 `expiresAt`，讓失效的回報自動刪除
 
 沒有 `GOOGLE_SERVICES_JSON` 時通知不顯示「回報測速」，只提醒固定式測速照相。

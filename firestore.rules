@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // 一路晴：使用者回報的移動式測速（app/src/main/java/com/charlie/weather/data/CameraReports.kt）
-// 在 Firebase 主控台 → Firestore Database → 規則 貼上並發布；另需在 Authentication 啟用「匿名」登入。
+// 在 Firebase 主控台 → Firestore Database → 選 weather 資料庫 → 規則 貼上並發布；另需在 Authentication 啟用「匿名」登入。
 service cloud.firestore {
   match /databases/{database}/documents {
     match /camera_reports/{report} {

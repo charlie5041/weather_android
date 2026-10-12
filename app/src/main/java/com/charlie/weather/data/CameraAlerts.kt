@@ -59,6 +59,15 @@ object CameraAlerts {
 
     private fun abs(v: Double) = kotlin.math.abs(v)
 
+    /**
+     * 目前時速（km/h）：取定位回報的速度與「最近幾秒移動 [meters] 公尺、經過 [seconds] 秒」換算的速度
+     * 較低者；模擬定位或部分手機回報的速度不可靠，避免誤提醒「請減速」。時間太短時只用回報的速度。
+     */
+    fun speedKmh(reportedKmh: Double?, meters: Double?, seconds: Double, minSeconds: Double = 2.5): Int? {
+        val measured = if (meters != null && seconds >= minSeconds) meters / seconds * 3.6 else null
+        return listOfNotNull(reportedKmh, measured).minOrNull()?.roundToInt()
+    }
+
     private fun rounded(km: Double) = ((km * 1000).coerceAtLeast(0.0) / 50).roundToInt() * 50
 
     private fun kind(camera: SpeedCamera) = if (camera.mobile) "移動式測速" else "測速照相"

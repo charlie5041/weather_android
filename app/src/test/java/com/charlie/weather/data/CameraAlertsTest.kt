@@ -61,6 +61,27 @@ class CameraAlertsTest {
     }
 
     @Test
+    fun usesTheLowerOfReportedAndMeasuredSpeed() {
+        // 回報 255 km/h（模擬定位單位錯誤），實際 6 秒移動 118 公尺約 71 km/h：用 71，不提醒減速
+        assertEquals(71, CameraAlerts.speedKmh(255.6, 118.3, 6.0))
+        val a = CameraAhead(cam(25.0, 121.5, limit = 80), 300)
+        assertEquals("前方 300 公尺測速照相，速限 80", CameraAlerts.speech(a, CameraAlerts.speedKmh(255.6, 118.3, 6.0)))
+        // 時間太短只用回報的速度；沒有回報時用移動距離
+        assertEquals(60, CameraAlerts.speedKmh(60.0, 500.0, 1.0))
+        assertEquals(36, CameraAlerts.speedKmh(null, 30.0, 3.0))
+        assertNull(CameraAlerts.speedKmh(null, null, 0.0))
+    }
+
+    @Test
+    fun explainsReportFailures() {
+        // Firebase 的例外類別在 JVM 單元測試無法建立，所以測錯誤碼對應的文字
+        assertEquals("Firestore 規則不允許（請確認已發布 firestore.rules）", CameraReportRepository.firestoreReason("PERMISSION_DENIED"))
+        assertEquals("Firestore 錯誤（ABORTED）", CameraReportRepository.firestoreReason("ABORTED"))
+        assertEquals("Firebase 尚未啟用匿名登入", CameraReportRepository.authReason("ERROR_OPERATION_NOT_ALLOWED"))
+        assertEquals("boom", CameraReportRepository.describe(IllegalStateException("boom")))
+    }
+
+    @Test
     fun readsAndDeduplicatesReports() {
         val now = 1_000_000L
         val r = CameraReportRepository.fromFields(25.0, 121.5, -90.0, now - 60_000, now + 60_000, now)!!

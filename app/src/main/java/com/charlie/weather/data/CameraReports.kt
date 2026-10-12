@@ -2,11 +2,17 @@ package com.charlie.weather.data
 
 import android.content.Context
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
@@ -19,7 +25,7 @@ import kotlin.math.sqrt
 enum class ReportResult { SENT, DUPLICATE, TOO_SOON, UNAVAILABLE, FAILED }
 
 /**
- * 使用者回報的移動式測速，存在 Firebase Firestore 的 camera_reports（以匿名登入讀寫）。
+ * 使用者回報的移動式測速，存在 Firebase Firestore 資料庫 [DATABASE_ID] 的 camera_reports（以匿名登入讀寫）。
  * 每筆回報 [TTL_MS] 後失效。需要 CI 放入 google-services.json，並在 Firebase 主控台啟用
  * Firestore 與匿名登入、部署 firestore.rules；沒有設定時回報功能不顯示，查詢結果是空的。
  */
@@ -28,6 +34,11 @@ class CameraReportRepository(context: Context) {
     private val lock = Mutex()
     private var cache: Pair<Long, List<SpeedCamera>>? = null
     private var lastReportAt = 0L
+
+    /** 最近一次回報失敗的原因（給使用者看，例如「Firebase 尚未啟用匿名登入」） */
+    @Volatile
+    var lastError: String? = null
+        private set
 
     /** 這個版本有 Firebase 設定 */
     val available: Boolean get() = FirebaseApp.getApps(app).isNotEmpty()
@@ -40,7 +51,7 @@ class CameraReportRepository(context: Context) {
         try {
             withTimeout(TIMEOUT_MS) {
                 signIn()
-                val snapshot = FirebaseFirestore.getInstance().collection(COLLECTION)
+                val snapshot = FirebaseFirestore.getInstance(DATABASE_ID).collection(COLLECTION)
                     .whereGreaterThan("expiresAt", Timestamp.now())
                     .limit(MAX_REPORTS)
                     .get()
@@ -82,26 +93,48 @@ class CameraReportRepository(context: Context) {
                     "uid" to uid,
                 )
                 heading?.let { fields["heading"] = it }
-                FirebaseFirestore.getInstance().collection(COLLECTION).add(fields).await()
+                FirebaseFirestore.getInstance(DATABASE_ID).collection(COLLECTION).add(fields).await()
             }
             lastReportAt = now
             lock.withLock { cache = null }
             ReportResult.SENT
         } catch (e: CancellationException) {
-            if (e is kotlinx.coroutines.TimeoutCancellationException) ReportResult.FAILED else throw e
+            if (e !is TimeoutCancellationException) throw e
+            failed(e)
         } catch (e: Exception) {
-            ReportResult.FAILED
+            failed(e)
         }
     }
 
+    /** 記下失敗原因，並送到 Crashlytics（非致命）方便查 Firebase 設定問題 */
+    private fun failed(e: Exception): ReportResult {
+        lastError = describe(e)
+        runCatching { FirebaseCrashlytics.getInstance().recordException(e) }
+        return ReportResult.FAILED
+    }
+
+    /**
+     * 匿名登入。手機上記著的匿名帳號可能已被 Firebase 自動清除（主控台可設定 30 天刪除匿名帳號），
+     * 這時確認權杖會失敗，就登出後重新建立一個。
+     */
     private suspend fun signIn(): String {
         val auth = FirebaseAuth.getInstance()
-        auth.currentUser?.let { return it.uid }
+        auth.currentUser?.let { user ->
+            try {
+                user.getIdToken(false).await()
+                return user.uid
+            } catch (e: FirebaseAuthInvalidUserException) {
+                auth.signOut()
+            }
+        }
         return auth.signInAnonymously().await().user?.uid ?: throw IllegalStateException("no user")
     }
 
     companion object {
         const val COLLECTION = "camera_reports"
+
+        /** Firebase 專案裡 Firestore 資料庫的 ID（不是預設的 (default)） */
+        const val DATABASE_ID = "weather"
 
         /** 回報有效時間：移動式測速通常只在一個地方停一兩個小時 */
         const val TTL_MS = 2 * 60 * 60_000L
@@ -112,6 +145,30 @@ class CameraReportRepository(context: Context) {
 
         /** 附近已經有人回報（同方向）就不再新增 */
         private const val DUPLICATE_KM = 0.15
+
+        /** 把 Firebase 的錯誤轉成看得懂的原因 */
+        fun describe(e: Exception): String = when (e) {
+            is TimeoutCancellationException -> "連線逾時，請檢查網路"
+            is FirebaseNetworkException -> "網路連線失敗"
+            is FirebaseAuthException -> authReason(e.errorCode)
+            is FirebaseFirestoreException -> firestoreReason(e.code.name)
+            else -> e.message?.take(80) ?: e.javaClass.simpleName
+        }
+
+        /** Firebase Auth 錯誤碼（例如 ERROR_OPERATION_NOT_ALLOWED）的原因 */
+        fun authReason(code: String): String = when (code) {
+            "ERROR_OPERATION_NOT_ALLOWED", "ERROR_ADMIN_RESTRICTED_OPERATION" -> "Firebase 尚未啟用匿名登入"
+            else -> "Firebase 登入失敗（$code）"
+        }
+
+        /** Firestore 錯誤碼（FirebaseFirestoreException.Code 的名稱）的原因 */
+        fun firestoreReason(code: String): String = when (code) {
+            "PERMISSION_DENIED" -> "Firestore 規則不允許（請確認已發布 firestore.rules）"
+            "NOT_FOUND" -> "找不到 Firestore 資料庫"
+            "UNAVAILABLE" -> "連不上 Firestore，請檢查網路"
+            "UNAUTHENTICATED" -> "Firebase 尚未登入（請確認已啟用匿名登入）"
+            else -> "Firestore 錯誤（$code）"
+        }
 
         fun fromFields(lat: Double?, lon: Double?, heading: Double?, createdAt: Long?, expiresAt: Long?, now: Long): SpeedCamera? {
             if (lat == null || lon == null || lat !in 21.5..26.6 || lon !in 118.0..122.6) return null

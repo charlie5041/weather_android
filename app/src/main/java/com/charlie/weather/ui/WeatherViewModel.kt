@@ -282,6 +282,9 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     /** 行車時間含路況時，改出發時間要重新查詢路線 */
     val trafficAwareRoutes: Boolean get() = repository.trafficAwareRoutes
 
+    /** 可以回報移動式測速 */
+    val canReportCameras: Boolean get() = repository.canReportCameras
+
     /**
      * 上次查詢的路線。起點或終點是「目前位置」或自訂地點時換成最新的座標
      * （人移動了、或地點的地址改過）。

@@ -30,6 +30,9 @@ class WeatherRepository private constructor(context: Context) {
     /** 固定式測速照相清單（設定關閉時是空的）；騎乘中模式開始時用來補上路線的測速照相 */
     suspend fun speedCameras(): List<SpeedCamera> = if (settings.speedCameras) speedCameras.cameras() else emptyList()
 
+    /** 可以回報移動式測速：這個版本有 Firebase 設定，且開啟了測速照相提醒 */
+    val canReportCameras: Boolean get() = settings.speedCameras && cameraReports.available
+
     /** 開啟了測速照相提醒，但資料下載失敗、也沒有舊資料 */
     val speedCamerasUnavailable: Boolean get() = settings.speedCameras && speedCameras.unavailable
 
