@@ -169,6 +169,8 @@ fun RouteScreen(
     rideActive: Boolean = false,
     onStartRide: ((RouteData) -> Unit)? = null,
     onStopRide: () -> Unit = {},
+    /** 騎乘中回報移動式測速；null 時不顯示按鈕 */
+    onReportCamera: (() -> Unit)? = null,
     onClose: () -> Unit,
 ) {
     val openedAt = remember { LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES) }
@@ -361,7 +363,7 @@ fun RouteScreen(
                         RouteResult(
                             forecast,
                             ride = onStartRide?.let { start ->
-                                RideControl(rideActive, onStart = { start(forecast.data) }, onStop = onStopRide)
+                                RideControl(rideActive, onStart = { start(forecast.data) }, onStop = onStopRide, onReport = onReportCamera)
                             },
                         )
                     }
@@ -570,6 +572,23 @@ fun RouteResult(
                     .clickable(role = Role.Button, onClick = if (control.active) control.onStop else control.onStart)
                     .padding(vertical = 13.dp),
             )
+            // 騎乘中才有目前位置與行進方向，可以回報移動式測速
+            val report = control.onReport
+            if (control.active && report != null && data.mode != TravelMode.WALK && data.mode != TravelMode.BIKE) {
+                Text(
+                    "📷 回報移動式測速",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFFF9F0A).copy(alpha = 0.85f))
+                        .clickable(role = Role.Button, onClick = report)
+                        .padding(vertical = 13.dp),
+                )
+            }
         }
 
         Panel {
@@ -1043,7 +1062,7 @@ private fun StripCell(
 }
 
 /** 路線結果上的騎乘中模式按鈕 */
-class RideControl(val active: Boolean, val onStart: () -> Unit, val onStop: () -> Unit)
+class RideControl(val active: Boolean, val onStart: () -> Unit, val onStop: () -> Unit, val onReport: (() -> Unit)? = null)
 
 /** 柱高：不靠顏色也看得出雨勢 */
 private fun RainLevel.barHeight() = when (this) {

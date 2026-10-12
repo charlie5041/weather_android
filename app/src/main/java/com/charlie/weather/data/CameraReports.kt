@@ -2,11 +2,16 @@ package com.charlie.weather.data
 
 import android.content.Context
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
@@ -28,6 +33,11 @@ class CameraReportRepository(context: Context) {
     private val lock = Mutex()
     private var cache: Pair<Long, List<SpeedCamera>>? = null
     private var lastReportAt = 0L
+
+    /** 最近一次回報失敗的原因（給使用者看，例如「Firebase 尚未啟用匿名登入」） */
+    @Volatile
+    var lastError: String? = null
+        private set
 
     /** 這個版本有 Firebase 設定 */
     val available: Boolean get() = FirebaseApp.getApps(app).isNotEmpty()
@@ -88,10 +98,18 @@ class CameraReportRepository(context: Context) {
             lock.withLock { cache = null }
             ReportResult.SENT
         } catch (e: CancellationException) {
-            if (e is kotlinx.coroutines.TimeoutCancellationException) ReportResult.FAILED else throw e
+            if (e !is TimeoutCancellationException) throw e
+            failed(e)
         } catch (e: Exception) {
-            ReportResult.FAILED
+            failed(e)
         }
+    }
+
+    /** 記下失敗原因，並送到 Crashlytics（非致命）方便查 Firebase 設定問題 */
+    private fun failed(e: Exception): ReportResult {
+        lastError = describe(e)
+        runCatching { FirebaseCrashlytics.getInstance().recordException(e) }
+        return ReportResult.FAILED
     }
 
     private suspend fun signIn(): String {
@@ -112,6 +130,24 @@ class CameraReportRepository(context: Context) {
 
         /** 附近已經有人回報（同方向）就不再新增 */
         private const val DUPLICATE_KM = 0.15
+
+        /** 把 Firebase 的錯誤轉成看得懂的原因 */
+        fun describe(e: Exception): String = when (e) {
+            is TimeoutCancellationException -> "連線逾時，請檢查網路"
+            is FirebaseNetworkException -> "網路連線失敗"
+            is FirebaseAuthException -> when (e.errorCode) {
+                "ERROR_OPERATION_NOT_ALLOWED", "ERROR_ADMIN_RESTRICTED_OPERATION" -> "Firebase 尚未啟用匿名登入"
+                else -> "Firebase 登入失敗（${e.errorCode}）"
+            }
+            is FirebaseFirestoreException -> when (e.code) {
+                FirebaseFirestoreException.Code.PERMISSION_DENIED -> "Firestore 規則不允許（請確認已發布 firestore.rules）"
+                FirebaseFirestoreException.Code.NOT_FOUND -> "找不到 Firestore 資料庫"
+                FirebaseFirestoreException.Code.UNAVAILABLE -> "連不上 Firestore，請檢查網路"
+                FirebaseFirestoreException.Code.UNAUTHENTICATED -> "Firebase 尚未登入（請確認已啟用匿名登入）"
+                else -> "Firestore 錯誤（${e.code.name}）"
+            }
+            else -> e.message?.take(80) ?: e.javaClass.simpleName
+        }
 
         fun fromFields(lat: Double?, lon: Double?, heading: Double?, createdAt: Long?, expiresAt: Long?, now: Long): SpeedCamera? {
             if (lat == null || lon == null || lat !in 21.5..26.6 || lon !in 118.0..122.6) return null

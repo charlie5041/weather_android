@@ -341,6 +341,11 @@ fun WeatherApp(
                                 }
                             },
                             onStopRide = { RideService.stop(context) },
+                            onReportCamera = if (vm.canReportCameras) {
+                                { RideService.report(context) }
+                            } else {
+                                null
+                            },
                             onClose = { routeRequest = null },
                         )
                     }

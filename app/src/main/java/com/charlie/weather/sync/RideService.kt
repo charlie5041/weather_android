@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
@@ -50,7 +51,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.util.Locale
-import kotlin.math.roundToInt
 
 /**
  * 前景服務持續取得位置，有兩種模式：
@@ -65,6 +65,10 @@ class RideService : Service() {
     private lateinit var settings: AppSettings
     private var loops: Job? = null
     private var lastLocation: Location? = null
+
+    /** 最近幾秒的 GPS 位置，用來自己算時速（模擬定位或部分手機回報的速度不可靠） */
+    private val recentFixes = ArrayDeque<Location>()
+    private var lastGpsAt = 0L
     private var alertedPlace: String? = null
     private var lastStatusAt = 0L
     private var listener: LocationListener? = null
@@ -105,7 +109,8 @@ class RideService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_REPORT -> {
-                if (listener == null) stopSelf() else scope.launch { report() }
+                val fromApp = intent.getBooleanExtra(EXTRA_FROM_APP, false)
+                if (listener == null) stopSelf() else scope.launch { report(fromApp) }
                 return START_NOT_STICKY
             }
         }
@@ -127,6 +132,8 @@ class RideService : Service() {
         _driving.value = route == null
         alertedPlace = null
         alertedCameras.clear()
+        recentFixes.clear()
+        lastGpsAt = 0L
         fixedCameras = emptyList()
         mobileCameras = emptyList()
         routeCameras = route?.cameras.orEmpty()
@@ -236,6 +243,15 @@ class RideService : Service() {
         val lm = getSystemService(LocationManager::class.java) ?: return
         val l = object : LocationListener {
             override fun onLocationChanged(location: Location) {
+                val now = System.currentTimeMillis()
+                if (location.provider == LocationManager.GPS_PROVIDER) {
+                    lastGpsAt = now
+                    recentFixes.addLast(location)
+                    while (recentFixes.size > 2 && location.time - recentFixes.first().time > SPEED_WINDOW_MS) recentFixes.removeFirst()
+                } else if (now - lastGpsAt < GPS_FRESH_MS) {
+                    // 有 GPS 時不用網路定位（精度差，混在一起會讓位置跳動）
+                    return
+                }
                 lastLocation = location
                 trackMovement(location)
                 checkCameras(location)
@@ -268,8 +284,20 @@ class RideService : Service() {
         }
     }
 
-    private fun speedKmh(location: Location): Int? =
-        if (location.hasSpeed()) (location.speed * 3.6).roundToInt() else null
+    /**
+     * 目前時速：取「定位回報的速度」與「最近幾秒移動距離換算的速度」較低者，
+     * 避免回報速度異常時誤提醒「請減速」。
+     */
+    private fun speedKmh(location: Location): Int? {
+        val first = recentFixes.firstOrNull()
+        val last = recentFixes.lastOrNull()
+        val seconds = if (first != null && last != null) (last.time - first.time) / 1000.0 else 0.0
+        return CameraAlerts.speedKmh(
+            reportedKmh = if (location.hasSpeed()) location.speed * 3.6 else null,
+            meters = if (first != null && last != null) first.distanceTo(last).toDouble() else null,
+            seconds = seconds,
+        )
+    }
 
     /** 前方有測速照相時提醒；騎乘中偏離路線時不提醒（可能在別條路上） */
     private fun checkCameras(location: Location) {
@@ -356,8 +384,8 @@ class RideService : Service() {
         if (status.arrived) stopRide()
     }
 
-    /** 回報目前位置有移動式測速 */
-    private suspend fun report() {
+    /** 回報目前位置有移動式測速；從 App 按的時候另外跳出 Toast */
+    private suspend fun report(fromApp: Boolean = false) {
         val location = lastLocation
         val result = if (location == null) {
             null
@@ -372,8 +400,9 @@ class RideService : Service() {
             ReportResult.DUPLICATE -> "附近已經有人回報了"
             ReportResult.TOO_SOON -> "剛回報過，請稍後再試"
             ReportResult.UNAVAILABLE -> "這個版本沒有開啟回報功能"
-            ReportResult.FAILED -> "回報失敗，請檢查網路"
+            ReportResult.FAILED -> "回報失敗：" + (repository.cameraReports.lastError ?: "請檢查網路")
         }
+        if (fromApp) Toast.makeText(this, text, Toast.LENGTH_LONG).show()
         notify(
             ID_REPORT,
             NotificationCompat.Builder(this, WeatherNotifier.CHANNEL_RIDE)
@@ -491,6 +520,14 @@ class RideService : Service() {
         private const val REALERT_MS = 10 * 60_000L
         private const val MOBILE_MS = 3 * 60_000L
 
+        private const val EXTRA_FROM_APP = "from_app"
+
+        /** 自己算時速用的時間範圍 */
+        private const val SPEED_WINDOW_MS = 6_000L
+
+        /** 這段時間內有 GPS 定位就不用網路定位 */
+        private const val GPS_FRESH_MS = 10_000L
+
         /** 低於這個時速時 GPS 方位不可靠 */
         private const val MIN_BEARING_KMH = 8
 
@@ -529,6 +566,11 @@ class RideService : Service() {
             route = null
             drive = true
             ContextCompat.startForegroundService(context, Intent(context, RideService::class.java))
+        }
+
+        /** 從 App 內回報移動式測速（騎乘中或行車提醒進行中才有位置與行進方向） */
+        fun report(context: Context) {
+            context.startService(Intent(context, RideService::class.java).setAction(ACTION_REPORT).putExtra(EXTRA_FROM_APP, true))
         }
 
         fun stop(context: Context) {

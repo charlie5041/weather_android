@@ -57,6 +57,7 @@ import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.sync.RideService
 import com.charlie.weather.sync.WeatherNotifier
 import com.charlie.weather.sync.WeatherSyncWorker
+import com.google.firebase.FirebaseApp
 
 private val SectionColor = Color(0xFF1C1C1E)
 
@@ -79,6 +80,7 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
     var speedCameras by remember { mutableStateOf(settings.speedCameras) }
     var voiceAlerts by remember { mutableStateOf(settings.voiceAlerts) }
     val driving by RideService.driving.collectAsStateWithLifecycle()
+    val canReportCameras = speedCameras && remember { FirebaseApp.getApps(context).isNotEmpty() }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
 
@@ -224,6 +226,12 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
                 settings.voiceAlerts = it
             }
         }
+        Text(
+            "沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。\n" +
+                "測速照相使用警政署公布的固定式測速執法地點（每週更新）與使用者回報的移動式測速，與現場可能不同，請依實際速限行駛。",
+            color = Color.Gray,
+            fontSize = 13.sp,
+        )
 
         SectionTitle("行車提醒（不設目的地）")
         Section {
@@ -248,13 +256,14 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
             }) {
                 Text(if (driving) "結束行車提醒" else "開始行車提醒", color = Color(0xFF0A84FF), fontSize = 16.sp)
             }
+            // 行車提醒進行中才有目前位置與行進方向
+            if (driving && canReportCameras) {
+                TextButton(onClick = { RideService.report(context) }) {
+                    Text("📷 回報移動式測速", color = Color(0xFFFF9F0A), fontSize = 16.sp)
+                }
+            }
         }
-        Text(
-"沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。\n" +
-                "測速照相使用警政署公布的固定式測速執法地點（每週更新）與使用者回報的移動式測速，與現場可能不同，請依實際速限行駛。",
-            color = Color.Gray,
-            fontSize = 13.sp,
-        )
+
 
         SectionTitle("桌面小工具")
         Section {
