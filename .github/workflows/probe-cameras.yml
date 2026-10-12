@@ -1,0 +1,20 @@
+name: Probe speed camera data (temporary)
+on:
+  push:
+    branches: [ccr-a301f69d-wxkuo5]
+    paths: [.github/workflows/probe-cameras.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: App URL
+        run: |
+          curl -sS -m 60 -D - -o moi.json "https://od.moi.gov.tw/api/v1/rest/datastore/A01010000C-000674-011?limit=1000&offset=0" || true
+          echo "--- size"; wc -c moi.json || true
+          echo "--- head"; head -c 1500 moi.json || true; echo
+          python3 -c "import json;d=json.load(open('moi.json'));r=d.get('result',d);print('keys',list(d)[:10]);recs=r.get('records',[]) if isinstance(r,dict) else r;print('records',len(recs));print(recs[:3]);print('total',r.get('total') if isinstance(r,dict) else None)" || true
+      - name: data.gov.tw dataset metadata
+        run: |
+          curl -sS -m 60 "https://data.gov.tw/api/v2/rest/dataset/7320" | head -c 4000 || true
