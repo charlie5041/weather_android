@@ -72,9 +72,10 @@ object CameraAlerts {
 
     private fun kind(camera: SpeedCamera) = if (camera.mobile) "移動式測速" else "測速照相"
 
-    /** 通知標題，例如「📷 前方 300 公尺測速照相・速限 50」 */
+    /** 通知標題，例如「📷 前方 300 公尺測速照相・速限 50」；在高架、國道等時標出「（高架）」 */
     fun title(a: CameraAhead): String = buildString {
         append(if (a.meters <= 50) "📷 ${kind(a.camera)}" else "📷 前方 ${a.meters} 公尺${kind(a.camera)}")
+        RoadLevels.tag(a.camera)?.let { append("（$it）") }
         a.camera.limit?.let { append("・速限 $it") }
     }
 
@@ -91,9 +92,10 @@ object CameraAlerts {
         }
     }
 
-    /** 語音播報的句子，例如「前方 300 公尺測速照相，速限 50，請減速」 */
+    /** 語音播報的句子，例如「前方 300 公尺測速照相，在高架上，速限 80，請減速」 */
     fun speech(a: CameraAhead, speedKmh: Int?): String = buildString {
         append(if (a.meters <= 50) kind(a.camera) else "前方 ${a.meters} 公尺${kind(a.camera)}")
+        RoadLevels.tag(a.camera)?.let { append("，在${it}上") }
         val limit = a.camera.limit
         if (limit != null) append("，速限 $limit")
         if (limit != null && speedKmh != null && speedKmh > limit) append("，請減速")

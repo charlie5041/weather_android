@@ -47,6 +47,8 @@ data class RoutePath(
     val source: RouteSource = RouteSource.OSM,
     /** 主要道路（Google 才有），用來分辨替代路線 */
     val description: String? = null,
+    /** 各段的路名（用來分辨橋上、橋下的測速照相）；直線估計時沒有 */
+    val roads: List<RoadSpan> = emptyList(),
 ) {
     val approximate: Boolean get() = source == RouteSource.ESTIMATE
 }
@@ -253,7 +255,7 @@ object RouteApi {
         fun p(l: LatLon) = String.format(Locale.US, "%.5f,%.5f", l.longitude, l.latitude)
         val coords = (listOf(from) + via + to).joinToString(";", transform = ::p)
         val alt = if (alternatives && via.isEmpty()) "&alternatives=true" else ""
-        return "$BASE_URL/${mode.profile}/route/v1/driving/$coords?overview=full&geometries=geojson$alt"
+        return "$BASE_URL/${mode.profile}/route/v1/driving/$coords?overview=full&geometries=geojson&steps=true$alt"
     }
 
     /** 解析 OSRM 回應的第一條路線 */
@@ -273,7 +275,20 @@ object RouteApi {
             coords.optJSONArray(i)?.let { LatLon(it.getDouble(1), it.getDouble(0)) }
         }
         if (points.size < 2) return null
-        return RoutePath(points, route.optDouble("distance", 0.0) / 1000, route.optDouble("duration", 0.0) / 60)
+        // 每一段的距離與路名（例如「市民大道三段」「市民大道高架道路」）
+        val steps = mutableListOf<Pair<Double, String>>()
+        val legs = route.optJSONArray("legs")
+        for (l in 0 until (legs?.length() ?: 0)) {
+            val legSteps = legs?.optJSONObject(l)?.optJSONArray("steps") ?: continue
+            for (s in 0 until legSteps.length()) {
+                val step = legSteps.optJSONObject(s) ?: continue
+                steps += step.optDouble("distance", 0.0) to step.optString("name")
+            }
+        }
+        return RoutePath(
+            points, route.optDouble("distance", 0.0) / 1000, route.optDouble("duration", 0.0) / 60,
+            roads = RoadLevels.spans(steps),
+        )
     }
 
     /** OSM 的行車時間不得少於以市區平均時速走完全程的時間。 */
