@@ -1,0 +1,37 @@
+name: Probe elevated roads (temporary)
+on:
+  push:
+    branches: [ccr-a301f69d-wxkuo5]
+    paths: [.github/workflows/probe-cameras.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Camera addresses with elevated keywords
+        run: |
+          curl -sS -m 90 -o cams.csv "https://opdadm.moi.gov.tw/api/v1/no-auth/resource/api/dataset/EA5E6FCD-B82D-43B7-A5CF-E9893253187E/resource/9E768F2D-7E01-4101-AE26-7778E7E7026F/download"
+          python3 - <<'PY'
+          import csv, io, re, collections
+          rows = list(csv.DictReader(io.StringIO(open('cams.csv','rb').read().decode('utf-8-sig'))))[1:]
+          kw = re.compile(r'高架|快速|國道|省道|台\d+|臺\d+|橋|匝道|平面|橋下|隧道')
+          hits = [r for r in rows if kw.search(r['Address'])]
+          print('total', len(rows), 'keyword hits', len(hits))
+          c = collections.Counter(m for r in hits for m in kw.findall(r['Address']))
+          print(c.most_common())
+          for r in hits[:120]:
+              print(r['CityName'], '|', r['Address'], '|', r['direct'], '|', r['limit'])
+          PY
+      - name: OSRM step names
+        run: |
+          for q in "121.5170,25.0480;121.5560,25.0440" "121.4930,25.0390;121.4730,25.0130" "121.5200,25.0620;121.5600,25.0620"; do
+            echo "=== $q"
+            curl -sS -m 30 -A "probe (github.com/charlie5041/weather_android)" "https://routing.openstreetmap.de/routed-car/route/v1/driving/$q?overview=false&steps=true" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          for leg in d['routes'][0]['legs']:
+              for s in leg['steps']:
+                  print(round(s['distance']), repr(s.get('name')), repr(s.get('ref')), s['maneuver']['type'], len(s.get('intersections',[])))
+          " || true
+          done
