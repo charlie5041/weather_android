@@ -63,7 +63,8 @@ class GoogleRoutes(private val apiKey: String, private val packageName: String, 
 
     companion object {
         private const val URL_COMPUTE = "https://routes.googleapis.com/directions/v2:computeRoutes"
-        private const val FIELD_MASK = "routes.duration,routes.distanceMeters,routes.polyline.geoJsonLinestring,routes.description"
+        private const val FIELD_MASK = "routes.duration,routes.distanceMeters,routes.polyline.geoJsonLinestring,routes.description," +
+            "routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction.instructions"
 
         fun travelMode(mode: TravelMode) = when (mode) {
             TravelMode.SCOOTER -> "TWO_WHEELER"
@@ -124,9 +125,21 @@ class GoogleRoutes(private val apiKey: String, private val packageName: String, 
             }
             if (points.size < 2) return null
             val seconds = route.optString("duration").removeSuffix("s").toDoubleOrNull() ?: return null
+            // 各段的距離與導航指示（例如「向右轉，進入市民大道高架道路」），用來分辨橋上、橋下
+            val steps = mutableListOf<Pair<Double, String>>()
+            val legs = route.optJSONArray("legs")
+            for (l in 0 until (legs?.length() ?: 0)) {
+                val legSteps = legs?.optJSONObject(l)?.optJSONArray("steps") ?: continue
+                for (s in 0 until legSteps.length()) {
+                    val step = legSteps.optJSONObject(s) ?: continue
+                    steps += step.optDouble("distanceMeters", 0.0) to
+                        (step.optJSONObject("navigationInstruction")?.optString("instructions").orEmpty())
+                }
+            }
             return RoutePath(
                 points, route.optDouble("distanceMeters", 0.0) / 1000, seconds / 60, source = RouteSource.GOOGLE,
                 description = route.optString("description").takeIf { it.isNotBlank() },
+                roads = RoadLevels.spans(steps),
             )
         }
 

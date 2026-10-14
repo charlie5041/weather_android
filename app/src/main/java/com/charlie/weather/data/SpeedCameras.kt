@@ -238,7 +238,8 @@ class SpeedCameraRepository(private val dir: File) {
         }
 
         /**
-         * 路線會經過的測速照相，依經過順序排列：離路線 [NEAR_KM] 內、拍攝方向與路線方向相符。
+         * 路線會經過的測速照相，依經過順序排列：離路線 [NEAR_KM] 內、拍攝方向與路線方向相符，
+         * 而且照相地址與路線那一段的路名在同一層（高架或平面，見 [RoadLevels]）。
          * 同一個地方同方向的重複資料只留一筆。
          */
         fun along(cameras: List<SpeedCamera>, path: RoutePath, km: Double = NEAR_KM): List<RouteCamera> {
@@ -270,6 +271,8 @@ class SpeedCameraRepository(private val dir: File) {
                 }
                 if (best == Double.MAX_VALUE) return@mapNotNull null
                 val fraction = (bestAt / total).coerceIn(0.0, 1.0)
+                // 橋上、橋下：照相地址與路線這一段的路名不同層就不算
+                if (!RoadLevels.matches(camera, path.distanceKm * fraction, path.roads)) return@mapNotNull null
                 RouteCamera(camera, fraction, path.distanceKm * fraction)
             }.sortedBy { it.fraction }
             // 同一處（路線上 30 公尺內）的重複資料只留一筆
