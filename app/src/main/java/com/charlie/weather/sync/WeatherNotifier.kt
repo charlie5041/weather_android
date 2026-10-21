@@ -108,33 +108,51 @@ object WeatherNotifier {
         createChannels(context)
         val settings = AppSettings(context)
         val alertTargets = listOf(primary) + if (settings.placeAlerts) places else emptyList()
-        if (settings.rainAlerts) alertTargets.forEach { (city, weather) -> checkRain(context, settings, city, weather, city.id == primary.first.id) }
+        if (settings.rainAlerts) checkRain(context, settings, alertTargets, primary.first.id)
         if (settings.warningAlerts) checkWarnings(context, settings, alertTargets)
         if (settings.morningSummary) checkMorning(context, settings, primary.first, primary.second, now)
         if (settings.commuteNotify) checkCommute(context, settings, listOf(primary) + places, now)
     }
 
-    /** 目前沒下雨，但未來 2 小時內降雨機率 ≥ 60% 時提醒（每個地點 3 小時內不重複）。 */
-    private fun checkRain(context: Context, settings: AppSettings, city: City, weather: Weather, isPrimary: Boolean) {
+    /** 某地點即將下雨的通知內容；同一輪內容相同的地點會合併成一則。 */
+    internal data class RainAlert(val headline: String, val text: String)
+
+    /** 目前沒下雨，但未來 2 小時內降雨機率 ≥ 60% 時回傳提醒內容。 */
+    internal fun rainAlert(weather: Weather): RainAlert? {
         val current = weather.current
-        if (WeatherCodes.isRain(current.weatherCode) && current.precipitation > 0) return
-        if (System.currentTimeMillis() - settings.lastRainNotifiedAt(city.id) < RAIN_COOLDOWN_MS) return
+        if (WeatherCodes.isRain(current.weatherCode) && current.precipitation > 0) return null
         val soon = weather.hourly
             .filter { it.time.isAfter(current.time) && !it.time.isAfter(current.time.plusHours(2)) }
             .firstOrNull { (it.precipitationProbability ?: 0) >= 60 && (WeatherCodes.isRain(it.weatherCode) || it.precipitation >= 0.2) }
-            ?: return
+            ?: return null
         val pop = soon.precipitationProbability ?: 0
         val heavy = when {
             WeatherCodes.isThunder(soon.weatherCode) -> "即將有雷雨"
             soon.precipitation >= 10 -> "即將下大雨"
             else -> "即將下雨"
         }
-        notify(
-            context, CHANNEL_RAIN, if (isPrimary) ID_RAIN else ID_PLACE_RAIN_BASE + (city.id.hashCode() and 0xfff),
-            title = "${city.displayName}：$heavy",
-            text = "約${hourLabel(soon.time)}起可能${WeatherCodes.description(soon.weatherCode)}，降雨機率 $pop%。記得帶傘！",
-        )
-        settings.setLastRainNotifiedAt(city.id, System.currentTimeMillis())
+        return RainAlert(heavy, "約${hourLabel(soon.time)}起可能${WeatherCodes.description(soon.weatherCode)}，降雨機率 $pop%。記得帶傘！")
+    }
+
+    /** 內容相同的地點合併成一組（例如定位地點和附近的公司落在同一格預報），保留原本的地點順序。 */
+    internal fun mergeRainAlerts(alerts: List<Pair<City, RainAlert>>): List<Pair<List<City>, RainAlert>> =
+        alerts.groupBy({ it.second }, { it.first }).map { (alert, cities) -> cities to alert }
+
+    /** 各地點即將下雨時提醒，內容相同的地點合併成一則（每個地點 3 小時內不重複）。 */
+    private fun checkRain(context: Context, settings: AppSettings, targets: List<CityWeather>, primaryId: String) {
+        val now = System.currentTimeMillis()
+        val due = targets
+            .filter { (city, _) -> now - settings.lastRainNotifiedAt(city.id) >= RAIN_COOLDOWN_MS }
+            .mapNotNull { (city, weather) -> rainAlert(weather)?.let { city to it } }
+        mergeRainAlerts(due).forEach { (cities, alert) ->
+            val id = if (cities.any { it.id == primaryId }) ID_RAIN else ID_PLACE_RAIN_BASE + (cities.first().id.hashCode() and 0xfff)
+            notify(
+                context, CHANNEL_RAIN, id,
+                title = "${cities.map { it.displayName }.distinct().joinToString("、")}：${alert.headline}",
+                text = alert.text,
+            )
+            cities.forEach { settings.setLastRainNotifiedAt(it.id, now) }
+        }
     }
 
     /** 各地點所在縣市有新的天氣特報時通知（同縣市、同一則特報只通知一次）。 */
