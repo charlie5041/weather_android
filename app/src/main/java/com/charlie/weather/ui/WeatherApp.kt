@@ -107,6 +107,9 @@ fun WeatherApp(
     var journeys by remember { mutableStateOf<List<Journey>>(emptyList()) }
     var openJourneyId by rememberSaveable { mutableStateOf<String?>(null) }
     var lastJourney by remember { mutableStateOf<Journey?>(null) }
+    var pickPhotosFor by remember { mutableStateOf<String?>(null) }
+    var addingPhotos by remember { mutableStateOf(false) }
+    val photoFiles = remember<PhotoFiles>(journeyStore) { { id, photo, thumb -> journeyStore.photoFile(id, photo, thumb) } }
     LaunchedEffect(journeysVersion) { journeys = journeyStore.list() }
     // 上次騎乘中程序被系統結束時，留下的紀錄補存成一趟足跡
     LaunchedEffect(Unit) { journeyStore.recover(active = RideService.active.value || RideService.driving.value) }
@@ -250,6 +253,7 @@ fun WeatherApp(
                         journeys = journeys,
                         onOpen = { openJourneyId = it.id },
                         onOpenSettings = openSettings,
+                        photoFiles = photoFiles,
                     )
                 }
                 TabBar(
@@ -390,14 +394,32 @@ fun WeatherApp(
                             scope.launch { journeyStore.delete(j.id) }
                         },
                         onClose = { openJourneyId = null },
+                        onAddPhotos = { uris ->
+                            scope.launch {
+                                addingPhotos = true
+                                val added = try {
+                                    journeyStore.addPhotos(j.id, uris)
+                                } finally {
+                                    addingPhotos = false
+                                }
+                                Toast.makeText(context, photosAddedMessage(uris.size, added.size, added.count { it.position == null }), Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        onMovePhoto = { photo, fraction -> scope.launch { journeyStore.movePhoto(j.id, photo.id, fraction) } },
+                        onDeletePhoto = { photo -> scope.launch { journeyStore.deletePhoto(j.id, photo.id) } },
+                        photoFiles = photoFiles,
+                        addingPhotos = addingPhotos,
+                        pickOnOpen = pickPhotosFor == j.id,
+                        onPickHandled = { pickPhotosFor = null },
                     )
                 }
             }
             savedJourney?.let { j ->
                 JourneySavedDialog(
                     journey = j,
-                    onView = {
+                    onAddPhotos = {
                         JourneyStore.clearSaved()
+                        pickPhotosFor = j.id
                         showList = false
                         showSettings = false
                         detail = null
@@ -538,4 +560,11 @@ private fun FootprintsIcon(color: Color, modifier: Modifier) {
         drawPath(pin, color, style = stroke)
         drawCircle(color, radius = w * 0.1f, center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.38f))
     }
+}
+
+/** 例：已加入 5 張照片，其中 1 張沒有拍攝時間或不在這趟騎乘期間，可以點照片手動放到路線上 */
+internal fun photosAddedMessage(picked: Int, added: Int, unplaced: Int): String = buildString {
+    append(if (added == 0) "照片無法讀取" else "已加入 $added 張照片")
+    if (unplaced > 0) append("，其中 $unplaced 張沒有拍攝時間或不在這趟騎乘期間，可以點照片手動放到路線上")
+    if (added in 1 until picked) append("；${picked - added} 張無法讀取")
 }

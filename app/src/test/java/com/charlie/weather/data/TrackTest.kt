@@ -89,4 +89,54 @@ class TrackTest {
         assertEquals("中和區一帶", back.copy(toArea = "中和區").title)
         assertEquals("騎乘紀錄", back.copy(fromArea = null, toArea = null).title)
     }
+
+    @Test
+    fun photoTimeIsInterpolatedOnTheTrack() {
+        val track = line(101) // 0–300 秒
+        val mid = Track.positionAt(track, t0 + 150_000)!!
+        assertEquals(25.005, mid.latitude, 1e-6)
+        // 兩點之間：45 秒在第 15 點
+        assertEquals(25.0015, Track.positionAt(track, t0 + 45_000)!!.latitude, 1e-6)
+        // 出發前 5 分鐘拍的放起點，太早就不放
+        assertEquals(track.first().position, Track.positionAt(track, t0 - 5 * 60_000))
+        assertNull(Track.positionAt(track, t0 - 30 * 60_000))
+    }
+
+    @Test
+    fun photoUsesGpsOnlyNearTheRoute() {
+        val track = line(101)
+        val near = LatLon(25.004, 121.505) // 約 500 公尺外
+        val far = LatLon(25.004, 121.53) // 約 3 公里外
+        assertEquals(near, Track.placePhoto(track, null, near))
+        assertNull(Track.placePhoto(track, null, far))
+        assertNull(Track.placePhoto(track, null, null))
+        // 有拍攝時間時以時間為準
+        assertEquals(25.005, Track.placePhoto(track, t0 + 150_000, far)!!.latitude, 1e-6)
+    }
+
+    @Test
+    fun fractionAndPositionAreInverse() {
+        val track = line(101)
+        val p = Track.positionAtFraction(track, 0.25)!!
+        assertEquals(25.0025, p.latitude, 1e-6)
+        assertEquals(0.25, Track.fractionOf(track, p), 0.01)
+        assertEquals(track.last().position, Track.positionAtFraction(track, 2.0))
+    }
+
+    @Test
+    fun parsesExifTime() {
+        val taipei = java.time.ZoneId.of("Asia/Taipei")
+        val expected = java.time.LocalDateTime.of(2026, 10, 21, 8, 30, 5).atZone(taipei).toInstant().toEpochMilli()
+        assertEquals(expected, Track.parseExifTime("2026:10:21 08:30:05", "+08:00", java.time.ZoneOffset.UTC))
+        assertEquals(expected, Track.parseExifTime("2026:10:21 08:30:05", null, taipei))
+        assertNull(Track.parseExifTime("    :  :     :  :  ", null, taipei))
+        assertNull(Track.parseExifTime(null, null, taipei))
+    }
+
+    @Test
+    fun photosSurviveJson() {
+        val photos = listOf(JourneyPhoto("p1", t0, LatLon(25.001, 121.5)), JourneyPhoto("p2", null, null))
+        val j = Journey("1", t0, t0 + 600_000, 3.2, line(3).map { it.copy(accuracy = null) }, photos = photos)
+        assertEquals(photos, Track.fromJson(org.json.JSONObject(Track.toJson(j).toString())).photos)
+    }
 }
