@@ -71,13 +71,15 @@ object ShareCard {
         photoFiles: PhotoFiles,
         zone: ZoneId = ZoneId.systemDefault(),
     ): Bitmap = coroutineScope {
-        val photoIds = options.photoIds.take(MAX_PHOTOS)
-        val viewport = viewport(route, photoIds.isNotEmpty())
+        val photos = withContext(Dispatchers.IO) {
+            options.photoIds.take(MAX_PHOTOS).mapNotNull { id ->
+                photoFiles(journey.id, id, false)?.takeIf { it.exists() }?.let { decodeSquare(it, 480) }
+            }
+        }
+        // 地圖大小取決於實際讀得到的照片
+        val viewport = viewport(route, photos.isNotEmpty())
         val tiles = viewport?.tiles().orEmpty().map { (tile, _) ->
             async { RouteMapTiles.load(context, tile)?.let { tile to it.asAndroidBitmap() } }
-        }
-        val photos = withContext(Dispatchers.IO) {
-            photoIds.mapNotNull { id -> photoFiles(journey.id, id, false)?.takeIf { it.exists() }?.let { decodeSquare(it, 480) } }
         }
         val loaded = tiles.awaitAll().filterNotNull().toMap()
         withContext(Dispatchers.Default) { draw(journey, route, options, viewport, loaded, photos, zone) }
