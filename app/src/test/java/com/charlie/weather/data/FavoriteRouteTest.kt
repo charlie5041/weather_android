@@ -39,6 +39,18 @@ class FavoriteRouteTest {
     }
 
     @Test
+    fun departingSoonWithinTwoHours() {
+        val morning = FavoriteRoute("a", "上班", home, work, TravelMode.SCOOTER, reminder = RouteReminder(RouteReminder.WEEKDAYS, 8, 0))
+        val plain = FavoriteRoute("c", "回老家", home, work, TravelMode.CAR)
+        val routes = listOf(plain, morning)
+        assertTrue(FavoriteRoutes.departingSoon(routes, friday.withHour(6).withMinute(30)))
+        // 剛過出發時間 10 分鐘仍算
+        assertTrue(FavoriteRoutes.departingSoon(routes, friday.withHour(8).withMinute(10)))
+        assertFalse(FavoriteRoutes.departingSoon(routes, friday.withHour(5).withMinute(30)))
+        assertFalse(FavoriteRoutes.departingSoon(listOf(plain), friday))
+    }
+
+    @Test
     fun sameRouteComparesCoordinates() {
         val route = FavoriteRoute("a", "上班", home, work, TravelMode.SCOOTER)
         assertTrue(route.sameRoute(home.copy(id = "route_x", label = null), work, emptyList()))

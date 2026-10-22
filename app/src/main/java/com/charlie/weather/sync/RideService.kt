@@ -180,11 +180,7 @@ class RideService : Service() {
      */
     private suspend fun cameraLoop() {
         val data = route
-        val needCameras = if (data != null) {
-            data.mode != TravelMode.WALK && data.mode != TravelMode.BIKE && settings.speedCameras
-        } else {
-            true
-        }
+        val needCameras = settings.speedCameras && (data == null || (data.mode != TravelMode.WALK && data.mode != TravelMode.BIKE))
         if (!needCameras) return
         val hadCameras = routeCameras.isNotEmpty()
         if (data == null) {
@@ -291,7 +287,7 @@ class RideService : Service() {
             override fun onProviderDisabled(provider: String) = Unit
         }
         // 要提醒測速照相或記錄足跡時需要每幾秒一次的位置，否則 20 秒、100 公尺一次就夠
-        val frequent = recording || route == null || routeCameras.isNotEmpty()
+        val frequent = recording || (route == null && settings.speedCameras) || routeCameras.isNotEmpty()
         val interval = if (frequent) CAMERA_LOCATION_MS else LOCATION_MS
         val distance = if (frequent) CAMERA_LOCATION_M else LOCATION_M
         listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
@@ -448,8 +444,12 @@ class RideService : Service() {
         if (data == null) {
             if (!drive) return
             val text = buildString {
-                append(if (location == null) "正在取得位置…" else "前方 ${(CameraAlerts.ALERT_KM * 1000).toInt()} 公尺內有測速照相時提醒")
-                if (fixedCameras.isEmpty() && mobileCameras.isEmpty() && location != null) append("（測速照相資料下載中或無法下載）")
+                when {
+                    !settings.speedCameras -> append(if (recording) "測速照相提醒已關閉，只記錄足跡" else "測速照相提醒已關閉（設定 → 騎乘時）")
+                    location == null -> append("正在取得位置…")
+                    else -> append("前方 ${(CameraAlerts.ALERT_KM * 1000).toInt()} 公尺內有測速照相時提醒")
+                }
+                if (settings.speedCameras && fixedCameras.isEmpty() && mobileCameras.isEmpty() && location != null) append("（測速照相資料下載中或無法下載）")
                 lastCamera?.let { append("\n上一處：$it") }
             }
             notify(ID_ONGOING, ongoing("行車提醒中", text))
@@ -595,7 +595,7 @@ class RideService : Service() {
             .setOnlyAlertOnce(true)
             .setSubText(if (recording) "足跡記錄中 · %.1f 公里".format(Locale.US, recordedKm) else null)
             .setContentIntent(openApp())
-        if (repository.cameraReports.available && (route == null || settings.speedCameras)) {
+        if (repository.cameraReports.available && settings.speedCameras) {
             builder.addAction(
                 0, "回報測速",
                 PendingIntent.getService(

@@ -58,9 +58,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -187,6 +190,7 @@ fun FootprintsScreen(
     driving: Boolean = false,
     canReportCameras: Boolean = false,
     recordJourneys: Boolean = true,
+    speedCameras: Boolean = true,
     onStartDrive: () -> Unit = {},
     onStop: () -> Unit = {},
     onReportCamera: () -> Unit = {},
@@ -219,7 +223,7 @@ fun FootprintsScreen(
                     onStop = onStop,
                     onReport = onReportCamera.takeIf { canReportCameras },
                 )
-                else -> DriveCard(onStartDrive, recordJourneys)
+                else -> DriveCard(onStartDrive, recordJourneys, speedCameras)
             }
         }
         if (journeys.isEmpty()) {
@@ -350,6 +354,7 @@ fun FootprintDetailScreen(
     var renaming by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK)) { uris ->
         if (uris.isNotEmpty()) onAddPhotos(uris)
@@ -384,6 +389,28 @@ fun FootprintDetailScreen(
             }
             IconButton(onClick = { sharing = true }) {
                 Icon(Icons.Filled.Share, contentDescription = "分享", tint = Color.White)
+            }
+            // 改名稱、刪除不常用，收進選單；刪除不再跟常用動作一樣顯眼
+            Box {
+                IconButton(onClick = { menu = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "更多", tint = Color.White)
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = PanelColor) {
+                    DropdownMenuItem(
+                        text = { Text("改名稱", color = Color.White) },
+                        onClick = {
+                            menu = false
+                            renaming = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("刪除", color = FootEnd) },
+                        onClick = {
+                            menu = false
+                            deleting = true
+                        },
+                    )
+                }
             }
             IconButton(onClick = onClose) {
                 Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White)
@@ -432,10 +459,6 @@ fun FootprintDetailScreen(
                     }
                 }
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ActionButton("改名稱", Color.White, Modifier.weight(1f)) { renaming = true }
-            ActionButton("刪除", FootEnd, Modifier.weight(1f)) { deleting = true }
         }
         Text(
             "足跡與照片只存在這支手機，不會上傳。照片依拍攝時間放到路線上，沒有拍攝時間的可以手動放。" +

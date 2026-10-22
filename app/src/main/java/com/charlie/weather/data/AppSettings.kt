@@ -66,9 +66,9 @@ class AppSettings(context: Context) {
         get() = prefs.getString("wind_unit", "KMH") ?: "KMH"
         set(value) = prefs.edit().putString("wind_unit", value).apply()
 
-    /** 沿路天氣列出測速照相，騎乘中接近時提醒 */
+    /** 測速照相提醒：沿路天氣列出、騎乘中與行車提醒接近時提醒（行車提醒也依這個開關） */
     var speedCameras: Boolean
-        get() = prefs.getBoolean("speed_cameras", false)
+        get() = prefs.getBoolean("speed_cameras", true)
         set(value) = prefs.edit().putBoolean("speed_cameras", value).apply()
 
     /** 騎乘中與行車提醒時記錄軌跡，存成足跡 */

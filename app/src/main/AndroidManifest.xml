@@ -81,6 +81,10 @@
         </provider>
 
         <receiver
+            android:name=".sync.RouteSnoozeReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".widget.WeatherWidgetReceiver"
             android:exported="true"
             android:label="@string/app_name">

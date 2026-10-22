@@ -46,6 +46,10 @@ object FavoriteRoutes {
             .filter { (_, time) -> time.isBefore(now.plusHours(withinHours)) }
             .minByOrNull { (_, time) -> time }
 
+    /** 有常用路線在 [withinMinutes] 分鐘內要出發（或剛過出發時間 15 分鐘內）：開 App 時直接開在「出門」分頁 */
+    fun departingSoon(routes: List<FavoriteRoute>, now: LocalDateTime, withinMinutes: Long = 120): Boolean =
+        routes.any { route -> route.reminder?.next(now)?.let { it.isBefore(now.plusMinutes(withinMinutes)) } == true }
+
     fun toJson(routes: List<FavoriteRoute>): String = JSONArray(
         routes.map { r ->
             JSONObject()
