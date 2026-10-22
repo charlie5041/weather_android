@@ -25,6 +25,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.charlie.weather.data.JourneyEvent
 import com.charlie.weather.data.JourneyPhoto
+import com.charlie.weather.data.PrivacyZone
+import com.charlie.weather.data.SharePrivacy
 import com.charlie.weather.data.WeatherSample
 import com.charlie.weather.data.Track
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
@@ -57,6 +59,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -154,7 +157,7 @@ private fun rememberPhoto(file: File?, thumbnail: Boolean): ImageBitmap? {
 
 /** 一趟足跡全部照片的縮圖（地圖上畫照片用） */
 @Composable
-private fun rememberThumbs(journey: Journey, photoFiles: PhotoFiles): Map<String, ImageBitmap> {
+internal fun rememberThumbs(journey: Journey, photoFiles: PhotoFiles): Map<String, ImageBitmap> {
     val thumbs = remember(journey.id) { mutableStateMapOf<String, ImageBitmap>() }
     LaunchedEffect(journey.photos) {
         journey.photos.forEach { ph ->
@@ -339,9 +342,13 @@ fun FootprintDetailScreen(
     pickOnOpen: Boolean = false,
     onPickHandled: () -> Unit = {},
     googleMap: Boolean = BuildConfig.GOOGLE_MAPS_API_KEY.isNotBlank(),
+    /** 分享時要藏起來的地點（住家、公司…） */
+    privacyZones: List<PrivacyZone> = emptyList(),
+    privacyRadiusM: Int = SharePrivacy.DEFAULT_RADIUS_M,
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
     var renaming by remember { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK)) { uris ->
@@ -374,6 +381,9 @@ fun FootprintDetailScreen(
                     color = FootSecondary,
                     fontSize = 15.sp,
                 )
+            }
+            IconButton(onClick = { sharing = true }) {
+                Icon(Icons.Filled.Share, contentDescription = "分享", tint = Color.White)
             }
             IconButton(onClick = onClose) {
                 Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White)
@@ -427,7 +437,12 @@ fun FootprintDetailScreen(
             ActionButton("改名稱", Color.White, Modifier.weight(1f)) { renaming = true }
             ActionButton("刪除", FootEnd, Modifier.weight(1f)) { deleting = true }
         }
-        Text("足跡與照片只存在這支手機，不會上傳。照片依拍攝時間放到路線上，沒有拍攝時間的可以手動放。", color = Color.Gray, fontSize = 13.sp)
+        Text(
+            "足跡與照片只存在這支手機，不會上傳。照片依拍攝時間放到路線上，沒有拍攝時間的可以手動放。" +
+                "按右上角分享時，會先藏起住家、公司等地點附近與起訖點的路線。",
+            color = Color.Gray,
+            fontSize = 13.sp,
+        )
         Spacer(Modifier.height(24.dp))
     }
     if (renaming) {
@@ -466,6 +481,9 @@ fun FootprintDetailScreen(
             },
             onClose = { viewing = null },
         )
+    }
+    if (sharing) {
+        ShareJourneyScreen(journey, privacyZones, privacyRadiusM, photoFiles, onClose = { sharing = false }, zone = zone)
     }
     if (deleting) {
         AlertDialog(
@@ -663,7 +681,7 @@ private fun TimeRow(color: Color, time: String, text: String) {
 }
 
 @Composable
-private fun ActionButton(text: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun ActionButton(text: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Text(
         text,
         color = color,

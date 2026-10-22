@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 分享足跡：分享卡與照片副本暫存在 cacheDir/share -->
+<paths>
+    <cache-path name="share" path="share/" />
+</paths>

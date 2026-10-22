@@ -57,14 +57,22 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.charlie.weather.data.AppSettings
+import com.charlie.weather.data.City
 import com.charlie.weather.data.RoutePlanner
+import com.charlie.weather.data.SharePrivacy
 import com.charlie.weather.sync.WeatherNotifier
 import com.charlie.weather.sync.WeatherSyncWorker
 
 private val SectionColor = Color(0xFF1C1C1E)
 
 @Composable
-fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, onClose: () -> Unit) {
+fun SettingsScreen(
+    primaryCityName: String?,
+    onDataSourceChanged: () -> Unit,
+    onClose: () -> Unit,
+    /** 城市列表（自訂地點當分享足跡的隱私區） */
+    places: List<City> = emptyList(),
+) {
     val context = LocalContext.current
     val settings = remember { AppSettings(context) }
     var rain by remember { mutableStateOf(settings.rainAlerts) }
@@ -87,6 +95,8 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
     var journeyBytes by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(journeysVersion) { journeyBytes = journeyStore.usageBytes() }
     var confirmClearJourneys by remember { mutableStateOf(false) }
+    var privacyRadius by remember { mutableIntStateOf(settings.sharePrivacyRadiusM) }
+    var privacyExcluded by remember { mutableStateOf(settings.sharePrivacyExcluded) }
     val scope = rememberCoroutineScope()
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
@@ -255,6 +265,27 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
         Text(
             "沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。\n" +
                 "測速照相使用警政署公布的固定式測速執法地點（每週更新）與使用者回報的移動式測速，與現場可能不同，請依實際速限行駛。",
+            color = Color.Gray,
+            fontSize = 13.sp,
+        )
+
+        SectionTitle("分享足跡的隱私區")
+        Section {
+            ChoiceRow("隱藏半徑", SharePrivacy.RADIUS_OPTIONS, privacyRadius, { if (it >= 1000) "${it / 1000} 公里" else "$it 公尺" }) {
+                privacyRadius = it
+                settings.sharePrivacyRadiusM = it
+            }
+            places.filter { it.label != null && !it.isCurrentLocation }.forEach { place ->
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                ToggleRow(place.displayName, place.address ?: place.name, place.id !in privacyExcluded) { on ->
+                    privacyExcluded = if (on) privacyExcluded - place.id else privacyExcluded + place.id
+                    settings.sharePrivacyExcluded = privacyExcluded
+                }
+            }
+        }
+        Text(
+            "分享足跡時，這些地點周圍的路線不會出現在圖上，起點與終點也會再多藏 ${SharePrivacy.MIN_TRIM_M}–${SharePrivacy.MAX_TRIM_M} 公尺（每趟不同）。" +
+                "在城市列表點「＋ 新增住家、公司等地點」可以加更多地點。手機裡的足跡不受影響。",
             color = Color.Gray,
             fontSize = 13.sp,
         )

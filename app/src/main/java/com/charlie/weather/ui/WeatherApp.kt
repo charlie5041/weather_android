@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.charlie.weather.data.AppSettings
+import com.charlie.weather.data.SharePrivacy
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
 import com.charlie.weather.data.FavoriteRoute
@@ -155,6 +156,10 @@ fun WeatherApp(
     val scope = rememberCoroutineScope()
     val commuteMinutes by vm.commuteMinutes.collectAsStateWithLifecycle()
     val commutePlaces = remember(cities) { Commute.homeAndWork(cities) }
+    val privacyRadiusM = remember(settingsVersion) { AppSettings(context).sharePrivacyRadiusM }
+    val privacyZones = remember(cities, settingsVersion) {
+        SharePrivacy.zonesFrom(cities, AppSettings(context).sharePrivacyExcluded, privacyRadiusM)
+    }
     // 住家、公司或交通方式改變時重新查行車時間（一天內用記下的值）
     LaunchedEffect(commutePlaces, routeRequest == null) {
         commutePlaces?.let { (home, work) -> vm.loadCommuteMinutes(home, work) }
@@ -318,6 +323,7 @@ fun WeatherApp(
                         showSettings = false
                         settingsVersion++
                     },
+                    places = cities,
                 )
             }
             val detailRequest = detail
@@ -416,6 +422,8 @@ fun WeatherApp(
                         addingPhotos = addingPhotos,
                         pickOnOpen = pickPhotosFor == j.id,
                         onPickHandled = { pickPhotosFor = null },
+                        privacyZones = privacyZones,
+                        privacyRadiusM = privacyRadiusM,
                     )
                 }
             }
