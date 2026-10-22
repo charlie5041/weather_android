@@ -52,6 +52,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -72,6 +74,8 @@ fun SettingsScreen(
     onClose: () -> Unit,
     /** 城市列表（自訂地點當分享足跡的隱私區） */
     places: List<City> = emptyList(),
+    onAddPlace: () -> Unit = {},
+    onEditPlace: (City) -> Unit = {},
 ) {
     val context = LocalContext.current
     val settings = remember { AppSettings(context) }
@@ -132,7 +136,7 @@ fun SettingsScreen(
             }
         }
 
-        SectionTitle("單位")
+        SectionTitle("天氣")
         Section {
             ChoiceRow("溫度", TemperatureUnit.entries, Units.temperature, { it.label }) {
                 Units.temperature = it
@@ -144,10 +148,7 @@ fun SettingsScreen(
                 Units.wind = it
                 settings.windUnit = it.name
             }
-        }
-
-        SectionTitle("資料來源")
-        Section {
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
             ToggleRow(
                 "使用中央氣象署資料",
                 "在台灣以最近測站實測、鄉鎮預報與天氣特報取代 Open-Meteo；關閉後全部使用 Open-Meteo",
@@ -193,14 +194,9 @@ fun SettingsScreen(
             fontSize = 13.sp,
         )
 
-        SectionTitle("沿路天氣")
+        SectionTitle("騎乘時")
         Section {
-            ChoiceRow("取樣間距（公里）", RoutePlanner.STEP_OPTIONS, routeStep, { it.toString() }) {
-                routeStep = it
-                settings.routeStepKm = it
-            }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-            ToggleRow("測速照相提醒", "機車與汽車路線列出沿途的測速照相；騎乘中模式接近前 500 公尺提醒", speedCameras) {
+            ToggleRow("測速照相提醒", "沿路天氣列出沿途的測速照相；騎乘中與行車提醒接近前 500 公尺提醒（機車與汽車）", speedCameras) {
                 speedCameras = it
                 settings.speedCameras = it
             }
@@ -214,24 +210,38 @@ fun SettingsScreen(
                 recordJourneys = it
                 settings.recordJourneys = it
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("足跡佔用空間", color = Color.White, fontSize = 17.sp)
-                    Text(
-                        journeyBytes?.let { "%.1f MB（含照片）".format(Locale.US, it / 1_048_576.0) } ?: "計算中…",
-                        color = Color.Gray,
-                        fontSize = 14.sp,
-                    )
-                }
-                TextButton(onClick = { confirmClearJourneys = true }, enabled = (journeyBytes ?: 0L) > 0L) {
-                    Text("全部清除", color = Color(0xFFFF453A), fontSize = 16.sp)
-                }
-            }
         }
         Text(
-            "沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。\n" +
-                "測速照相使用警政署公布的固定式測速執法地點（每週更新）與使用者回報的移動式測速，與現場可能不同，請依實際速限行駛。",
+            "測速照相使用警政署公布的固定式測速執法地點（每週更新）與使用者回報的移動式測速，與現場可能不同，請依實際速限行駛。",
+            color = Color.Gray,
+            fontSize = 13.sp,
+        )
+
+        SectionTitle("我的地點")
+        val myPlaces = places.filter { it.label != null && !it.isCurrentLocation }
+        Section {
+            myPlaces.forEach { place ->
+                Row(
+                    Modifier.fillMaxWidth().clickable(role = Role.Button) { onEditPlace(place) }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(place.displayName, color = Color.White, fontSize = 17.sp)
+                        Text(place.address ?: place.name, color = Color.Gray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Text("›", color = Color.Gray, fontSize = 20.sp)
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            }
+            Text(
+                "＋ 新增住家、公司等地點",
+                color = Accent,
+                fontSize = 16.sp,
+                modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onAddPlace).padding(vertical = 10.dp),
+            )
+        }
+        Text(
+            "用在常用路線的起終點、地點的降雨提醒，以及分享足跡時要藏起來的範圍。",
             color = Color.Gray,
             fontSize = 13.sp,
         )
@@ -252,7 +262,37 @@ fun SettingsScreen(
         }
         Text(
             "分享足跡時，這些地點周圍的路線不會出現在圖上，起點與終點也會再多藏 ${SharePrivacy.MIN_TRIM_M}–${SharePrivacy.MAX_TRIM_M} 公尺（每趟不同）。" +
-                "在城市列表點「＋ 新增住家、公司等地點」可以加更多地點。手機裡的足跡不受影響。",
+                "手機裡的足跡不受影響。",
+            color = Color.Gray,
+            fontSize = 13.sp,
+        )
+
+        SectionTitle("足跡")
+        Section {
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("足跡佔用空間", color = Color.White, fontSize = 17.sp)
+                    Text(
+                        journeyBytes?.let { "%.1f MB（含照片）".format(Locale.US, it / 1_048_576.0) } ?: "計算中…",
+                        color = Color.Gray,
+                        fontSize = 14.sp,
+                    )
+                }
+                TextButton(onClick = { confirmClearJourneys = true }, enabled = (journeyBytes ?: 0L) > 0L) {
+                    Text("全部清除", color = Color(0xFFFF453A), fontSize = 16.sp)
+                }
+            }
+        }
+
+        SectionTitle("進階")
+        Section {
+            ChoiceRow("沿路天氣取樣間距（公里）", RoutePlanner.STEP_OPTIONS, routeStep, { it.toString() }) {
+                routeStep = it
+                settings.routeStepKm = it
+            }
+        }
+        Text(
+            "沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。",
             color = Color.Gray,
             fontSize = 13.sp,
         )

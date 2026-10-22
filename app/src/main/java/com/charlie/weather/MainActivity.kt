@@ -12,6 +12,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.sync.RideService
 import com.charlie.weather.sync.WeatherNotifier
@@ -80,7 +81,8 @@ class MainActivity : ComponentActivity() {
         if (intent?.action != ACTION_START_DRIVE) return
         if (LocationProvider(this).hasPermission()) {
             RideService.startDrive(this)
-            Toast.makeText(this, "已開始行車提醒：前方有測速照相時通知", Toast.LENGTH_SHORT).show()
+            val text = if (AppSettings(this).speedCameras) "已開始行車提醒：前方有測速照相時通知" else "已開始行車提醒；測速照相提醒已關閉，可在設定 → 騎乘時開啟"
+            Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
         }

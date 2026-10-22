@@ -253,6 +253,7 @@ fun WeatherApp(
                         driving = driving,
                         canReportCameras = vm.canReportCameras,
                         recordJourneys = remember(settingsVersion) { AppSettings(context).recordJourneys },
+                        speedCameras = remember(settingsVersion) { AppSettings(context).speedCameras },
                         onStartDrive = {
                             if (!vm.hasLocationPermission()) {
                                 Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
@@ -322,6 +323,14 @@ fun WeatherApp(
                         settingsVersion++
                     },
                     places = cities,
+                    onAddPlace = {
+                        editingPlace = null
+                        showPlaceEditor = true
+                    },
+                    onEditPlace = { city ->
+                        editingPlace = city
+                        showPlaceEditor = true
+                    },
                 )
             }
             val detailRequest = detail

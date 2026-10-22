@@ -301,13 +301,18 @@ private fun FavoritesCard(
 
 /** 不設目的地的行車提醒：依行進方向提醒前方的測速照相。 */
 @Composable
-internal fun DriveCard(onStart: () -> Unit, recordJourneys: Boolean) {
+internal fun DriveCard(onStart: () -> Unit, recordJourneys: Boolean, speedCameras: Boolean = true) {
     OutingPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("行車提醒", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Medium)
                 Text(
-                    if (recordJourneys) "不用設目的地，提醒前方的測速照相並記錄足跡" else "不用設目的地，提醒前方的測速照相",
+                    when {
+                        !speedCameras && recordJourneys -> "測速照相提醒已關閉（設定 → 騎乘時），只記錄足跡"
+                        !speedCameras -> "測速照相提醒已關閉，可在設定 → 騎乘時開啟"
+                        recordJourneys -> "不用設目的地，提醒前方的測速照相並記錄足跡"
+                        else -> "不用設目的地，提醒前方的測速照相"
+                    },
                     fontSize = 13.sp,
                     color = OutingSecondary,
                 )
