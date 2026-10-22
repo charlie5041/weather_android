@@ -1,6 +1,36 @@
 package com.charlie.weather.ui
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.LruCache
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.charlie.weather.data.JourneyPhoto
+import com.charlie.weather.data.Track
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.rememberMarkerState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -102,6 +132,39 @@ internal fun durationLabel(minutes: Long): String =
 /** 例：12.3 公里 · 35 分鐘 */
 internal fun journeyStats(j: Journey): String = "%.1f 公里 · %s".format(Locale.US, j.distanceKm, durationLabel(j.durationMinutes))
 
+/** 照片檔案的位置：(足跡 id, 照片 id, 是否縮圖) → 檔案 */
+typealias PhotoFiles = (String, String, Boolean) -> File?
+
+/** 縮圖放在記憶體，捲動列表或開關詳情時不必重讀 */
+private val thumbCache = LruCache<String, ImageBitmap>(96)
+
+/** 讀照片檔；縮圖會快取，原圖不快取（一張約 10MB） */
+@Composable
+private fun rememberPhoto(file: File?, thumbnail: Boolean): ImageBitmap? {
+    val path = file?.path
+    return produceState(if (thumbnail && path != null) thumbCache.get(path) else null, path) {
+        if (value != null || path == null) return@produceState
+        value = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(path)?.asImageBitmap() }
+            ?.also { if (thumbnail) thumbCache.put(path, it) }
+    }.value
+}
+
+/** 一趟足跡全部照片的縮圖（地圖上畫照片用） */
+@Composable
+private fun rememberThumbs(journey: Journey, photoFiles: PhotoFiles): Map<String, ImageBitmap> {
+    val thumbs = remember(journey.id) { mutableStateMapOf<String, ImageBitmap>() }
+    LaunchedEffect(journey.photos) {
+        journey.photos.forEach { ph ->
+            if (ph.id in thumbs) return@forEach
+            val path = photoFiles(journey.id, ph.id, true)?.path ?: return@forEach
+            val bitmap = thumbCache.get(path)
+                ?: withContext(Dispatchers.IO) { BitmapFactory.decodeFile(path)?.asImageBitmap() }?.also { thumbCache.put(path, it) }
+            bitmap?.let { thumbs[ph.id] = it }
+        }
+    }
+    return thumbs
+}
+
 /**
  * 「足跡」分頁：每次騎乘或行車提醒自動記下的軌跡，依月份分組，新的在前。
  * 只存在手機裡，不上傳。
@@ -111,6 +174,7 @@ fun FootprintsScreen(
     journeys: List<Journey>,
     onOpen: (Journey) -> Unit,
     onOpenSettings: () -> Unit,
+    photoFiles: PhotoFiles = { _, _, _ -> null },
     today: LocalDate = LocalDate.now(),
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
@@ -162,14 +226,15 @@ fun FootprintsScreen(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
-            items(list, key = { it.id }) { j -> JourneyRow(j, zone, onClick = { onOpen(j) }) }
+            items(list, key = { it.id }) { j -> JourneyRow(j, zone, photoFiles, onClick = { onOpen(j) }) }
         }
     }
 }
 
 @Composable
-private fun JourneyRow(journey: Journey, zone: ZoneId, onClick: () -> Unit) {
+private fun JourneyRow(journey: Journey, zone: ZoneId, photoFiles: PhotoFiles, onClick: () -> Unit) {
     val start = journey.startDateTime(zone)
+    val cover = rememberPhoto(journey.photos.firstOrNull()?.let { photoFiles(journey.id, it.id, true) }, thumbnail = true)
     Row(
         Modifier
             .fillMaxWidth()
@@ -179,10 +244,14 @@ private fun JourneyRow(journey: Journey, zone: ZoneId, onClick: () -> Unit) {
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TrackSilhouette(
-            journey.points,
-            Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF2C2C2E)).padding(8.dp),
-        )
+        if (cover != null) {
+            Image(cover, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)))
+        } else {
+            TrackSilhouette(
+                journey.points,
+                Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF2C2C2E)).padding(8.dp),
+            )
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(journey.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -192,7 +261,11 @@ private fun JourneyRow(journey: Journey, zone: ZoneId, onClick: () -> Unit) {
                 color = FootSecondary,
                 fontSize = 14.sp,
             )
-            Text(journeyStats(journey), color = FootSecondary, fontSize = 14.sp)
+            Text(
+                journeyStats(journey) + if (journey.photos.isNotEmpty()) " · ${journey.photos.size} 張照片" else "",
+                color = FootSecondary,
+                fontSize = 14.sp,
+            )
         }
     }
 }
@@ -221,18 +294,39 @@ internal fun TrackSilhouette(points: List<TrackPoint>, modifier: Modifier = Modi
     }
 }
 
-/** 一趟足跡的詳情：地圖、數據、改名與刪除。 */
+/** 一趟足跡的詳情：地圖與照片、數據、加照片、改名與刪除。 */
 @Composable
 fun FootprintDetailScreen(
     journey: Journey,
     onRename: (String?) -> Unit,
     onDelete: () -> Unit,
     onClose: () -> Unit,
+    onAddPhotos: (List<Uri>) -> Unit = {},
+    onMovePhoto: (JourneyPhoto, Double) -> Unit = { _, _ -> },
+    onDeletePhoto: (JourneyPhoto) -> Unit = {},
+    photoFiles: PhotoFiles = { _, _, _ -> null },
+    /** 正在處理剛挑的照片 */
+    addingPhotos: Boolean = false,
+    /** 開啟時直接打開相簿（結束騎乘的摘要按「加照片」） */
+    pickOnOpen: Boolean = false,
+    onPickHandled: () -> Unit = {},
     googleMap: Boolean = BuildConfig.GOOGLE_MAPS_API_KEY.isNotBlank(),
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var viewing by remember { mutableStateOf<String?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK)) { uris ->
+        if (uris.isNotEmpty()) onAddPhotos(uris)
+    }
+    val pick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    LaunchedEffect(pickOnOpen) {
+        if (pickOnOpen) {
+            onPickHandled()
+            pick()
+        }
+    }
+    val thumbs = rememberThumbs(journey, photoFiles)
     val start = journey.startDateTime(zone)
     val end = journey.endDateTime(zone)
     Column(
@@ -261,7 +355,11 @@ fun FootprintDetailScreen(
             journey.points,
             googleMap = googleMap,
             modifier = Modifier.fillMaxWidth().height(320.dp).clip(RoundedCornerShape(14.dp)),
+            photos = journey.photos,
+            thumbs = thumbs,
+            onPhoto = { viewing = it.id },
         )
+        PhotoStrip(journey, thumbs, addingPhotos, onAdd = pick, onOpen = { viewing = it.id })
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(PanelColor).padding(vertical = 14.dp),
         ) {
@@ -280,7 +378,7 @@ fun FootprintDetailScreen(
             ActionButton("改名稱", Color.White, Modifier.weight(1f)) { renaming = true }
             ActionButton("刪除", FootEnd, Modifier.weight(1f)) { deleting = true }
         }
-        Text("足跡只存在這支手機，不會上傳。", color = Color.Gray, fontSize = 13.sp)
+        Text("足跡與照片只存在這支手機，不會上傳。照片依拍攝時間放到路線上，沒有拍攝時間的可以手動放。", color = Color.Gray, fontSize = 13.sp)
         Spacer(Modifier.height(24.dp))
     }
     if (renaming) {
@@ -306,6 +404,20 @@ fun FootprintDetailScreen(
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("取消", color = Accent) } },
         )
     }
+    journey.photos.firstOrNull { it.id == viewing }?.let { photo ->
+        PhotoViewer(
+            journey = journey,
+            photo = photo,
+            file = photoFiles(journey.id, photo.id, false),
+            zone = zone,
+            onMove = { onMovePhoto(photo, it) },
+            onDelete = {
+                viewing = null
+                onDeletePhoto(photo)
+            },
+            onClose = { viewing = null },
+        )
+    }
     if (deleting) {
         AlertDialog(
             onDismissRequest = { deleting = false },
@@ -320,6 +432,154 @@ fun FootprintDetailScreen(
             },
             dismissButton = { TextButton(onClick = { deleting = false }) { Text("取消", color = Accent) } },
         )
+    }
+}
+
+private const val MAX_PICK = 30
+
+/** 地圖下方的照片列：依拍攝時間排序，最後是「加照片」 */
+@Composable
+private fun PhotoStrip(journey: Journey, thumbs: Map<String, ImageBitmap>, adding: Boolean, onAdd: () -> Unit, onOpen: (JourneyPhoto) -> Unit) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(journey.photos, key = { it.id }) { ph ->
+            Box(Modifier.size(76.dp).clip(RoundedCornerShape(10.dp)).background(PanelColor).clickable(role = Role.Button) { onOpen(ph) }) {
+                thumbs[ph.id]?.let { Image(it, contentDescription = "照片", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                if (ph.position == null) {
+                    Text(
+                        "未定位",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.6f)).padding(vertical = 2.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+        }
+        item(key = "add") {
+            Column(
+                Modifier.size(76.dp).clip(RoundedCornerShape(10.dp)).background(PanelColor).clickable(role = Role.Button, enabled = !adding, onClick = onAdd),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                if (adding) {
+                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+                } else {
+                    Text("＋", color = Accent, fontSize = 24.sp)
+                    Text("加照片", color = Accent, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+/** 看一張照片：拍攝時間、在路線上的位置（可用滑桿手動調整）、刪除 */
+@Composable
+private fun PhotoViewer(
+    journey: Journey,
+    photo: JourneyPhoto,
+    file: File?,
+    zone: ZoneId,
+    onMove: (Double) -> Unit,
+    onDelete: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val image = rememberPhoto(file, thumbnail = false)
+    var fraction by remember(photo.id, photo.position) {
+        mutableStateOf(photo.position?.let { Track.fractionOf(journey.points, it) }?.toFloat() ?: 0.5f)
+    }
+    var adjusting by remember(photo.id) { mutableStateOf(false) }
+    var confirmDelete by remember(photo.id) { mutableStateOf(false) }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    photo.takenAt?.let {
+                        val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(it), zone)
+                        "${t.monthValue}/${t.dayOfMonth} ${clock(t)} 拍攝"
+                    } ?: "沒有拍攝時間",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White) }
+            }
+            Box(Modifier.fillMaxWidth().height(360.dp), contentAlignment = Alignment.Center) {
+                if (image != null) {
+                    Image(image, contentDescription = "照片", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                } else {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+            Text(
+                if (photo.position == null) "還沒放到路線上：拍攝時間不在這趟騎乘期間，或照片沒有拍攝時間。" else "已放在路線上。",
+                color = FootSecondary,
+                fontSize = 14.sp,
+            )
+            if (adjusting || photo.position == null) {
+                TrackSilhouetteWithMarker(journey.points, fraction.toDouble(), Modifier.fillMaxWidth().height(120.dp))
+                Slider(
+                    value = fraction,
+                    onValueChange = {
+                        fraction = it
+                        adjusting = true
+                    },
+                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Accent),
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    Text("起點", color = FootSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text("終點", color = FootSecondary, fontSize = 12.sp)
+                }
+                ActionButton("放在這裡", Accent, Modifier.fillMaxWidth()) {
+                    adjusting = false
+                    onMove(fraction.toDouble())
+                }
+            } else {
+                ActionButton("調整位置", Color.White, Modifier.fillMaxWidth()) { adjusting = true }
+            }
+            ActionButton("從足跡移除這張照片", FootEnd, Modifier.fillMaxWidth()) { confirmDelete = true }
+            Text("只會刪掉足跡裡的副本，相簿裡的照片不受影響。", color = Color.Gray, fontSize = 13.sp)
+        }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            containerColor = PanelColor,
+            title = { Text("移除這張照片？", color = Color.White) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    onDelete()
+                }) { Text("移除", color = FootEnd) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消", color = Accent) } },
+        )
+    }
+}
+
+/** 軌跡剪影加上 [fraction] 處的標記（手動調整照片位置時預覽） */
+@Composable
+private fun TrackSilhouetteWithMarker(points: List<TrackPoint>, fraction: Double, modifier: Modifier) {
+    val marker = remember(points, fraction) { Track.positionAtFraction(points, fraction) }
+    Box(modifier) {
+        TrackSilhouette(points, Modifier.fillMaxSize())
+        Canvas(Modifier.fillMaxSize()) {
+            if (points.size < 2 || marker == null) return@Canvas
+            val kx = cos(Math.toRadians(points.first().latitude))
+            val xs = points.map { it.longitude * kx }
+            val ys = points.map { -it.latitude }
+            val spanX = (xs.max() - xs.min()).coerceAtLeast(1e-9)
+            val spanY = (ys.max() - ys.min()).coerceAtLeast(1e-9)
+            val scale = minOf(size.width / spanX, size.height / spanY)
+            val offX = (size.width - spanX * scale) / 2
+            val offY = (size.height - spanY * scale) / 2
+            val c = Offset((offX + (marker.longitude * kx - xs.min()) * scale).toFloat(), (offY + (-marker.latitude - ys.min()) * scale).toFloat())
+            drawCircle(Color.White, 8.dp.toPx(), c)
+            drawCircle(Color(0xFFFF9F0A), 5.5.dp.toPx(), c)
+        }
     }
 }
 
@@ -359,7 +619,7 @@ private fun ActionButton(text: String, color: Color, modifier: Modifier = Modifi
 
 /** 結束騎乘後的摘要：可以直接查看這趟足跡 */
 @Composable
-fun JourneySavedDialog(journey: Journey, onView: () -> Unit, onDismiss: () -> Unit) {
+fun JourneySavedDialog(journey: Journey, onAddPhotos: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = PanelColor,
@@ -375,19 +635,48 @@ fun JourneySavedDialog(journey: Journey, onView: () -> Unit, onDismiss: () -> Un
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onView) { Text("查看", color = Accent) } },
+        confirmButton = { TextButton(onClick = onAddPhotos) { Text("加照片", color = Accent) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("稍後", color = Accent) } },
     )
 }
 
 /** 有 Google 金鑰時用 Google 地圖，否則用 OpenStreetMap 圖磚畫軌跡。 */
 @Composable
-internal fun TrackMap(points: List<TrackPoint>, googleMap: Boolean, modifier: Modifier = Modifier) {
-    if (googleMap) GoogleTrackMap(points, modifier) else TileTrackMap(points, modifier)
+internal fun TrackMap(
+    points: List<TrackPoint>,
+    googleMap: Boolean,
+    modifier: Modifier = Modifier,
+    photos: List<JourneyPhoto> = emptyList(),
+    thumbs: Map<String, ImageBitmap> = emptyMap(),
+    onPhoto: (JourneyPhoto) -> Unit = {},
+) {
+    val placed = photos.filter { it.position != null }
+    if (googleMap) GoogleTrackMap(points, placed, thumbs, onPhoto, modifier) else TileTrackMap(points, placed, thumbs, onPhoto, modifier)
+}
+
+/** 圓形、白框的照片縮圖（Google 地圖的標記用） */
+private fun circleBitmap(image: ImageBitmap, sizePx: Int): android.graphics.Bitmap {
+    val out = android.graphics.Bitmap.createBitmap(sizePx, sizePx, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(out)
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    val r = sizePx / 2f
+    paint.color = android.graphics.Color.WHITE
+    canvas.drawCircle(r, r, r, paint)
+    val border = sizePx * 0.08f
+    val path = android.graphics.Path().apply { addCircle(r, r, r - border, android.graphics.Path.Direction.CW) }
+    canvas.clipPath(path)
+    canvas.drawBitmap(
+        image.asAndroidBitmap(),
+        null,
+        android.graphics.RectF(border, border, sizePx - border, sizePx - border),
+        android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG),
+    )
+    return out
 }
 
 @Composable
-private fun GoogleTrackMap(points: List<TrackPoint>, modifier: Modifier) {
+private fun GoogleTrackMap(points: List<TrackPoint>, photos: List<JourneyPhoto>, thumbs: Map<String, ImageBitmap>, onPhoto: (JourneyPhoto) -> Unit, modifier: Modifier) {
+    val markerPx = with(LocalDensity.current) { 44.dp.roundToPx() }
     val path = remember(points) { points.map { LatLng(it.latitude, it.longitude) } }
     val cameraState = rememberCameraPositionState()
     var loaded by remember { mutableStateOf(false) }
@@ -409,11 +698,29 @@ private fun GoogleTrackMap(points: List<TrackPoint>, modifier: Modifier) {
             Circle(center = path.first(), radius = 25.0, fillColor = RouteDry, strokeColor = Color.White, strokeWidth = 4f)
             Circle(center = path.last(), radius = 25.0, fillColor = FootEnd, strokeColor = Color.White, strokeWidth = 4f)
         }
+        photos.forEach { ph ->
+            val pos = ph.position ?: return@forEach
+            val thumb = thumbs[ph.id] ?: return@forEach
+            val latLng = LatLng(pos.latitude, pos.longitude)
+            key(ph.id) {
+                val icon = remember(thumb) { BitmapDescriptorFactory.fromBitmap(circleBitmap(thumb, markerPx)) }
+                Marker(
+                    state = rememberMarkerState(key = "photo_${ph.id}_$latLng", position = latLng),
+                    icon = icon,
+                    anchor = Offset(0.5f, 0.5f),
+                    zIndex = 3f,
+                    onClick = {
+                        onPhoto(ph)
+                        true
+                    },
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun TileTrackMap(points: List<TrackPoint>, modifier: Modifier) {
+private fun TileTrackMap(points: List<TrackPoint>, photos: List<JourneyPhoto>, thumbs: Map<String, ImageBitmap>, onPhoto: (JourneyPhoto) -> Unit, modifier: Modifier) {
     val context = LocalContext.current
     val positions = remember(points) { points.map { LatLon(it.latitude, it.longitude) } }
     BoxWithConstraints(modifier.background(FootMapPlaceholder)) {
@@ -433,7 +740,18 @@ private fun TileTrackMap(points: List<TrackPoint>, modifier: Modifier) {
                 launch { RouteMapTiles.load(context, tile)?.let { images[tile] = it } }
             }
         }
-        Canvas(Modifier.fillMaxSize()) {
+        val photoRadius = 20 * density
+        Canvas(
+            Modifier.fillMaxSize().pointerInput(viewport, photos) {
+                detectTapGestures { tap ->
+                    photos
+                        .mapNotNull { ph -> ph.position?.let { viewport.project(it) }?.let { (x, y) -> ph to (Offset(x, y) - tap).getDistance() } }
+                        .filter { it.second <= photoRadius * 1.3f }
+                        .minByOrNull { it.second }
+                        ?.let { onPhoto(it.first) }
+                }
+            },
+        ) {
             val tileSize = ceil(viewport.tilePx).toInt() + 1
             tiles.forEach { (tile, offset) ->
                 val image = images[tile] ?: return@forEach
@@ -457,6 +775,21 @@ private fun TileTrackMap(points: List<TrackPoint>, modifier: Modifier) {
             drawCircle(RouteDry, 5.5.dp.toPx(), pts.first())
             drawCircle(Color.White, 8.dp.toPx(), pts.last())
             drawCircle(FootEnd, 5.5.dp.toPx(), pts.last())
+            photos.forEach { ph ->
+                val thumb = thumbs[ph.id] ?: return@forEach
+                val (x, y) = viewport.project(ph.position ?: return@forEach)
+                val c = Offset(x, y)
+                drawCircle(Color.White, photoRadius, c)
+                val inner = photoRadius - 2.dp.toPx()
+                clipPath(Path().apply { addOval(Rect(c, inner)) }) {
+                    drawImage(
+                        thumb,
+                        dstOffset = IntOffset((x - inner).roundToInt(), (y - inner).roundToInt()),
+                        dstSize = IntSize((inner * 2).roundToInt(), (inner * 2).roundToInt()),
+                        filterQuality = FilterQuality.Medium,
+                    )
+                }
+            }
         }
         Text(
             "© OpenStreetMap 貢獻者",
