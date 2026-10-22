@@ -76,6 +76,16 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("record_journeys", true)
         set(value) = prefs.edit().putBoolean("record_journeys", value).apply()
 
+    /** 分享足跡時，自訂地點周圍隱藏的半徑（公尺） */
+    var sharePrivacyRadiusM: Int
+        get() = prefs.getInt("share_privacy_radius_m", SharePrivacy.DEFAULT_RADIUS_M)
+        set(value) = prefs.edit().putInt("share_privacy_radius_m", value).apply()
+
+    /** 分享足跡時不當隱私區的自訂地點 id */
+    var sharePrivacyExcluded: Set<String>
+        get() = prefs.getStringSet("share_privacy_excluded", emptySet()).orEmpty()
+        set(value) = prefs.edit().putStringSet("share_privacy_excluded", value).apply()
+
     /** 騎乘中與行車提醒用語音播報測速照相與前方降雨 */
     var voiceAlerts: Boolean
         get() = prefs.getBoolean("voice_alerts", true)

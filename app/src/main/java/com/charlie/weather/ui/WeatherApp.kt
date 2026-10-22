@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.charlie.weather.data.AppSettings
+import com.charlie.weather.data.SharePrivacy
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
 import com.charlie.weather.data.FavoriteRoute
@@ -154,6 +155,10 @@ fun WeatherApp(
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
     val commutePlaces = remember(cities) { Commute.homeAndWork(cities) }
+    val privacyRadiusM = remember(settingsVersion) { AppSettings(context).sharePrivacyRadiusM }
+    val privacyZones = remember(cities, settingsVersion) {
+        SharePrivacy.zonesFrom(cities, AppSettings(context).sharePrivacyExcluded, privacyRadiusM)
+    }
 
     // 通知權限（Android 13+）只在第一次啟動時詢問一次，之後可在設定頁開啟
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -302,6 +307,7 @@ fun WeatherApp(
                         showSettings = false
                         settingsVersion++
                     },
+                    places = cities,
                 )
             }
             val detailRequest = detail
@@ -400,6 +406,8 @@ fun WeatherApp(
                         addingPhotos = addingPhotos,
                         pickOnOpen = pickPhotosFor == j.id,
                         onPickHandled = { pickPhotosFor = null },
+                        privacyZones = privacyZones,
+                        privacyRadiusM = privacyRadiusM,
                     )
                 }
             }

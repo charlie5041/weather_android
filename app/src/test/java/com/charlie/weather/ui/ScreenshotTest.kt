@@ -9,6 +9,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.charlie.weather.data.AirQuality
@@ -230,6 +231,28 @@ class ScreenshotTest {
             googleMap = false,
             zone = ZoneOffset.ofHours(8),
         )
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h500dp-xhdpi")
+    fun shareCard() = capture("18_share_card") {
+        val j = sampleJourneys[1]
+        val weather = listOf(0, 9, 18, 27, 36).map { m ->
+            val wet = m in 18..27
+            com.charlie.weather.data.WeatherSample(j.startTime + m * 60_000L, j.points[m].position, 23.0 - m / 20.0, if (wet) 61 else 2, if (wet) 1.5 else 0.0, wet)
+        }
+        val home = com.charlie.weather.data.PrivacyZone(j.points.first().position, 500.0)
+        val route = com.charlie.weather.data.SharePrivacy.apply(j.id, j.points.map { it.position }, listOf(home))
+        val card = ShareCard.draw(
+            j.copy(weather = weather),
+            route,
+            ShareCardOptions(j.title, showClock = false, photoIds = emptyList()),
+            ShareCard.viewport(route, withPhotos = false),
+            tiles = emptyMap(),
+            photos = emptyList(),
+            zone = ZoneOffset.ofHours(8),
+        )
+        androidx.compose.foundation.Image(card.asImageBitmap(), contentDescription = null, modifier = androidx.compose.ui.Modifier.fillMaxSize())
     }
 
     @Test
