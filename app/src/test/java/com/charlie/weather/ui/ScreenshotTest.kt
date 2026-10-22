@@ -221,8 +221,13 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "w400dp-h900dp-xhdpi")
     fun footprintDetail() = capture("17_footprint_detail") {
+        val j = sampleJourneys[1]
+        val weather = listOf(0, 9, 18, 27, 36).map { m ->
+            val wet = m in 18..27
+            com.charlie.weather.data.WeatherSample(j.startTime + m * 60_000L, j.points[m].position, 23.0 - m / 20.0, if (wet) 61 else 2, if (wet) 1.5 else 0.0, wet, if (wet) "大安區" else null)
+        }
         FootprintDetailScreen(
-            journey = sampleJourneys[1],
+            journey = j.copy(weather = weather),
             onRename = {},
             onDelete = {},
             onClose = {},

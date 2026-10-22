@@ -139,4 +139,29 @@ class TrackTest {
         val j = Journey("1", t0, t0 + 600_000, 3.2, line(3).map { it.copy(accuracy = null) }, photos = photos)
         assertEquals(photos, Track.fromJson(org.json.JSONObject(Track.toJson(j).toString())).photos)
     }
+
+    private fun sample(minute: Int, wet: Boolean, place: String? = null) =
+        WeatherSample(t0 + minute * 60_000L, LatLon(25.0, 121.5), 24.0, if (wet) 61 else 2, if (wet) 2.0 else 0.0, wet, place)
+
+    @Test
+    fun timelineListsRainAndPhotosInOrder() {
+        val photo = JourneyPhoto("p", t0 + 12 * 60_000L, null)
+        val j = Journey(
+            "1", t0, t0 + 30 * 60_000L, 8.0, line(2),
+            photos = listOf(photo, JourneyPhoto("q", null, null)),
+            weather = listOf(sample(0, false), sample(10, true, "中和區"), sample(15, true), sample(20, false)),
+        )
+        val kinds = j.timeline.map { it::class.simpleName }
+        assertEquals(listOf("Start", "RainStarts", "Photo", "RainStops", "End"), kinds)
+        assertEquals("中和區", (j.timeline[1] as JourneyEvent.RainStarts).sample.place)
+        assertTrue(j.metRain)
+        assertEquals(10, j.rainMinutes)
+    }
+
+    @Test
+    fun weatherSurvivesJson() {
+        val weather = listOf(sample(0, false), sample(5, true, "內湖區"), WeatherSample(t0, LatLon(25.0, 121.5), null, null, null, false))
+        val j = Journey("1", t0, t0 + 600_000, 3.2, line(3).map { it.copy(accuracy = null) }, weather = weather)
+        assertEquals(weather, Track.fromJson(org.json.JSONObject(Track.toJson(j).toString())).weather)
+    }
 }

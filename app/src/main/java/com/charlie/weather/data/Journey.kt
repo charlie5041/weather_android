@@ -36,6 +36,29 @@ data class TrackPoint(val time: Long, val latitude: Double, val longitude: Doubl
  */
 data class JourneyPhoto(val id: String, val takenAt: Long?, val position: LatLon?)
 
+/**
+ * 騎乘中記下的當地天氣（沿用騎乘中模式本來就會查的預報與雷達，不另外查）。
+ * [rainMm] 是雷達預估或逐時預報的 1 小時雨量，[place] 是鄉鎮名稱。
+ */
+data class WeatherSample(
+    val time: Long,
+    val position: LatLon,
+    val temperature: Double?,
+    val weatherCode: Int?,
+    val rainMm: Double?,
+    val wet: Boolean,
+    val place: String? = null,
+)
+
+/** 足跡時間軸上的一件事 */
+sealed class JourneyEvent(open val time: Long) {
+    data class Start(override val time: Long, val weather: WeatherSample?) : JourneyEvent(time)
+    data class Photo(override val time: Long, val photo: JourneyPhoto) : JourneyEvent(time)
+    data class RainStarts(override val time: Long, val sample: WeatherSample) : JourneyEvent(time)
+    data class RainStops(override val time: Long, val sample: WeatherSample) : JourneyEvent(time)
+    data class End(override val time: Long, val weather: WeatherSample?) : JourneyEvent(time)
+}
+
 /** 一趟騎乘的足跡：[points] 是精簡後用來畫地圖的軌跡。 */
 data class Journey(
     val id: String,
@@ -49,7 +72,34 @@ data class Journey(
     /** 使用者自己取的名稱 */
     val name: String? = null,
     val photos: List<JourneyPhoto> = emptyList(),
+    /** 騎乘中模式才有（行車提醒沒有查天氣） */
+    val weather: List<WeatherSample> = emptyList(),
 ) {
+    /** 途中有遇到雨 */
+    val metRain: Boolean get() = weather.any { it.wet }
+
+    /** 淋雨的時間（分鐘）：下雨的取樣到下一個取樣之間都算 */
+    val rainMinutes: Long
+        get() = weather.indices.filter { weather[it].wet }.sumOf { i ->
+            val next = weather.getOrNull(i + 1)?.time ?: endTime
+            ((next - weather[i].time) / 60_000).coerceAtLeast(0)
+        }
+
+    /** 出發、照片、開始下雨與雨停、抵達，依時間排序；沒有拍攝時間的照片不列 */
+    val timeline: List<JourneyEvent>
+        get() {
+            val events = mutableListOf<JourneyEvent>(JourneyEvent.Start(startTime, weather.firstOrNull()))
+            photos.forEach { ph -> ph.takenAt?.let { events += JourneyEvent.Photo(it.coerceIn(startTime, endTime), ph) } }
+            var wet = false
+            weather.forEach { w ->
+                if (w.wet != wet) events += if (w.wet) JourneyEvent.RainStarts(w.time, w) else JourneyEvent.RainStops(w.time, w)
+                wet = w.wet
+            }
+            events += JourneyEvent.End(endTime, weather.lastOrNull())
+            // 同時間時出發排最前、抵達排最後
+            return events.sortedWith(compareBy<JourneyEvent>({ it.time }, { if (it is JourneyEvent.Start) 0 else if (it is JourneyEvent.End) 2 else 1 }))
+        }
+
     val durationMinutes: Long get() = ((endTime - startTime) / 60_000).coerceAtLeast(0)
 
     /** 平均時速（公里），不扣掉停下來的時間 */
@@ -265,6 +315,18 @@ object Track {
             },
         )
         .put(
+            "weather",
+            JSONArray().apply {
+                j.weather.forEach { w ->
+                    put(
+                        JSONObject().put("t", w.time).put("lat", w.position.latitude).put("lon", w.position.longitude)
+                            .put("temp", w.temperature).put("code", w.weatherCode).put("mm", w.rainMm)
+                            .put("wet", w.wet).put("place", w.place),
+                    )
+                }
+            },
+        )
+        .put(
             "photos",
             JSONArray().apply {
                 j.photos.forEach { ph ->
@@ -291,6 +353,19 @@ object Track {
                 position = if (ph.has("lat") && ph.has("lon")) LatLon(ph.getDouble("lat"), ph.getDouble("lon")) else null,
             )
         }
+        val weatherArr = o.optJSONArray("weather")
+        val weather = (0 until (weatherArr?.length() ?: 0)).map { i ->
+            val w = weatherArr!!.getJSONObject(i)
+            WeatherSample(
+                time = w.getLong("t"),
+                position = LatLon(w.getDouble("lat"), w.getDouble("lon")),
+                temperature = if (w.has("temp")) w.getDouble("temp") else null,
+                weatherCode = if (w.has("code")) w.getInt("code") else null,
+                rainMm = if (w.has("mm")) w.getDouble("mm") else null,
+                wet = w.optBoolean("wet"),
+                place = if (w.has("place")) w.getString("place") else null,
+            )
+        }
         return Journey(
             id = o.getString("id"),
             startTime = o.getLong("start"),
@@ -301,6 +376,7 @@ object Track {
             toArea = o.optString("to").takeIf { o.has("to") && !o.isNull("to") && it.isNotBlank() },
             name = o.optString("name").takeIf { o.has("name") && !o.isNull("name") && it.isNotBlank() },
             photos = photos,
+            weather = weather,
         )
     }
 }
@@ -330,15 +406,15 @@ class JourneyStore(context: Context) {
         runCatching { recording.appendText(points.joinToString("") { Track.encodePoint(it) + "\n" }) }
     }
 
-    /** 結束紀錄並存成一趟足跡；太短時不存，回傳 null */
-    suspend fun finish(): Journey? = withContext(Dispatchers.IO) { finishLocked() }
+    /** 結束紀錄並存成一趟足跡（附上騎乘中記下的天氣）；太短時不存，回傳 null */
+    suspend fun finish(weather: List<WeatherSample> = emptyList()): Journey? = withContext(Dispatchers.IO) { finishLocked(weather) }
 
     /** App 開啟時：沒有在騎乘卻留著紀錄檔（程序被結束），補存起來 */
     suspend fun recover(active: Boolean) = withContext(Dispatchers.IO) {
         if (!active && recording.exists()) finishLocked()
     }
 
-    private suspend fun finishLocked(): Journey? {
+    private suspend fun finishLocked(weather: List<WeatherSample> = emptyList()): Journey? {
         val raw = runCatching { recording.readLines().mapNotNull(Track::decodePoint) }.getOrDefault(emptyList())
         val id = raw.firstOrNull()?.time?.toString() ?: System.currentTimeMillis().toString()
         val built = Track.build(id, raw)
@@ -348,7 +424,11 @@ class JourneyStore(context: Context) {
         }
         val from = geocoder.reverse(built.points.first().latitude, built.points.first().longitude)?.area
         val to = geocoder.reverse(built.points.last().latitude, built.points.last().longitude)?.area
-        val journey = built.copy(fromArea = from, toArea = to)
+        val journey = built.copy(
+            fromArea = from,
+            toArea = to,
+            weather = weather.filter { it.time in built.startTime - 60_000..built.endTime + 60_000 },
+        )
         File(dir, "$id.json").writeText(Track.toJson(journey).toString())
         if (!recording.renameTo(File(dir, "$id.csv"))) recording.delete()
         _changed.value++
@@ -373,6 +453,17 @@ class JourneyStore(context: Context) {
         File(dir, "$id.json").delete()
         File(dir, "$id.csv").delete()
         File(photoRoot, id).deleteRecursively()
+        _changed.value++
+    }
+
+    /** 足跡（含照片）佔用的空間（位元組），不含記錄中的這一趟 */
+    suspend fun usageBytes(): Long = withContext(Dispatchers.IO) {
+        dir.walkTopDown().filter { it.isFile && it != recording }.sumOf { it.length() }
+    }
+
+    /** 清除全部足跡與照片（記錄中的這一趟不受影響） */
+    suspend fun clearAll() = withContext(Dispatchers.IO) {
+        dir.listFiles().orEmpty().filter { it != recording }.forEach { it.deleteRecursively() }
         _changed.value++
     }
 

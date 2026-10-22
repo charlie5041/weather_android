@@ -30,6 +30,7 @@ import com.charlie.weather.data.CameraReportRepository
 import com.charlie.weather.data.JourneyStore
 import com.charlie.weather.data.LatLon
 import com.charlie.weather.data.LocationProvider
+import com.charlie.weather.data.RainNowcast
 import com.charlie.weather.data.ReportResult
 import com.charlie.weather.data.RideTracker
 import com.charlie.weather.data.RouteCamera
@@ -38,6 +39,7 @@ import com.charlie.weather.data.SpeedCamera
 import com.charlie.weather.data.SpeedCameraRepository
 import com.charlie.weather.data.Track
 import com.charlie.weather.data.TrackPoint
+import com.charlie.weather.data.WeatherSample
 import com.charlie.weather.data.TravelMode
 import com.charlie.weather.data.WeatherRepository
 import kotlinx.coroutines.CoroutineScope
@@ -101,6 +103,7 @@ class RideService : Service() {
     private val pendingPoints = mutableListOf<TrackPoint>()
     private var lastTrackPoint: TrackPoint? = null
     private var recordedKm = 0.0
+    private val weatherSamples = mutableListOf<WeatherSample>()
     private val journeys by lazy { JourneyStore(this) }
 
     private var tts: TextToSpeech? = null
@@ -296,6 +299,7 @@ class RideService : Service() {
         pendingPoints.clear()
         lastTrackPoint = null
         recordedKm = 0.0
+        weatherSamples.clear()
         recordJob = scope.launch {
             withContext(Dispatchers.IO) { journeys.begin() }
             while (isActive) {
@@ -332,12 +336,14 @@ class RideService : Service() {
         recordJob = null
         val batch = pendingPoints.toList()
         pendingPoints.clear()
+        val weather = weatherSamples.toList()
+        weatherSamples.clear()
         val store = journeys
         val app = applicationContext
         saveScope.launch {
             job?.cancelAndJoin()
             store.append(batch)
-            val journey = store.finish() ?: return@launch
+            val journey = store.finish(weather) ?: return@launch
             JourneyStore.announce(journey)
             val text = "%s · %.1f 公里 · %d 分鐘".format(Locale.US, journey.title, journey.distanceKm, journey.durationMinutes)
             try {
@@ -445,6 +451,7 @@ class RideService : Service() {
         val progress = RideTracker.progress(data.path, LatLon(location.latitude, location.longitude))
         val status = RideTracker.status(data, progress, now)
         notify(ID_ONGOING, ongoing(status.title, status.text))
+        sampleWeather(data, progress.fraction, location, now)
         val rain = status.rainAhead
         val minutes = status.minutesToRain
         if (rain != null && minutes != null && minutes <= ALERT_MINUTES) {
@@ -469,6 +476,26 @@ class RideService : Service() {
             alertedPlace = null
         }
         if (status.arrived) stopRide()
+    }
+
+    /** 足跡記錄中：每 [WEATHER_SAMPLE_MS] 記一次所在位置的天氣（用已查好的預報與雷達） */
+    private fun sampleWeather(data: RouteData, fraction: Double, location: Location, now: LocalDateTime) {
+        if (!recording) return
+        val time = System.currentTimeMillis()
+        if (weatherSamples.lastOrNull()?.let { time - it.time < WEATHER_SAMPLE_MS } == true) return
+        val stop = RideTracker.ahead(data, fraction, now).stops.firstOrNull() ?: return
+        val radarMm = data.nowcast?.takeIf { it.covers(now, now) }?.at(location.latitude, location.longitude)
+        val mm = radarMm ?: stop.nowcastMm ?: stop.hour?.precipitation
+        val wet = if (radarMm != null) stop.rainingNow || radarMm >= RainNowcast.WET_MM else stop.wet
+        weatherSamples += WeatherSample(
+            time = time,
+            position = LatLon(location.latitude, location.longitude),
+            temperature = stop.hour?.temperature,
+            weatherCode = stop.hour?.weatherCode,
+            rainMm = mm,
+            wet = wet,
+            place = stop.place,
+        )
     }
 
     /** 回報目前位置有移動式測速；從 App 按的時候另外跳出 Toast */
@@ -610,6 +637,9 @@ class RideService : Service() {
 
         /** 足跡的定位點每隔這麼久寫入檔案一次 */
         private const val FLUSH_MS = 30_000L
+
+        /** 足跡的天氣每隔這麼久記一次 */
+        private const val WEATHER_SAMPLE_MS = 3 * 60_000L
         private const val STATUS_MS = 15_000L
         private const val CAMERA_LOCATION_MS = 2_000L
         private const val CAMERA_LOCATION_M = 10f

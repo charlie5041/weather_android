@@ -23,7 +23,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.charlie.weather.data.JourneyEvent
 import com.charlie.weather.data.JourneyPhoto
+import com.charlie.weather.data.WeatherSample
 import com.charlie.weather.data.Track
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.maps.android.compose.Marker
@@ -118,6 +120,7 @@ private val FootSecondary = Color(0xFFA0A0A8)
 private val FootTrack = Color(0xFF0A84FF)
 private val FootEnd = Color(0xFFFF453A)
 private val FootMapPlaceholder = Color(0xFFE8E6E1)
+private val FootRain = Color(0xFF64D2FF)
 
 internal fun Journey.startDateTime(zone: ZoneId = ZoneId.systemDefault()): LocalDateTime =
     LocalDateTime.ofInstant(Instant.ofEpochMilli(startTime), zone)
@@ -262,7 +265,8 @@ private fun JourneyRow(journey: Journey, zone: ZoneId, photoFiles: PhotoFiles, o
                 fontSize = 14.sp,
             )
             Text(
-                journeyStats(journey) + if (journey.photos.isNotEmpty()) " · ${journey.photos.size} 張照片" else "",
+                journeyStats(journey) + (if (journey.metRain) " · 遇到雨" else "") +
+                    if (journey.photos.isNotEmpty()) " · ${journey.photos.size} 張照片" else "",
                 color = FootSecondary,
                 fontSize = 14.sp,
             )
@@ -371,8 +375,29 @@ fun FootprintDetailScreen(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(PanelColor).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            TimeRow(RouteDry, clock(start), "出發" + journey.fromArea?.let { "・$it" }.orEmpty())
-            TimeRow(FootEnd, clock(end), "抵達" + journey.toArea?.let { "・$it" }.orEmpty())
+            weatherSummary(journey)?.let { Text(it, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+            journey.timeline.forEach { ev ->
+                val time = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ev.time), zone))
+                when (ev) {
+                    is JourneyEvent.Start -> TimeRow(RouteDry, time, listOfNotNull("出發" + journey.fromArea?.let { "・$it" }.orEmpty(), ev.weather?.let(::weatherText)).joinToString("　"))
+                    is JourneyEvent.End -> TimeRow(FootEnd, time, listOfNotNull("抵達" + journey.toArea?.let { "・$it" }.orEmpty(), ev.weather?.let(::weatherText)).joinToString("　"))
+                    is JourneyEvent.RainStarts -> TimeRow(FootRain, time, "開始下雨" + ev.sample.place?.let { "（${it}一帶）" }.orEmpty())
+                    is JourneyEvent.RainStops -> TimeRow(FootSecondary, time, "雨停了")
+                    is JourneyEvent.Photo -> Row(
+                        Modifier.clickable(role = Role.Button) { viewing = ev.photo.id },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(10.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(time, color = Color.White, fontSize = 16.sp, modifier = Modifier.width(56.dp))
+                        thumbs[ev.photo.id]?.let {
+                            Image(it, contentDescription = "照片", contentScale = ContentScale.Crop, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)))
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text("拍照", color = FootSecondary, fontSize = 15.sp)
+                    }
+                }
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ActionButton("改名稱", Color.White, Modifier.weight(1f)) { renaming = true }
@@ -591,6 +616,18 @@ private fun Stat(label: String, value: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** 例：25° 局部多雲 */
+private fun weatherText(w: WeatherSample): String? =
+    listOfNotNull(w.temperature?.let { "${it.inTemperatureUnit().roundToInt()}°" }, w.weatherCode?.let(WeatherCodes::description))
+        .joinToString(" ").ifEmpty { null }
+
+/** 例：途中遇到雨約 13 分鐘；沒有天氣紀錄（行車提醒）時為 null */
+internal fun weatherSummary(j: Journey): String? = when {
+    j.weather.isEmpty() -> null
+    j.metRain -> "途中遇到雨" + j.rainMinutes.takeIf { it > 0 }?.let { "約 $it 分鐘" }.orEmpty()
+    else -> "一路沒有下雨"
+}
+
 @Composable
 private fun TimeRow(color: Color, time: String, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -633,6 +670,7 @@ fun JourneySavedDialog(journey: Journey, onAddPhotos: () -> Unit, onDismiss: () 
                     color = FootSecondary,
                     fontSize = 14.sp,
                 )
+                weatherSummary(journey)?.let { Text(it, color = FootSecondary, fontSize = 14.sp) }
             }
         },
         confirmButton = { TextButton(onClick = onAddPhotos) { Text("加照片", color = Accent) } },
