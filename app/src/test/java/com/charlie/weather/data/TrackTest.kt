@@ -164,4 +164,17 @@ class TrackTest {
         val j = Journey("1", t0, t0 + 600_000, 3.2, line(3).map { it.copy(accuracy = null) }, weather = weather)
         assertEquals(weather, Track.fromJson(org.json.JSONObject(Track.toJson(j).toString())).weather)
     }
+
+    @Test
+    fun recordingWeatherFileSurvivesTruncationAndMerges() {
+        val a = sample(0, false)
+        val b = sample(3, true, "中和區")
+        val lines = listOf(Track.weatherToJson(a).toString(), "", Track.weatherToJson(b).toString(), "{\"t\":17600")
+        val saved = Track.decodeWeatherLines(lines)
+        assertEquals(listOf(a, b), saved)
+        // 程序被結束後只有檔案；正常結束時記憶體與檔案重複的只留一筆
+        val c = sample(6, false)
+        assertEquals(listOf(a, b, c), Track.mergeWeather(listOf(c, b), saved))
+        assertEquals(listOf(a, b), Track.mergeWeather(emptyList(), saved))
+    }
 }

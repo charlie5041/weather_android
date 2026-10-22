@@ -317,13 +317,7 @@ object Track {
         .put(
             "weather",
             JSONArray().apply {
-                j.weather.forEach { w ->
-                    put(
-                        JSONObject().put("t", w.time).put("lat", w.position.latitude).put("lon", w.position.longitude)
-                            .put("temp", w.temperature).put("code", w.weatherCode).put("mm", w.rainMm)
-                            .put("wet", w.wet).put("place", w.place),
-                    )
-                }
+                j.weather.forEach { w -> put(weatherToJson(w)) }
             },
         )
         .put(
@@ -337,6 +331,29 @@ object Track {
                 }
             },
         )
+
+    fun weatherToJson(w: WeatherSample): JSONObject =
+        JSONObject().put("t", w.time).put("lat", w.position.latitude).put("lon", w.position.longitude)
+            .put("temp", w.temperature).put("code", w.weatherCode).put("mm", w.rainMm)
+            .put("wet", w.wet).put("place", w.place)
+
+    fun weatherFromJson(w: JSONObject) = WeatherSample(
+        time = w.getLong("t"),
+        position = LatLon(w.getDouble("lat"), w.getDouble("lon")),
+        temperature = if (w.has("temp")) w.getDouble("temp") else null,
+        weatherCode = if (w.has("code")) w.getInt("code") else null,
+        rainMm = if (w.has("mm")) w.getDouble("mm") else null,
+        wet = w.optBoolean("wet"),
+        place = if (w.has("place")) w.getString("place") else null,
+    )
+
+    /** 記錄中的天氣檔（一行一筆 JSON）讀回；寫到一半的最後一行略過 */
+    fun decodeWeatherLines(lines: List<String>): List<WeatherSample> =
+        lines.mapNotNull { line -> line.takeIf { it.isNotBlank() }?.let { runCatching { weatherFromJson(JSONObject(it)) }.getOrNull() } }
+
+    /** 記憶體裡的與檔案裡的天氣合併（同一時間只留一筆），依時間排序 */
+    fun mergeWeather(a: List<WeatherSample>, b: List<WeatherSample>): List<WeatherSample> =
+        (a + b).distinctBy { it.time }.sortedBy { it.time }
 
     fun fromJson(o: JSONObject): Journey {
         val arr = o.getJSONArray("points")
@@ -354,18 +371,7 @@ object Track {
             )
         }
         val weatherArr = o.optJSONArray("weather")
-        val weather = (0 until (weatherArr?.length() ?: 0)).map { i ->
-            val w = weatherArr!!.getJSONObject(i)
-            WeatherSample(
-                time = w.getLong("t"),
-                position = LatLon(w.getDouble("lat"), w.getDouble("lon")),
-                temperature = if (w.has("temp")) w.getDouble("temp") else null,
-                weatherCode = if (w.has("code")) w.getInt("code") else null,
-                rainMm = if (w.has("mm")) w.getDouble("mm") else null,
-                wet = w.optBoolean("wet"),
-                place = if (w.has("place")) w.getString("place") else null,
-            )
-        }
+        val weather = (0 until (weatherArr?.length() ?: 0)).map { i -> weatherFromJson(weatherArr!!.getJSONObject(i)) }
         return Journey(
             id = o.getString("id"),
             startTime = o.getLong("start"),
@@ -383,7 +389,8 @@ object Track {
 
 /**
  * 足跡存在 App 私有空間（filesDir/journeys），不上傳：
- * - 騎乘中的定位點逐批附加到 recording.csv，程序被系統結束也只少最後幾十秒
+ * - 騎乘中的定位點逐批附加到 recording.csv，天氣取樣附加到 recording_weather.jsonl，
+ *   程序被系統結束也只少最後幾十秒，下次開 App 補存時軌跡與天氣都在
  * - 結束後整理成 `<id>.json`（精簡後的軌跡，畫地圖用），原始點改名為 `<id>.csv` 保留
  */
 class JourneyStore(context: Context) {
@@ -391,6 +398,7 @@ class JourneyStore(context: Context) {
     private val dir = File(app.filesDir, "journeys").apply { mkdirs() }
     private val photoRoot = File(dir, "photos")
     private val recording = File(dir, "recording.csv")
+    private val recordingWeather = File(dir, "recording_weather.jsonl")
     private val geocoder = AddressGeocoder(context.applicationContext)
 
     val isRecording: Boolean get() = recording.exists()
@@ -399,6 +407,11 @@ class JourneyStore(context: Context) {
     suspend fun begin() = withContext(Dispatchers.IO) {
         if (recording.exists()) finishLocked()
         recording.writeText("")
+        recordingWeather.delete()
+    }
+
+    fun appendWeather(sample: WeatherSample) {
+        runCatching { recordingWeather.appendText(Track.weatherToJson(sample).toString() + "\n") }
     }
 
     fun append(points: List<TrackPoint>) {
@@ -414,8 +427,11 @@ class JourneyStore(context: Context) {
         if (!active && recording.exists()) finishLocked()
     }
 
-    private suspend fun finishLocked(weather: List<WeatherSample> = emptyList()): Journey? {
+    private suspend fun finishLocked(memoryWeather: List<WeatherSample> = emptyList()): Journey? {
         val raw = runCatching { recording.readLines().mapNotNull(Track::decodePoint) }.getOrDefault(emptyList())
+        val saved = runCatching { Track.decodeWeatherLines(recordingWeather.readLines()) }.getOrDefault(emptyList())
+        val weather = Track.mergeWeather(memoryWeather, saved)
+        recordingWeather.delete()
         val id = raw.firstOrNull()?.time?.toString() ?: System.currentTimeMillis().toString()
         val built = Track.build(id, raw)
         if (built == null) {
@@ -458,12 +474,12 @@ class JourneyStore(context: Context) {
 
     /** 足跡（含照片）佔用的空間（位元組），不含記錄中的這一趟 */
     suspend fun usageBytes(): Long = withContext(Dispatchers.IO) {
-        dir.walkTopDown().filter { it.isFile && it != recording }.sumOf { it.length() }
+        dir.walkTopDown().filter { it.isFile && it != recording && it != recordingWeather }.sumOf { it.length() }
     }
 
     /** 清除全部足跡與照片（記錄中的這一趟不受影響） */
     suspend fun clearAll() = withContext(Dispatchers.IO) {
-        dir.listFiles().orEmpty().filter { it != recording }.forEach { it.deleteRecursively() }
+        dir.listFiles().orEmpty().filter { it != recording && it != recordingWeather }.forEach { it.deleteRecursively() }
         _changed.value++
     }
 
