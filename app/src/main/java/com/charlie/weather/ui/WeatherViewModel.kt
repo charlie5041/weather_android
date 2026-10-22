@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.charlie.weather.data.AddressGeocoder
 import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
+import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.Commute
 import com.charlie.weather.data.CwaParser
 import com.charlie.weather.data.FavoriteRoute
@@ -301,9 +302,14 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 用住家與公司（或學校）一次建立平日的「上班」「下班」兩條常用路線 */
-    fun createCommuteRoutes(home: City, work: City) {
-        val mode = store.loadLastRoute()?.mode ?: TravelMode.SCOOTER
-        _favorites.update { list -> Commute.merge(list, Commute.routes(home, work, mode)) }
+    fun createCommuteRoutes(
+        home: City,
+        work: City,
+        mode: TravelMode = store.loadLastRoute()?.mode ?: AppSettings(getApplication<Application>()).defaultTravelMode,
+        morningHour: Int = Commute.MORNING_HOUR,
+        eveningHour: Int = Commute.EVENING_HOUR,
+    ) {
+        _favorites.update { list -> Commute.merge(list, Commute.routes(home, work, mode, morningHour, eveningHour)) }
         store.saveFavoriteRoutes(_favorites.value)
         refreshUpcoming(force = true)
     }

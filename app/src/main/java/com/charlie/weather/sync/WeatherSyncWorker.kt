@@ -35,7 +35,7 @@ class WeatherSyncWorker(context: Context, params: WorkerParameters) : CoroutineW
             return if (runAttemptCount < 2) Result.retry() else Result.success()
         }
         WeatherWidget.update(applicationContext, city, weather)
-        WeatherNotifier.check(applicationContext, city to weather, placesWeather(repo, city, metered))
+        WeatherNotifier.check(applicationContext, city to weather, placesWeather(repo, city, metered), favorites = repo.store.loadFavoriteRoutes())
         repo.migrateCommute()
         WeatherNotifier.checkFavoriteRoutes(applicationContext, repo)
         return Result.success()

@@ -33,6 +33,7 @@ import com.charlie.weather.data.LatLon
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.RainNowcast
 import com.charlie.weather.data.ReportResult
+import com.charlie.weather.data.LiveRide
 import com.charlie.weather.data.RideTracker
 import com.charlie.weather.data.RouteCamera
 import com.charlie.weather.data.RouteData
@@ -53,6 +54,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -97,6 +99,10 @@ class RideService : Service() {
     private var anchor: Location? = null
     private var movedAt = 0L
     private var lastCamera: String? = null
+
+    /** 最近一次測速照相提醒的標題、內文與時間（App 內騎乘中畫面顯示） */
+    private var cameraAlert: Pair<String, String>? = null
+    private var cameraAlertAt = 0L
 
     /** 足跡紀錄：還沒寫入檔案的點、上一個記下的點與目前里程 */
     private var recording = false
@@ -150,6 +156,12 @@ class RideService : Service() {
         }
         _active.value = route != null
         _driving.value = route == null
+        cameraAlert = null
+        _live.value = LiveRide(
+            routeName = route?.let { "${it.from.displayName} → ${it.to.displayName}" },
+            title = if (route != null) "騎乘中" else "行車提醒中",
+            detail = "正在取得位置…",
+        )
         alertedPlace = null
         alertedCameras.clear()
         recentFixes.clear()
@@ -239,7 +251,7 @@ class RideService : Service() {
             }
             if (route == null) sampleDriveWeather()
             if (route == null && System.currentTimeMillis() - movedAt >= STILL_MS) {
-                notify(
+                if (settings.rideEndNotices) notify(
                     ID_REPORT,
                     NotificationCompat.Builder(this, WeatherNotifier.CHANNEL_RIDE)
                         .setSmallIcon(R.drawable.ic_stat_weather)
@@ -274,6 +286,7 @@ class RideService : Service() {
                     return
                 }
                 lastLocation = location
+                speedKmh(location)?.let { speed -> _live.update { it?.copy(speedKmh = speed) } }
                 record(location)
                 trackMovement(location)
                 checkCameras(location)
@@ -345,11 +358,14 @@ class RideService : Service() {
         weatherSamples.clear()
         val store = journeys
         val app = applicationContext
+        val notifySaved = settings.rideEndNotices
         saveScope.launch {
             job?.cancelAndJoin()
             store.append(batch)
             val journey = store.finish(weather) ?: return@launch
             JourneyStore.announce(journey)
+            // App 開著時有「足跡已儲存」的對話框；通知可以在設定關掉
+            if (!notifySaved) return@launch
             val text = "%s · %.1f 公里 · %d 分鐘".format(Locale.US, journey.title, journey.distanceKm, journey.durationMinutes)
             try {
                 NotificationManagerCompat.from(app).notify(
@@ -431,6 +447,9 @@ class RideService : Service() {
                 .build(),
         )
         speak(CameraAlerts.speech(ahead, speed))
+        cameraAlert = title to text
+        cameraAlertAt = now
+        _live.update { it?.copy(camera = title, cameraDetail = text) }
         if (route == null) {
             lastCamera = "%02d:%02d %s".format(Locale.US, LocalDateTime.now().hour, LocalDateTime.now().minute, title.removePrefix("📷 "))
             update()
@@ -453,6 +472,7 @@ class RideService : Service() {
                 lastCamera?.let { append("\n上一處：$it") }
             }
             notify(ID_ONGOING, ongoing("行車提醒中", text))
+            publish("行車提醒中", text)
             return
         }
         location ?: return
@@ -460,12 +480,13 @@ class RideService : Service() {
         val progress = RideTracker.progress(data.path, LatLon(location.latitude, location.longitude))
         val status = RideTracker.status(data, progress, now)
         notify(ID_ONGOING, ongoing(status.title, status.text))
+        publish(status.title, status.text)
         sampleWeather(data, progress.fraction, location, now)
         val rain = status.rainAhead
         val minutes = status.minutesToRain
         if (rain != null && minutes != null && minutes <= ALERT_MINUTES) {
             val key = rain.place ?: rain.point.distanceKm.toInt().toString()
-            if (key != alertedPlace) {
+            if (key != alertedPlace && settings.rideRainAlerts) {
                 alertedPlace = key
                 notify(
                     ID_ALERT,
@@ -485,6 +506,20 @@ class RideService : Service() {
             alertedPlace = null
         }
         if (status.arrived) stopRide()
+    }
+
+    /** 更新 App 內的進行中橫條與騎乘中畫面 */
+    private fun publish(title: String, text: String) {
+        val camera = cameraAlert?.takeIf { System.currentTimeMillis() - cameraAlertAt < CAMERA_NOTIFICATION_MS }
+        _live.value = LiveRide(
+            routeName = route?.let { "${it.from.displayName} → ${it.to.displayName}" },
+            title = title,
+            detail = text,
+            speedKmh = lastLocation?.let(::speedKmh),
+            camera = camera?.first,
+            cameraDetail = camera?.second,
+            recordedKm = recordedKm.takeIf { recording },
+        )
     }
 
     /** 足跡記錄中：每 [WEATHER_SAMPLE_MS] 記一次所在位置的天氣（用已查好的預報與雷達） */
@@ -638,6 +673,7 @@ class RideService : Service() {
         drive = false
         _active.value = false
         _driving.value = false
+        _live.value = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -656,6 +692,7 @@ class RideService : Service() {
         tts = null
         _active.value = false
         _driving.value = false
+        _live.value = null
         super.onDestroy()
     }
 
@@ -720,6 +757,11 @@ class RideService : Service() {
 
         /** 行車提醒（沒有目的地）是否進行中 */
         val driving: StateFlow<Boolean> = _driving.asStateFlow()
+
+        private val _live = MutableStateFlow<LiveRide?>(null)
+
+        /** 進行中時的即時狀態（進行中橫條、騎乘中畫面）；沒有進行中時為 null */
+        val live: StateFlow<LiveRide?> = _live.asStateFlow()
 
         fun start(context: Context, data: RouteData) {
             route = data

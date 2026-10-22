@@ -175,7 +175,7 @@ internal fun rememberThumbs(journey: Journey, photoFiles: PhotoFiles): Map<Strin
 }
 
 /**
- * 「足跡」分頁：每次騎乘或行車提醒自動記下的軌跡，依月份分組，新的在前。
+ * 「足跡」分頁：每次騎乘或直接出發自動記下的軌跡，依月份分組，新的在前。
  * 只存在手機裡，不上傳。
  */
 @Composable
@@ -184,23 +184,13 @@ fun FootprintsScreen(
     onOpen: (Journey) -> Unit,
     onOpenSettings: () -> Unit,
     photoFiles: PhotoFiles = { _, _, _ -> null },
-    /** 騎乘中模式（從出門的路線開始）進行中 */
-    rideActive: Boolean = false,
-    /** 行車提醒（不設目的地）進行中 */
-    driving: Boolean = false,
-    canReportCameras: Boolean = false,
-    recordJourneys: Boolean = true,
-    speedCameras: Boolean = true,
-    onStartDrive: () -> Unit = {},
-    onStop: () -> Unit = {},
-    onReportCamera: () -> Unit = {},
     today: LocalDate = LocalDate.now(),
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
     val groups = remember(journeys, zone) { journeys.groupBy { YearMonth.from(it.startDateTime(zone)) } }
     LazyColumn(
         Modifier.fillMaxSize().background(Color.Black).statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 160.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
@@ -211,21 +201,6 @@ fun FootprintsScreen(
                 }
             }
         }
-        item {
-            when {
-                driving -> ActiveCard(
-                    if (recordJourneys) "行車提醒進行中・記錄足跡" else "行車提醒進行中",
-                    onStop = onStop,
-                    onReport = onReportCamera.takeIf { canReportCameras },
-                )
-                rideActive -> ActiveCard(
-                    if (recordJourneys) "騎乘中・結束後存成足跡" else "騎乘中",
-                    onStop = onStop,
-                    onReport = onReportCamera.takeIf { canReportCameras },
-                )
-                else -> DriveCard(onStartDrive, recordJourneys, speedCameras)
-            }
-        }
         if (journeys.isEmpty()) {
             item {
                 Column(
@@ -234,7 +209,7 @@ fun FootprintsScreen(
                 ) {
                     Text("還沒有足跡", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "按上面的「開始」行車提醒，或在「出門」查路線後開始騎乘，結束後就會自動存一趟足跡。只存在這支手機，不會上傳。",
+                        "在「出門」查路線後開始騎乘，或按「直接出發」，結束後就會自動存一趟足跡。只存在這支手機，不會上傳。",
                         color = FootSecondary,
                         fontSize = 14.sp,
                     )

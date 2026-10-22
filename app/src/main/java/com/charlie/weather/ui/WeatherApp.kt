@@ -96,18 +96,29 @@ fun WeatherApp(
     var tab by rememberSaveable {
         mutableStateOf(if (FavoriteRoutes.departingSoon(vm.favorites.value, LocalDateTime.now())) Tab.OUTING else Tab.WEATHER)
     }
-    val driving by RideService.driving.collectAsStateWithLifecycle()
+    val live by RideService.live.collectAsStateWithLifecycle()
+    var showRide by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(live == null) { if (live == null) showRide = false }
+    var lastLive by remember { mutableStateOf<com.charlie.weather.data.LiveRide?>(null) }
+    LaunchedEffect(live) { live?.let { lastLive = it } }
     var showList by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var detail by remember { mutableStateOf<DetailRequest?>(null) }
     var typhoonCityId by remember { mutableStateOf<String?>(null) }
     var showPlaceEditor by remember { mutableStateOf(false) }
     var editingPlace by remember { mutableStateOf<City?>(null) }
+    var placePresetLabel by remember { mutableStateOf<String?>(null) }
     var settingsVersion by remember { mutableIntStateOf(0) }
     var routeRequest by remember { mutableStateOf<RouteRequest?>(null) }
     var lastRouteRequest by remember { mutableStateOf<RouteRequest?>(null) }
     LaunchedEffect(routeRequest) { routeRequest?.let { lastRouteRequest = it } }
     val context = LocalContext.current
+    // 第一次使用時的出門設定；已經有常用路線或自訂地點的人（升級前就在用）不顯示
+    var showSetup by rememberSaveable {
+        mutableStateOf(
+            !AppSettings(context).setupDone && vm.favorites.value.isEmpty() && vm.cities.value.none { it.label != null && !it.isCurrentLocation },
+        )
+    }
     val journeyStore = remember { JourneyStore(context) }
     val journeysVersion by JourneyStore.changed.collectAsStateWithLifecycle()
     val savedJourney by JourneyStore.saved.collectAsStateWithLifecycle()
@@ -234,26 +245,14 @@ fun WeatherApp(
                         favorites = favorites,
                         upcoming = upcoming,
                         commutePlaces = commutePlaces,
-                        rideActive = riding,
-                        canReportCameras = vm.canReportCameras,
-                        onNewRoute = { routeRequest = RouteRequest(cities.firstOrNull(), null, mode = vm.lastRoute()?.mode) },
+                        rideActive = live != null,
+                        onNewRoute = {
+                            routeRequest = RouteRequest(cities.firstOrNull(), null, mode = vm.lastRoute()?.mode ?: AppSettings(context).defaultTravelMode)
+                        },
                         onOpen = { route, departure -> openFavorite(route, departure) },
                         onCreateCommute = { (home, work) -> vm.createCommuteRoutes(home, work) },
                         onStartRide = ::startRide,
-                        onStopRide = { RideService.stop(context) },
-                        onReportCamera = { RideService.report(context) },
                         onOpenSettings = openSettings,
-                    )
-                    Tab.FOOTPRINTS -> FootprintsScreen(
-                        journeys = journeys,
-                        onOpen = { openJourneyId = it.id },
-                        onOpenSettings = openSettings,
-                        photoFiles = photoFiles,
-                        rideActive = riding,
-                        driving = driving,
-                        canReportCameras = vm.canReportCameras,
-                        recordJourneys = remember(settingsVersion) { AppSettings(context).recordJourneys },
-                        speedCameras = remember(settingsVersion) { AppSettings(context).speedCameras },
                         onStartDrive = {
                             if (!vm.hasLocationPermission()) {
                                 Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
@@ -261,15 +260,21 @@ fun WeatherApp(
                                 RideService.startDrive(context)
                             }
                         },
-                        onStop = { RideService.stop(context) },
-                        onReportCamera = { RideService.report(context) },
+                        recordJourneys = remember(settingsVersion) { AppSettings(context).recordJourneys },
+                        speedCameras = remember(settingsVersion) { AppSettings(context).speedCameras },
+                    )
+                    Tab.FOOTPRINTS -> FootprintsScreen(
+                        journeys = journeys,
+                        onOpen = { openJourneyId = it.id },
+                        onOpenSettings = openSettings,
+                        photoFiles = photoFiles,
                     )
                 }
-                TabBar(
-                    selected = tab,
-                    onSelect = { tab = it },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
+                Column(Modifier.align(Alignment.BottomCenter)) {
+                    // 騎乘中或行車提醒時，三個分頁都看得到狀態，點了打開騎乘中畫面
+                    live?.let { LiveBar(it, onOpen = { showRide = true }, onStop = { RideService.stop(context) }) }
+                    TabBar(selected = tab, onSelect = { tab = it })
+                }
             }
 
             AnimatedVisibility(
@@ -330,6 +335,10 @@ fun WeatherApp(
                     onEditPlace = { city ->
                         editingPlace = city
                         showPlaceEditor = true
+                    },
+                    onRunSetup = {
+                        showSettings = false
+                        showSetup = true
                     },
                 )
             }
@@ -434,6 +443,26 @@ fun WeatherApp(
                     )
                 }
             }
+            AnimatedVisibility(
+                visible = showRide && live != null,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+            ) {
+                // 結束動畫期間 live 已是 null，沿用最後一次的狀態
+                (live ?: lastLive)?.let { l ->
+                    RideScreen(
+                        live = l,
+                        onReportCamera = if (vm.canReportCameras && AppSettings(context).speedCameras) {
+                            { RideService.report(context) }
+                        } else {
+                            null
+                        },
+                        onStop = { RideService.stop(context) },
+                        onClose = { showRide = false },
+                        keepScreenOn = remember(settingsVersion) { AppSettings(context).keepScreenOnRiding },
+                    )
+                }
+            }
             savedJourney?.let { j ->
                 JourneySavedDialog(
                     journey = j,
@@ -451,6 +480,33 @@ fun WeatherApp(
                 )
             }
             AnimatedVisibility(
+                visible = showSetup,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                SetupScreen(
+                    places = cities,
+                    initialMode = remember { AppSettings(context).defaultTravelMode },
+                    onEditPlace = { label, existing ->
+                        editingPlace = existing
+                        placePresetLabel = label
+                        showPlaceEditor = true
+                    },
+                    onFinish = { mode, morning, evening ->
+                        val settings = AppSettings(context)
+                        settings.defaultTravelMode = mode
+                        settings.setupDone = true
+                        Commute.homeAndWork(cities)?.let { (home, work) -> vm.createCommuteRoutes(home, work, mode, morning, evening) }
+                        showSetup = false
+                        tab = Tab.OUTING
+                    },
+                    onSkip = {
+                        AppSettings(context).setupDone = true
+                        showSetup = false
+                    },
+                )
+            }
+            AnimatedVisibility(
                 visible = showPlaceEditor,
                 enter = slideInVertically { it },
                 exit = slideOutVertically { it },
@@ -462,10 +518,15 @@ fun WeatherApp(
                     onSave = { label, result ->
                         val index = vm.saveAddressPlace(editingPlace?.id, label, result)
                         showPlaceEditor = false
+                        placePresetLabel = null
                         showList = false
                         scope.launch { pagerState.scrollToPage(index) }
                     },
-                    onClose = { showPlaceEditor = false },
+                    onClose = {
+                        showPlaceEditor = false
+                        placePresetLabel = null
+                    },
+                    presetLabel = placePresetLabel,
                 )
             }
         }
@@ -479,6 +540,8 @@ fun WeatherApp(
         BackHandler(enabled = showPlaceEditor) { showPlaceEditor = false }
         BackHandler(enabled = routeRequest != null) { routeRequest = null }
         BackHandler(enabled = openJourneyId != null) { openJourneyId = null }
+        BackHandler(enabled = showRide) { showRide = false }
+        BackHandler(enabled = showSetup && !showPlaceEditor) { showSetup = false }
     }
 }
 

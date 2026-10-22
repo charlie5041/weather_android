@@ -67,10 +67,12 @@ fun PlaceEditorScreen(
     onUseCurrentLocation: suspend () -> AddressResult?,
     onSave: (label: String, result: AddressResult) -> Unit,
     onClose: () -> Unit,
+    /** 新增時預先選好的名稱（出門設定的「住家」「公司」） */
+    presetLabel: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
-    val initialLabel = existing?.label
+    val initialLabel = existing?.label ?: presetLabel
     var labelChoice by remember { mutableStateOf(initialLabel?.takeIf { it in PresetLabels } ?: if (initialLabel != null) OtherLabel else PresetLabels.first()) }
     var customLabel by remember { mutableStateOf(initialLabel?.takeIf { it !in PresetLabels }.orEmpty()) }
     var query by remember { mutableStateOf(existing?.address.orEmpty()) }
