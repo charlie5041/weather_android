@@ -36,7 +36,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.charlie.weather.data.CommuteTrip
+import com.charlie.weather.data.City
+import com.charlie.weather.data.Commute
 import com.charlie.weather.data.FavoriteRoute
 import com.charlie.weather.data.RouteData
 import com.charlie.weather.data.RouteHazard
@@ -49,6 +50,7 @@ import java.time.LocalDateTime
 private val OutingSecondary = Color(0xFFA0A0A8)
 private val OutingDivider = Color(0xFF2C2C2E)
 private val OutingCamera = Color(0xFFFF9F0A)
+private val OutingAccent = Color(0xFF64D2FF)
 
 /** 例：平日 08:00、週末 09:30、週一、週三 07:15 */
 internal fun reminderLabel(reminder: RouteReminder): String {
@@ -68,20 +70,22 @@ private fun dayWord(time: LocalDateTime, today: LocalDate) = when (time.toLocalD
 }
 
 /**
- * 「出門」分頁：看路線上的天氣。查新路線、12 小時內下一趟常用路線的沿路結論、通勤、其他常用路線。
+ * 「出門」分頁：看路線上的天氣。查新路線、12 小時內下一趟常用路線的沿路結論、其他常用路線。
+ * 通勤就是「上班」「下班」兩條常用路線；有住家與公司但還沒建立時，提供一鍵建立。
  * 不設目的地的行車提醒（測速）在「足跡」分頁。
  */
 @Composable
 fun OutingScreen(
     favorites: List<FavoriteRoute>,
     upcoming: UpcomingTrip?,
-    commute: CommuteTrip?,
+    /** 自訂地點中的住家與公司（或學校） */
+    commutePlaces: Pair<City, City>?,
     /** 騎乘中模式進行中 */
     rideActive: Boolean,
     canReportCameras: Boolean,
     onNewRoute: () -> Unit,
     onOpen: (FavoriteRoute, LocalDateTime?) -> Unit,
-    onOpenCommuteRoute: () -> Unit,
+    onCreateCommute: (Pair<City, City>) -> Unit,
     onStartRide: (RouteData) -> Unit,
     onStopRide: () -> Unit,
     onReportCamera: () -> Unit,
@@ -129,10 +133,16 @@ fun OutingScreen(
         upcoming?.let { trip ->
             item { NextTripCard(trip, today, rideActive, onOpen = { onOpen(trip.route, trip.departure) }, onStartRide = onStartRide) }
         }
-        commute?.let { trip ->
-            item { CommuteCard(trip, Modifier.fillMaxWidth(), today = today, onOpenRoute = onOpenCommuteRoute) }
+        val newCommute = commutePlaces?.takeUnless { (home, work) -> Commute.hasRoutes(favorites, home, work) }
+        item {
+            FavoritesCard(
+                favorites.filter { it.id != upcoming?.route?.id },
+                upcoming != null,
+                onOpen,
+                newCommute = newCommute,
+                onCreateCommute = onCreateCommute,
+            )
         }
-        item { FavoritesCard(favorites.filter { it.id != upcoming?.route?.id }, upcoming != null, onOpen) }
     }
 }
 
@@ -219,12 +229,41 @@ internal fun ActiveCard(title: String, onStop: () -> Unit, onReport: (() -> Unit
     }
 }
 
-/** 常用路線一行一條，點了開啟沿路天氣；還沒有常用路線時說明怎麼加。 */
+/**
+ * 常用路線一行一條，點了開啟沿路天氣；還沒有常用路線時說明怎麼加。
+ * [newCommute] 不為 null 時（有住家與公司、還沒有上班路線）最上面提供一鍵建立上下班路線。
+ */
 @Composable
-private fun FavoritesCard(routes: List<FavoriteRoute>, hasUpcoming: Boolean, onOpen: (FavoriteRoute, LocalDateTime?) -> Unit) {
+private fun FavoritesCard(
+    routes: List<FavoriteRoute>,
+    hasUpcoming: Boolean,
+    onOpen: (FavoriteRoute, LocalDateTime?) -> Unit,
+    newCommute: Pair<City, City>? = null,
+    onCreateCommute: (Pair<City, City>) -> Unit = {},
+) {
     OutingPanel {
         Text("常用路線", fontSize = 13.sp, color = OutingSecondary, fontWeight = FontWeight.Medium)
-        if (routes.isEmpty()) {
+        newCommute?.let { places ->
+            val (home, work) = places
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+                    .clickable(role = Role.Button) { onCreateCommute(places) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("＋ 建立上下班路線", fontSize = 16.sp, color = OutingAccent)
+                    Text(
+                        "${home.displayName} ⇄ ${work.displayName}，平日 ${Commute.MORNING_HOUR}:00 上班、${Commute.EVENING_HOUR}:00 下班出發",
+                        fontSize = 13.sp,
+                        color = OutingSecondary,
+                    )
+                }
+            }
+            if (routes.isNotEmpty()) HorizontalDivider(color = OutingDivider)
+        }
+        if (routes.isEmpty() && newCommute == null) {
             Text(
                 if (hasUpcoming) {
                     "查詢路線後按 ☆ 可以再存其他常用路線。"

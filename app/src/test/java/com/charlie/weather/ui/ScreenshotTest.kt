@@ -135,17 +135,16 @@ class ScreenshotTest {
             reminder = com.charlie.weather.data.RouteReminder(setOf(java.time.DayOfWeek.SATURDAY, java.time.DayOfWeek.SUNDAY), 9, 30),
         )
         val trip = UpcomingTrip(commute, now, com.charlie.weather.data.RoutePlanner.evaluate(data, now, now))
-        val commuteTrip = com.charlie.weather.data.Commute.trip(home, work, dry, wet, now, 8, 18)
         capture("13_outing") {
             OutingScreen(
                 favorites = listOf(commute, weekend),
                 upcoming = trip,
-                commute = commuteTrip,
+                commutePlaces = home to work,
                 rideActive = false,
                 canReportCameras = false,
                 onNewRoute = {},
                 onOpen = { _, _ -> },
-                onOpenCommuteRoute = {},
+                onCreateCommute = {},
                 onStartRide = {},
                 onStopRide = {},
                 onReportCamera = {},
@@ -161,12 +160,13 @@ class ScreenshotTest {
         OutingScreen(
             favorites = emptyList(),
             upcoming = null,
-            commute = null,
+            commutePlaces = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家") to
+                City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司"),
             rideActive = false,
             canReportCameras = true,
             onNewRoute = {},
             onOpen = { _, _ -> },
-            onOpenCommuteRoute = {},
+            onCreateCommute = {},
             onStartRide = {},
             onStopRide = {},
             onReportCamera = {},
@@ -278,22 +278,6 @@ class ScreenshotTest {
                     ),
                 )
             }
-        }
-    }
-
-    @Test
-    @Config(qualifiers = "w400dp-h420dp-xhdpi")
-    fun commuteCard() = capture("10_commute") {
-        val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")
-        val work = City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司")
-        val homeWeather = sampleWeather(code = 2)
-        val workWeather = sampleWeather(code = 61)
-        val now = homeWeather.current.time
-        val trip = com.charlie.weather.data.Commute.trip(home, work, homeWeather, workWeather, now, 8, 18)
-        androidx.compose.foundation.layout.Box(
-            androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF3A6EA5)).padding(16.dp),
-        ) {
-            CommuteCard(trip, androidx.compose.ui.Modifier.fillMaxWidth(), today = now.toLocalDate())
         }
     }
 

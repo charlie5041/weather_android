@@ -154,24 +154,10 @@ fun WeatherApp(
     }
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
-    val commuteMinutes by vm.commuteMinutes.collectAsStateWithLifecycle()
     val commutePlaces = remember(cities) { Commute.homeAndWork(cities) }
     val privacyRadiusM = remember(settingsVersion) { AppSettings(context).sharePrivacyRadiusM }
     val privacyZones = remember(cities, settingsVersion) {
         SharePrivacy.zonesFrom(cities, AppSettings(context).sharePrivacyExcluded, privacyRadiusM)
-    }
-    // 住家、公司或交通方式改變時重新查行車時間（一天內用記下的值）
-    LaunchedEffect(commutePlaces, routeRequest == null) {
-        commutePlaces?.let { (home, work) -> vm.loadCommuteMinutes(home, work) }
-    }
-    val commuteTrip = remember(cities, weather, settingsVersion, commuteMinutes) {
-        val settings = AppSettings(context)
-        if (!settings.commuteCard) return@remember null
-        val (home, work) = commutePlaces ?: return@remember null
-        Commute.trip(
-            home, work, weather[home.id]?.weather, weather[work.id]?.weather, LocalDateTime.now(),
-            settings.commuteMorningHour, settings.commuteEveningHour, commuteMinutes,
-        )
     }
 
     // 通知權限（Android 13+）只在第一次啟動時詢問一次，之後可在設定頁開啟
@@ -233,14 +219,12 @@ fun WeatherApp(
                     Tab.OUTING -> OutingScreen(
                         favorites = favorites,
                         upcoming = upcoming,
-                        commute = commuteTrip,
+                        commutePlaces = commutePlaces,
                         rideActive = riding,
                         canReportCameras = vm.canReportCameras,
                         onNewRoute = { routeRequest = RouteRequest(cities.firstOrNull(), null, mode = vm.lastRoute()?.mode) },
                         onOpen = { route, departure -> openFavorite(route, departure) },
-                        onOpenCommuteRoute = {
-                            commuteTrip?.let { routeRequest = RouteRequest(it.from, it.to, it.departure, vm.lastRoute()?.mode) }
-                        },
+                        onCreateCommute = { (home, work) -> vm.createCommuteRoutes(home, work) },
                         onStartRide = ::startRide,
                         onStopRide = { RideService.stop(context) },
                         onReportCamera = { RideService.report(context) },

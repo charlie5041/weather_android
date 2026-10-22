@@ -15,10 +15,7 @@ import com.charlie.weather.MainActivity
 import com.charlie.weather.R
 import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
-import com.charlie.weather.data.CityStore
-import com.charlie.weather.data.Commute
 import com.charlie.weather.data.RoutePlanner
-import com.charlie.weather.data.TravelMode
 import com.charlie.weather.data.Weather
 import com.charlie.weather.data.WeatherRepository
 import com.charlie.weather.ui.WeatherCodes
@@ -52,7 +49,6 @@ object WeatherNotifier {
 
     private const val ID_RAIN = 1001
     private const val ID_MORNING = 1002
-    private const val ID_COMMUTE = 1003
     private const val ID_PLACE_RAIN_BASE = 3000
     private const val ID_WARNING_BASE = 2000
     private const val ID_ROUTE_BASE = 4000
@@ -96,7 +92,7 @@ object WeatherNotifier {
 
     /**
      * 檢查是否需要通知。[primary] 是城市列表第一個城市；[places] 是其他自訂地點（住家、公司…），
-     * 開啟「自訂地點提醒」時也會檢查降雨與特報，並用來計算通勤天氣。
+     * 開啟「自訂地點提醒」時也會檢查降雨與特報。
      */
     fun check(
         context: Context,
@@ -111,7 +107,6 @@ object WeatherNotifier {
         if (settings.rainAlerts) checkRain(context, settings, alertTargets, primary.first.id)
         if (settings.warningAlerts) checkWarnings(context, settings, alertTargets)
         if (settings.morningSummary) checkMorning(context, settings, primary.first, primary.second, now)
-        if (settings.commuteNotify) checkCommute(context, settings, listOf(primary) + places, now)
     }
 
     /** 某地點即將下雨的通知內容；同一輪內容相同的地點會合併成一則。 */
@@ -179,33 +174,6 @@ object WeatherNotifier {
         settings.notifiedWarnings = active
     }
 
-    /** 出門前 90 分鐘內推送一次通勤天氣（住家 ↔ 公司／學校）。 */
-    private fun checkCommute(context: Context, settings: AppSettings, all: List<CityWeather>, now: LocalDateTime) {
-        val (home, work) = Commute.homeAndWork(all.map { it.first }) ?: return
-        val weatherOf = all.associate { it.first.id to it.second }
-        val mode = CityStore(context).loadLastRoute()?.mode ?: TravelMode.SCOOTER
-        val trip = Commute.trip(
-            home, work, weatherOf[home.id], weatherOf[work.id], now,
-            settings.commuteMorningHour, settings.commuteEveningHour,
-            travelMinutes = settings.lastCommuteMinutes(Commute.routeKey(home, work, mode)),
-        )
-        val minutes = java.time.Duration.between(now, trip.departure).toMinutes()
-        if (minutes !in 0..90) return
-        val key = trip.departure.toString()
-        if (settings.lastCommuteNotified == key) return
-        if (trip.fromHour == null && trip.toHour == null) return
-        fun line(place: City, hour: com.charlie.weather.data.HourlyForecast?) = hour?.let {
-            "${place.displayName} ${hourLabel(it.time)} ${WeatherCodes.description(it.weatherCode)} ${it.temperature.deg()}" +
-                (it.precipitationProbability?.let { p -> "，降雨 $p%" }.orEmpty())
-        } ?: "${place.displayName} 暫無資料"
-        notify(
-            context, CHANNEL_DAILY, ID_COMMUTE,
-            title = "${trip.leg.label}通勤天氣：${trip.advice}",
-            text = "${line(trip.from, trip.fromHour)}\n${line(trip.to, trip.toHour)}",
-        )
-        settings.lastCommuteNotified = key
-    }
-
     /**
      * 常用路線在設定的出發時間前 90 分鐘內，查一次沿路天氣並通知結論與提醒
      * （每一趟只通知一次；查詢失敗就等下次背景更新再試）。
@@ -219,9 +187,10 @@ object WeatherNotifier {
             .filter { (route, departure) -> Duration.between(now, departure).toMinutes() in 0..90 && "${route.id}|$departure" !in notified }
         if (due.isEmpty()) return
         createChannels(context)
-        // 起終點是「目前位置」時用最後一次定位的座標
+        // 起終點是「目前位置」時用最後一次定位的座標；自訂地點（住家、公司…）用最新的地址
         val location = repo.store.loadLocationCity()
-        fun latest(city: City) = if (city.isCurrentLocation) location ?: city else city
+        val places = repo.store.loadCities().associateBy { it.id }
+        fun latest(city: City) = if (city.isCurrentLocation) location ?: city else places[city.id] ?: city
         val sent = mutableSetOf<String>()
         due.forEach { (route, departure) ->
             val forecast = try {

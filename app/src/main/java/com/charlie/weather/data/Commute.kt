@@ -1,41 +1,16 @@
 package com.charlie.weather.data
 
-import java.time.DayOfWeek
-import java.time.LocalDateTime
-import java.time.temporal.ChronoUnit
-import java.util.Locale
-import kotlin.math.abs
-
-enum class CommuteLeg(val label: String) { TO_WORK("上班"), TO_HOME("下班") }
+import java.util.UUID
 
 /**
- * 一趟通勤：出發地在出發時間的天氣、目的地在抵達時間的天氣。
- * [travelMinutes] 是路線規劃算出的行車時間；還沒算過時為 null，抵達時間以 1 小時估計。
+ * 通勤：以「住家」與「公司」（沒有公司時用「學校」）兩個自訂地點建立「上班」「下班」兩條常用路線。
+ * 舊版的通勤卡與通勤通知已併入常用路線，[migrate] 負責把舊設定轉成路線。
  */
-data class CommuteTrip(
-    val leg: CommuteLeg,
-    val departure: LocalDateTime,
-    val from: City,
-    val to: City,
-    val fromHour: HourlyForecast?,
-    val toHour: HourlyForecast?,
-    val travelMinutes: Int? = null,
-) {
-    val arrival: LocalDateTime get() = departure.plusMinutes((travelMinutes ?: Commute.DEFAULT_MINUTES).toLong())
-    val advice: String get() = Commute.advice(fromHour, toHour)
-}
-
-/** 通勤時段預報：以「住家」與「公司」（沒有公司時用「學校」）兩個自訂地點計算。 */
 object Commute {
     const val HOME = "住家"
-
-    /** 還沒有路線行車時間時，假設通勤約 1 小時 */
-    const val DEFAULT_MINUTES = 60
+    const val MORNING_HOUR = 8
+    const val EVENING_HOUR = 18
     private val WORK = listOf("公司", "學校")
-
-    /** 行車時間快取的鍵：兩地座標與交通方式 */
-    fun routeKey(home: City, work: City, mode: TravelMode) =
-        String.format(Locale.US, "%.4f,%.4f>%.4f,%.4f|%s", home.latitude, home.longitude, work.latitude, work.longitude, mode.name)
 
     fun homeAndWork(cities: List<City>): Pair<City, City>? {
         val home = cities.firstOrNull { it.label == HOME } ?: return null
@@ -43,70 +18,62 @@ object Commute {
         return home to work
     }
 
-    /** 下一趟（或正在進行的）通勤；只算平日，週末跳到下週一早上。 */
-    fun nextDeparture(now: LocalDateTime, morningHour: Int, eveningHour: Int): Pair<CommuteLeg, LocalDateTime> {
-        var date = now.toLocalDate()
-        while (true) {
-            if (date.dayOfWeek != DayOfWeek.SATURDAY && date.dayOfWeek != DayOfWeek.SUNDAY) {
-                val morning = date.atTime(morningHour, 0)
-                val evening = date.atTime(eveningHour, 0)
-                // 出發後一小時內仍視為這一趟，方便路上查看
-                if (now.isBefore(morning.plusHours(1))) return CommuteLeg.TO_WORK to morning
-                if (now.isBefore(evening.plusHours(1))) return CommuteLeg.TO_HOME to evening
-            }
-            date = date.plusDays(1)
-        }
-    }
-
-    fun trip(
+    /** 平日上班（住家 → 公司）、下班（公司 → 住家）兩條路線 */
+    fun routes(
         home: City,
         work: City,
-        homeWeather: Weather?,
-        workWeather: Weather?,
-        now: LocalDateTime,
-        morningHour: Int,
-        eveningHour: Int,
-        travelMinutes: Int? = null,
-    ): CommuteTrip {
-        val (leg, departure) = nextDeparture(now, morningHour, eveningHour)
-        val (from, to) = if (leg == CommuteLeg.TO_WORK) home to work else work to home
-        val (fromWeather, toWeather) = if (leg == CommuteLeg.TO_WORK) homeWeather to workWeather else workWeather to homeWeather
-        val arrival = departure.plusMinutes((travelMinutes ?: DEFAULT_MINUTES).toLong())
-        return CommuteTrip(
-            leg, departure, from, to,
-            fromHour = fromWeather?.let { hourAt(it, departure) },
-            toHour = toWeather?.let { hourAt(it, arrival) },
-            travelMinutes = travelMinutes,
-        )
+        mode: TravelMode,
+        morningHour: Int = MORNING_HOUR,
+        eveningHour: Int = EVENING_HOUR,
+        newId: () -> String = { UUID.randomUUID().toString() },
+    ): List<FavoriteRoute> = listOf(
+        FavoriteRoute(newId(), "上班", home, work, mode, reminder = RouteReminder(RouteReminder.WEEKDAYS, morningHour, 0)),
+        FavoriteRoute(newId(), "下班", work, home, mode, reminder = RouteReminder(RouteReminder.WEEKDAYS, eveningHour, 0)),
+    )
+
+    /** 已經有住家 → 公司的常用路線（不管有沒有設出發時間） */
+    fun hasRoutes(favorites: List<FavoriteRoute>, home: City, work: City): Boolean =
+        favorites.any { it.sameRoute(home, work, emptyList()) }
+
+    /**
+     * 把上下班兩條路線加進 [favorites]：已經有相同起訖（沒有途經點）的路線就不重複建，
+     * 它還沒設出發時間時補上平日的提醒。
+     */
+    fun merge(favorites: List<FavoriteRoute>, commute: List<FavoriteRoute>): List<FavoriteRoute> {
+        var result = favorites
+        commute.forEach { route ->
+            val existing = result.firstOrNull { it.sameRoute(route.from, route.to, emptyList()) }
+            result = when {
+                existing == null -> result + route
+                existing.reminder == null -> result.map { if (it.id == existing.id) it.copy(reminder = route.reminder) else it }
+                else -> result
+            }
+        }
+        return result
     }
 
-    /** 取最接近的整點逐時預報（17:40 取 18:00）；沒有剛好的整點時取 1 小時內最接近的。 */
-    fun hourAt(weather: Weather, time: LocalDateTime): HourlyForecast? {
-        val target = time.plusMinutes(30).truncatedTo(ChronoUnit.HOURS)
-        return weather.hourly.firstOrNull { it.time.truncatedTo(ChronoUnit.HOURS) == target }
-            ?: weather.hourly
-                .filter { abs(ChronoUnit.MINUTES.between(it.time, time)) <= 60 }
-                .minByOrNull { abs(ChronoUnit.MINUTES.between(it.time, time)) }
+    /**
+     * 舊版通勤設定轉成常用路線。有住家與公司、而且通勤卡或通勤通知有開時才轉；
+     * 回傳 null 表示不用改。
+     */
+    fun migrate(
+        favorites: List<FavoriteRoute>,
+        cities: List<City>,
+        legacy: LegacyCommute,
+        mode: TravelMode,
+        newId: () -> String = { UUID.randomUUID().toString() },
+    ): List<FavoriteRoute>? {
+        if (!legacy.card && !legacy.notify) return null
+        val (home, work) = homeAndWork(cities) ?: return null
+        val merged = merge(favorites, routes(home, work, mode, legacy.morningHour, legacy.eveningHour, newId))
+        return merged.takeIf { it != favorites }
     }
 
     /** 這個小時可能下雨（降雨機率 ≥ 50%、有雨量或雨天代碼） */
     fun isWet(h: HourlyForecast) =
         (h.precipitationProbability ?: 0) >= 50 || h.precipitation >= 0.5 ||
             h.weatherCode in 51..67 || h.weatherCode in 80..82 || h.weatherCode in 95..99
-
-    fun advice(from: HourlyForecast?, to: HourlyForecast?): String {
-        val hours = listOfNotNull(from, to)
-        if (hours.isEmpty()) return "暫無預報資料"
-        val tips = mutableListOf<String>()
-        when {
-            hours.any { it.weatherCode in 95..99 } -> tips += "可能有雷雨，記得帶傘"
-            hours.any { it.precipitation >= 10 } -> tips += "可能有大雨，記得帶傘"
-            hours.any(::isWet) -> tips += "可能下雨，記得帶傘"
-        }
-        if (from != null && to != null && !from.temperature.isNaN() && !to.temperature.isNaN()) {
-            val diff = to.temperature - from.temperature
-            if (abs(diff) >= 4) tips += "目的地${if (diff > 0) "較熱" else "較涼"}約 ${abs(diff).toInt()}°"
-        }
-        return if (tips.isEmpty()) "兩地天氣穩定，適合出門" else tips.joinToString("；")
-    }
 }
+
+/** 舊版設定頁「通勤」區塊的設定，只用來遷移 */
+data class LegacyCommute(val card: Boolean, val notify: Boolean, val morningHour: Int, val eveningHour: Int)
