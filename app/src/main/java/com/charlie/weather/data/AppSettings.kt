@@ -4,10 +4,6 @@ import android.content.Context
 
 /** 使用者設定與通知去重用的狀態。 */
 class AppSettings(context: Context) {
-    companion object {
-        private const val COMMUTE_ROUTE_TTL_MS = 24 * 60 * 60 * 1000L
-    }
-
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     var rainAlerts: Boolean
@@ -32,48 +28,33 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("place_alerts", true)
         set(value) = prefs.edit().putBoolean("place_alerts", value).apply()
 
-    /** 有「住家」與「公司／學校」時在主畫面顯示通勤時段預報 */
-    var commuteCard: Boolean
-        get() = prefs.getBoolean("commute_card", true)
-        set(value) = prefs.edit().putBoolean("commute_card", value).apply()
+    /** 舊版「通勤」設定（已併入常用路線），只在遷移時讀一次 */
+    val legacyCommute: LegacyCommute
+        get() = LegacyCommute(
+            card = prefs.getBoolean("commute_card", true),
+            notify = prefs.getBoolean("commute_notify", true),
+            morningHour = prefs.getInt("commute_morning_hour", Commute.MORNING_HOUR),
+            eveningHour = prefs.getInt("commute_evening_hour", Commute.EVENING_HOUR),
+        )
 
-    /** 出門前推送通勤天氣 */
-    var commuteNotify: Boolean
-        get() = prefs.getBoolean("commute_notify", true)
-        set(value) = prefs.edit().putBoolean("commute_notify", value).apply()
-
-    /** 上班出發時間（小時） */
-    var commuteMorningHour: Int
-        get() = prefs.getInt("commute_morning_hour", 8)
-        set(value) = prefs.edit().putInt("commute_morning_hour", value).apply()
-
-    /** 下班出發時間（小時） */
-    var commuteEveningHour: Int
-        get() = prefs.getInt("commute_evening_hour", 18)
-        set(value) = prefs.edit().putInt("commute_evening_hour", value).apply()
+    /** 舊版通勤設定已經轉成常用路線，並清掉不再使用的設定 */
+    var commuteMigrated: Boolean
+        get() = prefs.getBoolean("commute_migrated", false)
+        set(value) {
+            prefs.edit().putBoolean("commute_migrated", value).apply {
+                if (value) {
+                    listOf(
+                        "commute_card", "commute_notify", "commute_morning_hour", "commute_evening_hour",
+                        "commute_route_key", "commute_route_minutes", "commute_route_at", "last_commute_notified",
+                    ).forEach(::remove)
+                }
+            }.apply()
+        }
 
     /** 沿路天氣沿路線取樣的間距（公里） */
     var routeStepKm: Int
         get() = prefs.getInt("route_step_km", RoutePlanner.STEP_KM.toInt())
         set(value) = prefs.edit().putInt("route_step_km", value).apply()
-
-    /** 住家與公司之間的行車時間（分鐘），以 [key] 對應地點與交通方式；超過一天或地點改變就失效 */
-    fun commuteMinutes(key: String, now: Long = System.currentTimeMillis()): Int? {
-        if (prefs.getString("commute_route_key", null) != key) return null
-        if (now - prefs.getLong("commute_route_at", 0) > COMMUTE_ROUTE_TTL_MS) return null
-        return prefs.getInt("commute_route_minutes", -1).takeIf { it > 0 }
-    }
-
-    /** 最後一次記下的行車時間（不管是否過期），背景通知用 */
-    fun lastCommuteMinutes(key: String): Int? =
-        prefs.getInt("commute_route_minutes", -1).takeIf { it > 0 && prefs.getString("commute_route_key", null) == key }
-
-    fun setCommuteMinutes(key: String, minutes: Int, now: Long = System.currentTimeMillis()) =
-        prefs.edit()
-            .putString("commute_route_key", key)
-            .putInt("commute_route_minutes", minutes)
-            .putLong("commute_route_at", now)
-            .apply()
 
     /** "C" 或 "F" */
     var temperatureUnit: String
@@ -115,11 +96,6 @@ class AppSettings(context: Context) {
 
     fun setLastRainNotifiedAt(cityId: String, value: Long) =
         prefs.edit().putLong("last_rain_notified_at_$cityId", value).apply()
-
-    /** 最後一次通勤通知，格式為「出發時間」 */
-    var lastCommuteNotified: String?
-        get() = prefs.getString("last_commute_notified", null)
-        set(value) = prefs.edit().putString("last_commute_notified", value).apply()
 
     var lastMorningDate: String?
         get() = prefs.getString("last_morning_date", null)

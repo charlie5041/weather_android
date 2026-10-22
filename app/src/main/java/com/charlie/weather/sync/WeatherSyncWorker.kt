@@ -36,14 +36,15 @@ class WeatherSyncWorker(context: Context, params: WorkerParameters) : CoroutineW
         }
         WeatherWidget.update(applicationContext, city, weather)
         WeatherNotifier.check(applicationContext, city to weather, placesWeather(repo, city, metered))
+        repo.migrateCommute()
         WeatherNotifier.checkFavoriteRoutes(applicationContext, repo)
         return Result.success()
     }
 
-    /** 其他自訂地點（住家、公司…）的天氣，供地點提醒與通勤通知使用；單一地點失敗就略過。 */
+    /** 其他自訂地點（住家、公司…）的天氣，供地點提醒使用；單一地點失敗就略過。 */
     private suspend fun placesWeather(repo: WeatherRepository, primary: City, metered: Boolean): List<Pair<City, Weather>> {
         val settings = AppSettings(applicationContext)
-        if (!settings.placeAlerts && !settings.commuteNotify) return emptyList()
+        if (!settings.placeAlerts) return emptyList()
         return repo.store.loadCities()
             .filter { it.label != null && it.id != primary.id }
             .take(MAX_PLACES)

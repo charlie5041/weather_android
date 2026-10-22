@@ -74,10 +74,6 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
     var canNotify by remember { mutableStateOf(WeatherNotifier.canNotify(context)) }
     var useCwa by remember { mutableStateOf(settings.useCwa) }
     var placeAlerts by remember { mutableStateOf(settings.placeAlerts) }
-    var commuteCard by remember { mutableStateOf(settings.commuteCard) }
-    var commuteNotify by remember { mutableStateOf(settings.commuteNotify) }
-    var commuteMorning by remember { mutableIntStateOf(settings.commuteMorningHour) }
-    var commuteEvening by remember { mutableIntStateOf(settings.commuteEveningHour) }
     var routeStep by remember { mutableIntStateOf(settings.routeStepKm) }
     var speedCameras by remember { mutableStateOf(settings.speedCameras) }
     var voiceAlerts by remember { mutableStateOf(settings.voiceAlerts) }
@@ -183,35 +179,6 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
         }
         Text(
             "通知與小工具以「${primaryCityName ?: "城市列表第一個城市"}」為準（城市列表最上方的城市），背景約每 30 分鐘更新一次。",
-            color = Color.Gray,
-            fontSize = 13.sp,
-        )
-
-        SectionTitle("通勤")
-        Section {
-            ToggleRow("通勤預報卡片", "有「住家」與「公司」（或「學校」）地點時，在「出門」分頁顯示下一趟通勤兩地的天氣", commuteCard) {
-                commuteCard = it
-                settings.commuteCard = it
-            }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-            ToggleRow("通勤天氣通知", "平日出發前 1.5 小時內推送一次兩地天氣與帶傘提醒", commuteNotify) {
-                commuteNotify = it
-                settings.commuteNotify = it
-            }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-            Text("上班出發", color = Color.White, fontSize = 17.sp, modifier = Modifier.padding(top = 10.dp))
-            HourChips(listOf(7, 8, 9, 10), commuteMorning) {
-                commuteMorning = it
-                settings.commuteMorningHour = it
-            }
-            Text("下班出發", color = Color.White, fontSize = 17.sp, modifier = Modifier.padding(top = 4.dp))
-            HourChips(listOf(17, 18, 19, 20), commuteEvening) {
-                commuteEvening = it
-                settings.commuteEveningHour = it
-            }
-        }
-        Text(
-            "在城市列表點「＋ 新增住家、公司等地點」設定兩地地址；只計算平日，週末會顯示下週一的通勤。",
             color = Color.Gray,
             fontSize = 13.sp,
         )
