@@ -27,7 +27,9 @@ import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.CameraAhead
 import com.charlie.weather.data.CameraAlerts
 import com.charlie.weather.data.CameraReportRepository
+import com.charlie.weather.data.ClimbCounter
 import com.charlie.weather.data.Commute
+import com.charlie.weather.data.GpsSignal
 import com.charlie.weather.data.JourneyStore
 import com.charlie.weather.data.LatLon
 import com.charlie.weather.data.LocationProvider
@@ -66,8 +68,10 @@ import java.util.Locale
  * - 騎乘中（有路線，[start]）：常駐通知顯示前方天氣與抵達時間；前方 20 分鐘內會遇到雨時另外跳出提醒
  *   （同一段雨只提醒一次）。開啟測速照相提醒時，路線前方 500 公尺內有測速照相也會提醒。抵達終點時停止。
  * - 行車提醒（沒有目的地，[startDrive]）：依行進方向提醒前方的測速照相；停留超過 20 分鐘自動結束。
- * 兩種模式都可以從通知「回報測速」分享移動式測速，並可用語音播報。按「結束」時停止。
+ * - 記錄足跡（[startRecord]）：只記錄軌跡，不提醒測速照相；停留超過 1 小時自動結束。
+ * 前兩種模式都可以從通知「回報測速」分享移動式測速，並可用語音播報。按「結束」時停止。
  * 開啟足跡紀錄時（預設開），從開始到結束的軌跡會存成一趟足跡（[JourneyStore]），切換模式不會中斷。
+ * 記錄足跡時可以暫停：暫停期間不定位（省電），時間與距離都不算。
  * 路線資料只放在記憶體；程序被系統回收後服務不會自行恢復。
  */
 class RideService : Service() {
@@ -112,6 +116,17 @@ class RideService : Service() {
     private var recordedKm = 0.0
     private val weatherSamples = mutableListOf<WeatherSample>()
 
+    /** 記錄足跡的開始時間、暫停狀態與累計爬升 */
+    private var startedAt = 0L
+    private var paused = false
+    private var pausedAt = 0L
+    private var pausedMs = 0L
+    private var climb = ClimbCounter()
+
+    /** 在 App 裡確認過「太短，刪除並結束」，不必再通知沒有儲存 */
+    private var discardNotice = false
+    private var lastGpsAccuracy: Float? = null
+
     /** 行車提醒記錄足跡時用的雷達短時預報（騎乘中用路線資料裡的） */
     private var driveRadar: RainNowcast? = null
     private val journeys by lazy { JourneyStore(this) }
@@ -131,6 +146,7 @@ class RideService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                if (intent.getBooleanExtra(EXTRA_DISCARD, false)) discardNotice = true
                 stopRide()
                 return START_NOT_STICKY
             }
@@ -139,14 +155,26 @@ class RideService : Service() {
                 if (listener == null) stopSelf() else scope.launch { report(fromApp) }
                 return START_NOT_STICKY
             }
+            ACTION_PAUSE -> {
+                if (loops == null) stopSelf() else pause()
+                return START_NOT_STICKY
+            }
+            ACTION_RESUME -> {
+                if (loops == null) stopSelf() else resume()
+                return START_NOT_STICKY
+            }
         }
-        if (route == null && !drive) {
+        if (route == null && !drive && !recordOnly) {
             stopRide()
             return START_NOT_STICKY
         }
         WeatherNotifier.createChannels(this)
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
-        val title = if (route != null) "沿途天氣提醒" else "行車提醒"
+        val title = when {
+            route != null -> "沿途天氣提醒"
+            drive -> "行車提醒"
+            else -> "足跡記錄中"
+        }
         try {
             ServiceCompat.startForeground(this, ID_ONGOING, ongoing(title, "正在取得位置…"), type)
         } catch (e: Exception) {
@@ -155,12 +183,15 @@ class RideService : Service() {
             return START_NOT_STICKY
         }
         _active.value = route != null
-        _driving.value = route == null
+        _driving.value = drive
         cameraAlert = null
+        // 暫停中改開始騎乘或行車提醒：接著記錄
+        if (paused) endPause()
         _live.value = LiveRide(
             routeName = route?.let { "${it.from.displayName} → ${it.to.displayName}" },
-            title = if (route != null) "騎乘中" else "行車提醒中",
+            title = title.takeIf { route == null && !drive } ?: if (route != null) "騎乘中" else "行車提醒中",
             detail = "正在取得位置…",
+            recordOnly = recordOnly,
         )
         alertedPlace = null
         alertedCameras.clear()
@@ -174,7 +205,7 @@ class RideService : Service() {
         lastCamera = null
         lastStatusAt = 0L
         if (settings.voiceAlerts) initSpeech()
-        if (!recording && settings.recordJourneys) startRecording()
+        if (!recording && (settings.recordJourneys || recordOnly)) startRecording()
         // 切換模式時重新開始定位（間隔可能不同）與背景工作
         stopLocationUpdates()
         startLocationUpdates()
@@ -192,7 +223,7 @@ class RideService : Service() {
      */
     private suspend fun cameraLoop() {
         val data = route
-        val needCameras = settings.speedCameras && (data == null || (data.mode != TravelMode.WALK && data.mode != TravelMode.BIKE))
+        val needCameras = settings.speedCameras && !recordOnly && (data == null || (data.mode != TravelMode.WALK && data.mode != TravelMode.BIKE))
         if (!needCameras) return
         val hadCameras = routeCameras.isNotEmpty()
         if (data == null) {
@@ -249,14 +280,16 @@ class RideService : Service() {
                 driveRadar = withContext(Dispatchers.IO) { repository.nowcast() } ?: driveRadar
                 lastRadar = System.currentTimeMillis()
             }
-            if (route == null) sampleDriveWeather()
-            if (route == null && System.currentTimeMillis() - movedAt >= STILL_MS) {
+            if (route == null && !paused) sampleDriveWeather()
+            // 暫停中不定位，也不自動結束
+            val stillMs = if (recordOnly) RECORD_STILL_MS else STILL_MS
+            if (route == null && !paused && System.currentTimeMillis() - movedAt >= stillMs) {
                 if (settings.rideEndNotices) notify(
                     ID_REPORT,
                     NotificationCompat.Builder(this, WeatherNotifier.CHANNEL_RIDE)
                         .setSmallIcon(R.drawable.ic_stat_weather)
-                        .setContentTitle("行車提醒已結束")
-                        .setContentText("已停留超過 ${STILL_MS / 60_000} 分鐘")
+                        .setContentTitle(if (recordOnly) "足跡記錄已結束" else "行車提醒已結束")
+                        .setContentText("已停留超過 ${stillMs / 60_000} 分鐘")
                         .setContentIntent(openApp())
                         .setAutoCancel(true)
                         .setTimeoutAfter(10 * 60_000L)
@@ -279,6 +312,7 @@ class RideService : Service() {
                 val now = System.currentTimeMillis()
                 if (location.provider == LocationManager.GPS_PROVIDER) {
                     lastGpsAt = now
+                    lastGpsAccuracy = location.accuracy.takeIf { location.hasAccuracy() }
                     recentFixes.addLast(location)
                     while (recentFixes.size > 2 && location.time - recentFixes.first().time > SPEED_WINDOW_MS) recentFixes.removeFirst()
                 } else if (now - lastGpsAt < GPS_FRESH_MS) {
@@ -316,6 +350,10 @@ class RideService : Service() {
         pendingPoints.clear()
         lastTrackPoint = null
         recordedKm = 0.0
+        startedAt = System.currentTimeMillis()
+        paused = false
+        pausedMs = 0L
+        climb = ClimbCounter()
         weatherSamples.clear()
         driveRadar = null
         recordJob = scope.launch {
@@ -337,6 +375,42 @@ class RideService : Service() {
         if (previous != null) recordedKm += Track.distanceKm(previous.position, point.position)
         lastTrackPoint = point
         pendingPoints += point
+        if (location.provider == LocationManager.GPS_PROVIDER && location.hasAltitude() && altitudeReliable(location)) {
+            climb.add(location.altitude)
+        }
+    }
+
+    private fun altitudeReliable(location: Location): Boolean =
+        !location.hasVerticalAccuracy() || location.verticalAccuracyMeters <= MAX_VERTICAL_ACCURACY_M
+
+    /** 暫停記錄：停止定位，之後的軌跡是新的一段 */
+    private fun pause() {
+        if (!recording || paused) return
+        paused = true
+        pausedAt = System.currentTimeMillis()
+        stopLocationUpdates()
+        val batch = pendingPoints.toList()
+        pendingPoints.clear()
+        journeys.append(batch)
+        journeys.pause()
+        lastTrackPoint = null
+        recentFixes.clear()
+        update()
+    }
+
+    private fun resume() {
+        if (!paused) return
+        endPause()
+        startLocationUpdates()
+        update()
+    }
+
+    private fun endPause() {
+        paused = false
+        pausedMs += System.currentTimeMillis() - pausedAt
+        climb.restart()
+        anchor = null
+        movedAt = System.currentTimeMillis()
     }
 
     private suspend fun flushPoints() {
@@ -356,37 +430,26 @@ class RideService : Service() {
         pendingPoints.clear()
         val weather = weatherSamples.toList()
         weatherSamples.clear()
+        val climbM = climb.climbM.takeIf { climb.hasAltitude }
         val store = journeys
         val app = applicationContext
         val notifySaved = settings.rideEndNotices
+        val intentional = recordOnly && !discardNotice
+        discardNotice = false
         saveScope.launch {
             job?.cancelAndJoin()
             store.append(batch)
-            val journey = store.finish(weather) ?: return@launch
+            val journey = store.finish(weather, climbM)
+            if (journey == null) {
+                // 自己按「開始記錄」卻沒存到，要說一聲（騎乘與行車提醒太短是誤觸，不通知）
+                if (intentional && notifySaved) savedNotice(app, "足跡太短，沒有儲存", "不到 ${(Track.MIN_KM * 1000).toInt()} 公尺或 ${Track.MIN_MS / 60_000} 分鐘的紀錄不會存")
+                return@launch
+            }
             JourneyStore.announce(journey)
             // App 開著時有「足跡已儲存」的對話框；通知可以在設定關掉
             if (!notifySaved) return@launch
             val text = "%s · %.1f 公里 · %d 分鐘".format(Locale.US, journey.title, journey.distanceKm, journey.durationMinutes)
-            try {
-                NotificationManagerCompat.from(app).notify(
-                    ID_JOURNEY,
-                    NotificationCompat.Builder(app, WeatherNotifier.CHANNEL_RIDE)
-                        .setSmallIcon(R.drawable.ic_stat_weather)
-                        .setContentTitle("足跡已儲存")
-                        .setContentText(text)
-                        .setContentIntent(
-                            PendingIntent.getActivity(
-                                app, 3,
-                                Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-                                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-                            ),
-                        )
-                        .setAutoCancel(true)
-                        .build(),
-                )
-            } catch (e: SecurityException) {
-                // 沒有通知權限
-            }
+            savedNotice(app, "足跡已儲存", text)
         }
     }
 
@@ -459,7 +522,19 @@ class RideService : Service() {
     private fun update() {
         val location = lastLocation
         lastStatusAt = System.currentTimeMillis()
+        if (paused) {
+            val text = "已記錄 %.1f 公里 · %s，按「繼續」接著記錄".format(Locale.US, recordedKm, minutesLabel(movingMs()))
+            notify(ID_ONGOING, ongoing("已暫停", text))
+            publish("已暫停", "暫停期間不定位，時間和距離都不算。")
+            return
+        }
         val data = route
+        if (data == null && recordOnly) {
+            val text = "已記錄 %.1f 公里 · %s".format(Locale.US, recordedKm, minutesLabel(movingMs()))
+            notify(ID_ONGOING, ongoing("足跡記錄中", text))
+            publish("足跡記錄中", "關掉螢幕也會繼續記錄；停下來休息可以按暫停。")
+            return
+        }
         if (data == null) {
             if (!drive) return
             val text = buildString {
@@ -508,17 +583,36 @@ class RideService : Service() {
         if (status.arrived) stopRide()
     }
 
+    /** 記錄的時間（扣掉暫停） */
+    private fun movingMs(): Long {
+        val now = System.currentTimeMillis()
+        return (now - startedAt - pausedMs - if (paused) now - pausedAt else 0).coerceAtLeast(0)
+    }
+
+    private fun minutesLabel(ms: Long): String {
+        val minutes = ms / 60_000
+        return if (minutes >= 60) "%d 小時 %02d 分".format(Locale.US, minutes / 60, minutes % 60) else "$minutes 分鐘"
+    }
+
     /** 更新 App 內的進行中橫條與騎乘中畫面 */
     private fun publish(title: String, text: String) {
-        val camera = cameraAlert?.takeIf { System.currentTimeMillis() - cameraAlertAt < CAMERA_NOTIFICATION_MS }
+        val now = System.currentTimeMillis()
+        val camera = cameraAlert?.takeIf { now - cameraAlertAt < CAMERA_NOTIFICATION_MS }
         _live.value = LiveRide(
             routeName = route?.let { "${it.from.displayName} → ${it.to.displayName}" },
             title = title,
             detail = text,
-            speedKmh = lastLocation?.let(::speedKmh),
+            speedKmh = if (paused) null else lastLocation?.let(::speedKmh),
             camera = camera?.first,
             cameraDetail = camera?.second,
             recordedKm = recordedKm.takeIf { recording },
+            recordOnly = recordOnly,
+            paused = paused,
+            startedAt = startedAt.takeIf { recording },
+            pausedMs = pausedMs,
+            pausedAt = pausedAt.takeIf { paused },
+            climbM = climb.climbM.takeIf { recording && climb.hasAltitude },
+            gps = if (paused) null else GpsSignal.of(lastGpsAccuracy, lastGpsAt.takeIf { it > 0 }?.let { now - it }),
         )
     }
 
@@ -628,13 +722,22 @@ class RideService : Service() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setSubText(if (recording) "足跡記錄中 · %.1f 公里".format(Locale.US, recordedKm) else null)
+            .setSubText(if (recording && !recordOnly && !paused) "足跡記錄中 · %.1f 公里".format(Locale.US, recordedKm) else null)
             .setContentIntent(openApp())
-        if (repository.cameraReports.available && settings.speedCameras) {
+        if (repository.cameraReports.available && settings.speedCameras && !recordOnly && !paused) {
             builder.addAction(
                 0, "回報測速",
                 PendingIntent.getService(
                     this, 2, Intent(this, RideService::class.java).setAction(ACTION_REPORT),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                ),
+            )
+        }
+        if (recording) {
+            builder.addAction(
+                0, if (paused) "繼續" else "暫停",
+                PendingIntent.getService(
+                    this, 4, Intent(this, RideService::class.java).setAction(if (paused) ACTION_RESUME else ACTION_PAUSE),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 ),
             )
@@ -671,6 +774,8 @@ class RideService : Service() {
         loops = null
         route = null
         drive = false
+        recordOnly = false
+        paused = false
         _active.value = false
         _driving.value = false
         _live.value = null
@@ -699,6 +804,8 @@ class RideService : Service() {
     companion object {
         private const val ACTION_STOP = "com.charlie.weather.ride.STOP"
         private const val ACTION_REPORT = "com.charlie.weather.ride.REPORT"
+        private const val ACTION_PAUSE = "com.charlie.weather.ride.PAUSE"
+        private const val ACTION_RESUME = "com.charlie.weather.ride.RESUME"
         private const val ID_ONGOING = 5001
         private const val ID_ALERT = 5002
         private const val ID_CAMERA = 5003
@@ -721,6 +828,7 @@ class RideService : Service() {
         private const val MOBILE_MS = 3 * 60_000L
 
         private const val EXTRA_FROM_APP = "from_app"
+        private const val EXTRA_DISCARD = "discard"
 
         /** 自己算時速用的時間範圍 */
         private const val SPEED_WINDOW_MS = 6_000L
@@ -734,6 +842,12 @@ class RideService : Service() {
         /** 行車提醒：在 [STILL_KM] 公里內停留 [STILL_MS] 就自動結束 */
         private const val STILL_KM = 0.2
         private const val STILL_MS = 20 * 60_000L
+
+        /** 記錄足跡：停留這麼久（沒按暫停）自動結束，避免忘了按結束一直定位 */
+        private const val RECORD_STILL_MS = 60 * 60_000L
+
+        /** 高度精度比這個差（公尺）時不算爬升 */
+        private const val MAX_VERTICAL_ACCURACY_M = 15f
         private const val REFRESH_MS = 2 * 60_000L
         private const val RADAR_MS = 10 * 60_000L
         private const val LOCATION_MS = 20_000L
@@ -749,6 +863,9 @@ class RideService : Service() {
         @Volatile
         private var drive = false
 
+        @Volatile
+        private var recordOnly = false
+
         private val _active = MutableStateFlow(false)
         private val _driving = MutableStateFlow(false)
 
@@ -763,9 +880,34 @@ class RideService : Service() {
         /** 進行中時的即時狀態（進行中橫條、騎乘中畫面）；沒有進行中時為 null */
         val live: StateFlow<LiveRide?> = _live.asStateFlow()
 
+        /** 「足跡已儲存」等結束後的通知；服務停止後才呼叫，只用 application context */
+        private fun savedNotice(app: Context, title: String, text: String) {
+            try {
+                NotificationManagerCompat.from(app).notify(
+                    ID_JOURNEY,
+                    NotificationCompat.Builder(app, WeatherNotifier.CHANNEL_RIDE)
+                        .setSmallIcon(R.drawable.ic_stat_weather)
+                        .setContentTitle(title)
+                        .setContentText(text)
+                        .setContentIntent(
+                            PendingIntent.getActivity(
+                                app, 3,
+                                Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                            ),
+                        )
+                        .setAutoCancel(true)
+                        .build(),
+                )
+            } catch (e: SecurityException) {
+                // 沒有通知權限
+            }
+        }
+
         fun start(context: Context, data: RouteData) {
             route = data
             drive = false
+            recordOnly = false
             ContextCompat.startForegroundService(context, Intent(context, RideService::class.java))
         }
 
@@ -773,7 +915,25 @@ class RideService : Service() {
         fun startDrive(context: Context) {
             route = null
             drive = true
+            recordOnly = false
             ContextCompat.startForegroundService(context, Intent(context, RideService::class.java))
+        }
+
+        /** 只記錄足跡：不設目的地、不提醒測速照相；已經在騎乘或行車提醒時不切換 */
+        fun startRecord(context: Context) {
+            if (_live.value != null) return
+            route = null
+            drive = false
+            recordOnly = true
+            ContextCompat.startForegroundService(context, Intent(context, RideService::class.java))
+        }
+
+        fun pause(context: Context) {
+            context.startService(Intent(context, RideService::class.java).setAction(ACTION_PAUSE))
+        }
+
+        fun resume(context: Context) {
+            context.startService(Intent(context, RideService::class.java).setAction(ACTION_RESUME))
         }
 
         /** 從 App 內回報移動式測速（騎乘中或行車提醒進行中才有位置與行進方向） */
@@ -781,8 +941,9 @@ class RideService : Service() {
             context.startService(Intent(context, RideService::class.java).setAction(ACTION_REPORT).putExtra(EXTRA_FROM_APP, true))
         }
 
-        fun stop(context: Context) {
-            context.startService(Intent(context, RideService::class.java).setAction(ACTION_STOP))
+        /** [discard]：使用者已確認太短不存，結束後不再通知「沒有儲存」 */
+        fun stop(context: Context, discard: Boolean = false) {
+            context.startService(Intent(context, RideService::class.java).setAction(ACTION_STOP).putExtra(EXTRA_DISCARD, discard))
         }
     }
 }

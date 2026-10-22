@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.charlie.weather.data.AppSettings
+import com.charlie.weather.data.BackgroundPower
 import com.charlie.weather.data.City
 import com.charlie.weather.data.NotificationPreset
 import com.charlie.weather.data.NotificationToggles
@@ -107,7 +108,11 @@ fun SettingsScreen(
     var privacyExcluded by remember { mutableStateOf(settings.sharePrivacyExcluded) }
     val scope = rememberCoroutineScope()
 
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
+    var backgroundOk by remember { mutableStateOf(BackgroundPower.unrestricted(context)) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        canNotify = WeatherNotifier.canNotify(context)
+        backgroundOk = BackgroundPower.unrestricted(context)
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         canNotify = granted && WeatherNotifier.canNotify(context)
@@ -248,7 +253,7 @@ fun SettingsScreen(
                 settings.voiceAlerts = it
             }
             HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-            ToggleRow("記錄足跡", "騎乘中與行車提醒時記錄軌跡，結束後存到「足跡」分頁；只存在這支手機，記錄時定位較頻繁、較耗電", recordJourneys) {
+            ToggleRow("騎乘時也記錄足跡", "騎乘中與行車提醒時記錄軌跡，結束後存到「足跡」分頁（「足跡」分頁的開始記錄不受影響）；只存在這支手機，記錄時定位較頻繁、較耗電", recordJourneys) {
                 recordJourneys = it
                 settings.recordJourneys = it
             }
@@ -322,6 +327,22 @@ fun SettingsScreen(
 
         SectionTitle("足跡")
         Section {
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("背景記錄", color = Color.White, fontSize = 17.sp)
+                    Text(
+                        if (backgroundOk) "電池不限制，關掉螢幕也會持續記錄" else "電池最佳化開著，關螢幕後系統可能停掉定位；建議改成「不限制」",
+                        color = Color.Gray,
+                        fontSize = 13.sp,
+                    )
+                }
+                if (!backgroundOk) {
+                    TextButton(onClick = { BackgroundPower.openSettings(context) }) {
+                        Text("去設定", color = Accent, fontSize = 16.sp)
+                    }
+                }
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("足跡佔用空間", color = Color.White, fontSize = 17.sp)
