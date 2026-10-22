@@ -16,6 +16,7 @@ import com.charlie.weather.R
 import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
 import com.charlie.weather.data.FavoriteRoute
+import com.charlie.weather.data.FavoriteRoutes
 import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.data.TravelMode
 import com.charlie.weather.data.Weather
@@ -68,6 +69,7 @@ object WeatherNotifier {
     private const val SNOOZE_MIN_MINUTES = 30L
 
     private const val RAIN_COOLDOWN_MS = 3 * 60 * 60_000L
+    private const val ROUTE_COVERS_RAIN_MINUTES = 120L
 
     fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -113,15 +115,23 @@ object WeatherNotifier {
         primary: CityWeather,
         places: List<CityWeather> = emptyList(),
         now: LocalDateTime = LocalDateTime.now(),
+        /** 常用路線：快出發時出發提醒已經說了沿路會不會下雨，不另外發降雨提醒 */
+        favorites: List<FavoriteRoute> = emptyList(),
     ) {
         if (!canNotify(context)) return
         createChannels(context)
         val settings = AppSettings(context)
         val alertTargets = listOf(primary) + if (settings.placeAlerts) places else emptyList()
-        if (settings.rainAlerts) checkRain(context, settings, alertTargets, primary.first.id)
+        if (settings.rainAlerts && !routeCoversRain(settings.routeReminders, favorites, now)) {
+            checkRain(context, settings, alertTargets, primary.first.id)
+        }
         if (settings.warningAlerts) checkWarnings(context, settings, alertTargets)
         if (settings.morningSummary) checkMorning(context, settings, primary.first, primary.second, now)
     }
+
+    /** 常用路線 [ROUTE_COVERS_RAIN_MINUTES] 分鐘內要出發（且有出發提醒）時，降雨提醒交給出發提醒 */
+    internal fun routeCoversRain(routeReminders: Boolean, favorites: List<FavoriteRoute>, now: LocalDateTime): Boolean =
+        routeReminders && FavoriteRoutes.departingSoon(favorites, now, ROUTE_COVERS_RAIN_MINUTES)
 
     /** 某地點即將下雨的通知內容；同一輪內容相同的地點會合併成一則。 */
     internal data class RainAlert(val headline: String, val text: String)
@@ -195,6 +205,7 @@ object WeatherNotifier {
     suspend fun checkFavoriteRoutes(context: Context, repo: WeatherRepository, now: LocalDateTime = LocalDateTime.now()) {
         if (!canNotify(context)) return
         val settings = AppSettings(context)
+        if (!settings.routeReminders) return
         val notified = settings.notifiedRouteReminders
         val due = repo.store.loadFavoriteRoutes()
             .mapNotNull { route -> route.reminder?.next(now)?.let { route to it } }

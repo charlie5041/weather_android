@@ -251,7 +251,7 @@ class RideService : Service() {
             }
             if (route == null) sampleDriveWeather()
             if (route == null && System.currentTimeMillis() - movedAt >= STILL_MS) {
-                notify(
+                if (settings.rideEndNotices) notify(
                     ID_REPORT,
                     NotificationCompat.Builder(this, WeatherNotifier.CHANNEL_RIDE)
                         .setSmallIcon(R.drawable.ic_stat_weather)
@@ -358,11 +358,14 @@ class RideService : Service() {
         weatherSamples.clear()
         val store = journeys
         val app = applicationContext
+        val notifySaved = settings.rideEndNotices
         saveScope.launch {
             job?.cancelAndJoin()
             store.append(batch)
             val journey = store.finish(weather) ?: return@launch
             JourneyStore.announce(journey)
+            // App 開著時有「足跡已儲存」的對話框；通知可以在設定關掉
+            if (!notifySaved) return@launch
             val text = "%s · %.1f 公里 · %d 分鐘".format(Locale.US, journey.title, journey.distanceKm, journey.durationMinutes)
             try {
                 NotificationManagerCompat.from(app).notify(
@@ -483,7 +486,7 @@ class RideService : Service() {
         val minutes = status.minutesToRain
         if (rain != null && minutes != null && minutes <= ALERT_MINUTES) {
             val key = rain.place ?: rain.point.distanceKm.toInt().toString()
-            if (key != alertedPlace) {
+            if (key != alertedPlace && settings.rideRainAlerts) {
                 alertedPlace = key
                 notify(
                     ID_ALERT,

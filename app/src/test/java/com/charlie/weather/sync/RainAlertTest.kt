@@ -26,6 +26,21 @@ class RainAlertTest {
     )
 
     @Test
+    fun routeDepartingSoonCoversRainAlert() {
+        // now 是 19:00；19:30 出發的常用路線會在出發提醒裡講沿路的雨
+        val evening = com.charlie.weather.data.FavoriteRoute(
+            "b", "下班", work, home, com.charlie.weather.data.TravelMode.SCOOTER,
+            reminder = com.charlie.weather.data.RouteReminder(java.time.DayOfWeek.values().toSet(), 19, 30),
+        )
+        val plain = com.charlie.weather.data.FavoriteRoute("c", "回老家", home, work, com.charlie.weather.data.TravelMode.CAR)
+        assertEquals(true, WeatherNotifier.routeCoversRain(true, listOf(plain, evening), now))
+        // 出發提醒關掉時，降雨提醒照常
+        assertEquals(false, WeatherNotifier.routeCoversRain(false, listOf(evening), now))
+        assertEquals(false, WeatherNotifier.routeCoversRain(true, listOf(plain), now))
+        assertEquals(false, WeatherNotifier.routeCoversRain(true, listOf(evening), now.minusHours(3)))
+    }
+
+    @Test
     fun rainSoonGivesAlert() {
         val alert = WeatherNotifier.rainAlert(weather(code = 80, pop = 80))!!
         assertEquals("即將下雨", alert.headline)

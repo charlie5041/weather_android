@@ -7,15 +7,15 @@ class AppSettings(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     var rainAlerts: Boolean
-        get() = prefs.getBoolean("rain_alerts", true)
+        get() = prefs.getBoolean("rain_alerts", NotificationPreset.DEFAULT.toggles.rain)
         set(value) = prefs.edit().putBoolean("rain_alerts", value).apply()
 
     var warningAlerts: Boolean
-        get() = prefs.getBoolean("warning_alerts", true)
+        get() = prefs.getBoolean("warning_alerts", NotificationPreset.DEFAULT.toggles.warnings)
         set(value) = prefs.edit().putBoolean("warning_alerts", value).apply()
 
     var morningSummary: Boolean
-        get() = prefs.getBoolean("morning_summary", true)
+        get() = prefs.getBoolean("morning_summary", NotificationPreset.DEFAULT.toggles.morning)
         set(value) = prefs.edit().putBoolean("morning_summary", value).apply()
 
     /** 早晨天氣通知的時間（小時，0–23） */
@@ -25,8 +25,35 @@ class AppSettings(context: Context) {
 
     /** 自訂地點（住家、公司…）也發送降雨提醒與天氣特報 */
     var placeAlerts: Boolean
-        get() = prefs.getBoolean("place_alerts", true)
+        get() = prefs.getBoolean("place_alerts", NotificationPreset.DEFAULT.toggles.places)
         set(value) = prefs.edit().putBoolean("place_alerts", value).apply()
+
+    /** 常用路線出發前的沿路天氣通知（總開關；各路線另有自己的出發提醒） */
+    var routeReminders: Boolean
+        get() = prefs.getBoolean("route_reminders", NotificationPreset.DEFAULT.toggles.routes)
+        set(value) = prefs.edit().putBoolean("route_reminders", value).apply()
+
+    /** 騎乘中前方 20 分鐘內會遇到雨時通知（含語音） */
+    var rideRainAlerts: Boolean
+        get() = prefs.getBoolean("ride_rain_alerts", NotificationPreset.DEFAULT.toggles.rideRain)
+        set(value) = prefs.edit().putBoolean("ride_rain_alerts", value).apply()
+
+    /** 騎乘結束時的「足跡已儲存」「行車提醒已結束」通知 */
+    var rideEndNotices: Boolean
+        get() = prefs.getBoolean("ride_end_notices", NotificationPreset.DEFAULT.toggles.rideEnd)
+        set(value) = prefs.edit().putBoolean("ride_end_notices", value).apply()
+
+    var notificationToggles: NotificationToggles
+        get() = NotificationToggles(rainAlerts, warningAlerts, morningSummary, placeAlerts, routeReminders, rideRainAlerts, rideEndNotices)
+        set(value) {
+            rainAlerts = value.rain
+            warningAlerts = value.warnings
+            morningSummary = value.morning
+            placeAlerts = value.places
+            routeReminders = value.routes
+            rideRainAlerts = value.rideRain
+            rideEndNotices = value.rideEnd
+        }
 
     /** 舊版「通勤」設定（已併入常用路線），只在遷移時讀一次 */
     val legacyCommute: LegacyCommute

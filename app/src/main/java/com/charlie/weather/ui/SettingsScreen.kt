@@ -60,6 +60,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
+import com.charlie.weather.data.NotificationPreset
+import com.charlie.weather.data.NotificationToggles
 import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.data.SharePrivacy
 import com.charlie.weather.sync.WeatherNotifier
@@ -88,6 +90,9 @@ fun SettingsScreen(
     var canNotify by remember { mutableStateOf(WeatherNotifier.canNotify(context)) }
     var useCwa by remember { mutableStateOf(settings.useCwa) }
     var placeAlerts by remember { mutableStateOf(settings.placeAlerts) }
+    var routeReminders by remember { mutableStateOf(settings.routeReminders) }
+    var rideRain by remember { mutableStateOf(settings.rideRainAlerts) }
+    var rideEnd by remember { mutableStateOf(settings.rideEndNotices) }
     var routeStep by remember { mutableIntStateOf(settings.routeStepKm) }
     var speedCameras by remember { mutableStateOf(settings.speedCameras) }
     var voiceAlerts by remember { mutableStateOf(settings.voiceAlerts) }
@@ -164,15 +169,44 @@ fun SettingsScreen(
         }
 
         SectionTitle("通知")
+        val preset = NotificationPreset.of(NotificationToggles(rain, warnings, morning, placeAlerts, routeReminders, rideRain, rideEnd))
+        fun applyPreset(p: NotificationPreset) {
+            settings.notificationToggles = p.toggles
+            rain = p.toggles.rain
+            warnings = p.toggles.warnings
+            morning = p.toggles.morning
+            placeAlerts = p.toggles.places
+            routeReminders = p.toggles.routes
+            rideRain = p.toggles.rideRain
+            rideEnd = p.toggles.rideEnd
+        }
         Section {
-            ToggleRow("降雨提醒", "未來 2 小時內降雨機率達 60% 時提醒（3 小時內不重複）", rain) {
-                rain = it
-                settings.rainAlerts = it
-            }
+            ChoiceRow<NotificationPreset?>("通知量", NotificationPreset.entries, preset, { it?.label.orEmpty() }) { it?.let(::applyPreset) }
+            Text(
+                preset?.description ?: "自訂：下面的開關和任何一組都不同。",
+                color = Color.Gray,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
             HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
             ToggleRow("天氣特報", "中央氣象署對所在縣市發布豪雨、強風、颱風等特報時通知", warnings) {
                 warnings = it
                 settings.warningAlerts = it
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow("常用路線出發前", "設了出發時間的常用路線，出發前 1.5 小時內通知沿路天氣；各路線也可以個別關掉", routeReminders) {
+                routeReminders = it
+                settings.routeReminders = it
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow("降雨提醒", "未來 2 小時內降雨機率達 60% 時提醒（3 小時內不重複）；常用路線 2 小時內要出發時交給出發提醒", rain) {
+                rain = it
+                settings.rainAlerts = it
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow("自訂地點提醒", "住家、公司等自訂地點也會收到降雨提醒與天氣特報", placeAlerts) {
+                placeAlerts = it
+                settings.placeAlerts = it
             }
             HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
             ToggleRow("每日早晨天氣", "每天早上推送今日溫度、降雨機率與特報摘要", morning) {
@@ -186,9 +220,14 @@ fun SettingsScreen(
                 }
             }
             HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-            ToggleRow("自訂地點提醒", "住家、公司等自訂地點也會收到降雨提醒與天氣特報", placeAlerts) {
-                placeAlerts = it
-                settings.placeAlerts = it
+            ToggleRow("騎乘中前方降雨", "騎乘中前方 20 分鐘內會遇到雨時通知並用語音提醒；進行中橫條一直都會顯示", rideRain) {
+                rideRain = it
+                settings.rideRainAlerts = it
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow("騎乘結束", "「足跡已儲存」「行車提醒已結束」的通知；App 開著時仍會顯示足跡已儲存", rideEnd) {
+                rideEnd = it
+                settings.rideEndNotices = it
             }
         }
         Text(
