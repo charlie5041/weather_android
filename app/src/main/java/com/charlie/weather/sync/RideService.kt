@@ -505,6 +505,7 @@ class RideService : Service() {
             wet = wet,
             place = stop.place,
         )
+        journeys.appendWeather(weatherSamples.last())
     }
 
     /**
@@ -529,6 +530,7 @@ class RideService : Service() {
             rainMm = radarMm ?: hour?.precipitation,
             wet = if (radarMm != null) radarMm >= RainNowcast.WET_MM else hour?.let(Commute::isWet) == true,
         )
+        journeys.appendWeather(weatherSamples.last())
     }
 
     /** 回報目前位置有移動式測速；從 App 按的時候另外跳出 Toast */
