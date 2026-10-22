@@ -72,7 +72,7 @@ private fun dayWord(time: LocalDateTime, today: LocalDate) = when (time.toLocalD
 /**
  * 「出門」分頁：看路線上的天氣。查新路線、12 小時內下一趟常用路線的沿路結論、其他常用路線。
  * 通勤就是「上班」「下班」兩條常用路線；有住家與公司但還沒建立時，提供一鍵建立。
- * 不設目的地的行車提醒（測速）在「足跡」分頁。
+ * 搜尋框下面是「直接出發」（不設目的地的行車提醒）；進行中的狀態在分頁列上方的進行中橫條。
  */
 @Composable
 fun OutingScreen(
@@ -80,21 +80,22 @@ fun OutingScreen(
     upcoming: UpcomingTrip?,
     /** 自訂地點中的住家與公司（或學校） */
     commutePlaces: Pair<City, City>?,
-    /** 騎乘中模式進行中 */
+    /** 騎乘中或行車提醒進行中（狀態在分頁列上方的進行中橫條） */
     rideActive: Boolean,
-    canReportCameras: Boolean,
     onNewRoute: () -> Unit,
     onOpen: (FavoriteRoute, LocalDateTime?) -> Unit,
     onCreateCommute: (Pair<City, City>) -> Unit,
     onStartRide: (RouteData) -> Unit,
-    onStopRide: () -> Unit,
-    onReportCamera: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** 直接出發：不設目的地的行車提醒 */
+    onStartDrive: () -> Unit = {},
+    recordJourneys: Boolean = true,
+    speedCameras: Boolean = true,
     today: LocalDate = LocalDate.now(),
 ) {
     LazyColumn(
         Modifier.fillMaxSize().background(Color.Black).statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 160.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -121,14 +122,9 @@ fun OutingScreen(
                 Text("要去哪裡？查沿路天氣", color = OutingSecondary, fontSize = 16.sp)
             }
         }
-        if (rideActive) {
-            item {
-                ActiveCard(
-                    title = "騎乘中：前方下雨時通知",
-                    onStop = onStopRide,
-                    onReport = onReportCamera.takeIf { canReportCameras },
-                )
-            }
+        // 要出門時先決定要不要設目的地：查路線（上面）或直接出發
+        if (!rideActive) {
+            item { DriveCard(onStartDrive, recordJourneys, speedCameras) }
         }
         upcoming?.let { trip ->
             item { NextTripCard(trip, today, rideActive, onOpen = { onOpen(trip.route, trip.departure) }, onStartRide = onStartRide) }
@@ -217,18 +213,6 @@ private fun NextTripCard(
     }
 }
 
-@Composable
-internal fun ActiveCard(title: String, onStop: () -> Unit, onReport: (() -> Unit)?) {
-    OutingPanel {
-        Text(title, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PillButton("結束", OutingDivider, Color.White, Modifier.weight(1f), onStop)
-            // 進行中才有目前位置與行進方向，可以回報移動式測速
-            onReport?.let { PillButton("📷 回報測速", OutingCamera, Color.Black, Modifier.weight(1f), it) }
-        }
-    }
-}
-
 /**
  * 常用路線一行一條，點了開啟沿路天氣；還沒有常用路線時說明怎麼加。
  * [newCommute] 不為 null 時（有住家與公司、還沒有上班路線）最上面提供一鍵建立上下班路線。
@@ -299,19 +283,19 @@ private fun FavoritesCard(
     }
 }
 
-/** 不設目的地的行車提醒：依行進方向提醒前方的測速照相。 */
+/** 直接出發（不設目的地的行車提醒）：依行進方向提醒前方的測速照相並記錄足跡。 */
 @Composable
 internal fun DriveCard(onStart: () -> Unit, recordJourneys: Boolean, speedCameras: Boolean = true) {
     OutingPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("行車提醒", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                Text("直接出發", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Medium)
                 Text(
                     when {
                         !speedCameras && recordJourneys -> "測速照相提醒已關閉（設定 → 騎乘時），只記錄足跡"
                         !speedCameras -> "測速照相提醒已關閉，可在設定 → 騎乘時開啟"
-                        recordJourneys -> "不用設目的地，提醒前方的測速照相並記錄足跡"
-                        else -> "不用設目的地，提醒前方的測速照相"
+                        recordJourneys -> "不設目的地，提醒前方的測速照相並記錄足跡"
+                        else -> "不設目的地，提醒前方的測速照相"
                     },
                     fontSize = 13.sp,
                     color = OutingSecondary,
@@ -331,7 +315,7 @@ internal fun DriveCard(onStart: () -> Unit, recordJourneys: Boolean, speedCamera
             )
         }
         Text(
-            "停留超過 20 分鐘自動結束；也可以在通知欄的快速設定加入「測速提醒」方塊。",
+            "停留超過 20 分鐘自動結束；通知欄的快速設定也可以加入「測速提醒」方塊。",
             fontSize = 12.sp,
             color = OutingSecondary,
             lineHeight = 16.sp,

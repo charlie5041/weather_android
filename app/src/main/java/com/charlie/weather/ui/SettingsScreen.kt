@@ -76,6 +76,8 @@ fun SettingsScreen(
     places: List<City> = emptyList(),
     onAddPlace: () -> Unit = {},
     onEditPlace: (City) -> Unit = {},
+    /** 重新做一次出門設定（交通方式、住家公司、上下班時間） */
+    onRunSetup: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val settings = remember { AppSettings(context) }
@@ -90,6 +92,7 @@ fun SettingsScreen(
     var speedCameras by remember { mutableStateOf(settings.speedCameras) }
     var voiceAlerts by remember { mutableStateOf(settings.voiceAlerts) }
     var recordJourneys by remember { mutableStateOf(settings.recordJourneys) }
+    var keepScreenOn by remember { mutableStateOf(settings.keepScreenOnRiding) }
     val journeyStore = remember { JourneyStore(context) }
     val journeysVersion by JourneyStore.changed.collectAsStateWithLifecycle()
     var journeyBytes by remember { mutableStateOf<Long?>(null) }
@@ -210,6 +213,11 @@ fun SettingsScreen(
                 recordJourneys = it
                 settings.recordJourneys = it
             }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow("騎乘中畫面保持螢幕開啟", "點進行中橫條打開的騎乘中畫面開著時，螢幕不會自動關閉；較耗電", keepScreenOn) {
+                keepScreenOn = it
+                settings.keepScreenOnRiding = it
+            }
         }
         Text(
             "測速照相使用警政署公布的固定式測速執法地點（每週更新）與使用者回報的移動式測速，與現場可能不同，請依實際速限行駛。",
@@ -244,6 +252,12 @@ fun SettingsScreen(
             "用在常用路線的起終點、地點的降雨提醒，以及分享足跡時要藏起來的範圍。",
             color = Color.Gray,
             fontSize = 13.sp,
+        )
+        Text(
+            "重新設定交通方式與上下班時間 ›",
+            color = Accent,
+            fontSize = 15.sp,
+            modifier = Modifier.clickable(role = Role.Button, onClick = onRunSetup).padding(horizontal = 4.dp, vertical = 4.dp),
         )
 
         SectionTitle("分享足跡的隱私區")

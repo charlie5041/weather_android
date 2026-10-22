@@ -16,6 +16,22 @@ data class RideProgress(
     val remainingKm: Double,
 )
 
+/**
+ * App 內進行中橫條與騎乘中畫面顯示的即時狀態，內容與常駐通知相同。
+ * [routeName] 為 null 時是不設目的地的行車提醒。
+ */
+data class LiveRide(
+    val routeName: String?,
+    val title: String,
+    val detail: String,
+    val speedKmh: Int? = null,
+    /** 最近一次測速照相提醒（提醒後一段時間內）的標題與內文 */
+    val camera: String? = null,
+    val cameraDetail: String? = null,
+    /** 記錄足跡時目前的里程 */
+    val recordedKm: Double? = null,
+)
+
 /** 騎乘中通知的內容 */
 data class RideStatus(
     val title: String,

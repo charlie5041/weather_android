@@ -141,13 +141,10 @@ class ScreenshotTest {
                 upcoming = trip,
                 commutePlaces = home to work,
                 rideActive = false,
-                canReportCameras = false,
                 onNewRoute = {},
                 onOpen = { _, _ -> },
                 onCreateCommute = {},
                 onStartRide = {},
-                onStopRide = {},
-                onReportCamera = {},
                 onOpenSettings = {},
                 today = now.toLocalDate(),
             )
@@ -163,13 +160,10 @@ class ScreenshotTest {
             commutePlaces = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家") to
                 City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司"),
             rideActive = false,
-            canReportCameras = true,
             onNewRoute = {},
             onOpen = { _, _ -> },
             onCreateCommute = {},
             onStartRide = {},
-            onStopRide = {},
-            onReportCamera = {},
             onOpenSettings = {},
         )
     }
@@ -207,6 +201,40 @@ class ScreenshotTest {
             today = LocalDate.of(2026, 10, 22),
             zone = ZoneOffset.ofHours(8),
         )
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h880dp-xhdpi")
+    fun rideScreen() = capture("20_ride_screen") {
+        RideScreen(
+            live = com.charlie.weather.data.LiveRide(
+                routeName = "中和區 → 內湖區",
+                title = "約 12 分鐘後可能下雨",
+                detail = "大安區一帶 · 降雨機率 70%。還有 6.4 公里，約 08:49 抵達",
+                speedKmh = 42,
+                camera = "📷 前方 400 公尺測速照相・速限 50",
+                cameraDetail = "新北市中和區中正路",
+                recordedKm = 7.2,
+            ),
+            onReportCamera = {},
+            onStop = {},
+            onClose = {},
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h300dp-xhdpi")
+    fun liveBar() = capture("21_live_bar") {
+        androidx.compose.foundation.layout.Column {
+            LiveBar(com.charlie.weather.data.LiveRide("中和區 → 內湖區", "約 12 分鐘後可能下雨", ""), onOpen = {}, onStop = {})
+            LiveBar(com.charlie.weather.data.LiveRide(null, "行車提醒中", "前方 500 公尺內有測速照相時提醒"), onOpen = {}, onStop = {})
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h800dp-xhdpi")
+    fun setupScreen() = capture("22_setup") {
+        SetupScreen(places = emptyList(), initialMode = com.charlie.weather.data.TravelMode.SCOOTER, onEditPlace = { _, _ -> }, onFinish = { _, _, _ -> }, onSkip = {})
     }
 
     @Test

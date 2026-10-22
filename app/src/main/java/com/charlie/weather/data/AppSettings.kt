@@ -71,6 +71,21 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("speed_cameras", true)
         set(value) = prefs.edit().putBoolean("speed_cameras", value).apply()
 
+    /** 第一次使用的出門設定（交通方式、住家公司、上下班時間）做過或跳過了 */
+    var setupDone: Boolean
+        get() = prefs.getBoolean("setup_done", false)
+        set(value) = prefs.edit().putBoolean("setup_done", value).apply()
+
+    /** 出門設定選的交通方式：查新路線、建立上下班路線的預設值 */
+    var defaultTravelMode: TravelMode
+        get() = prefs.getString("default_travel_mode", null)?.let { name -> TravelMode.entries.firstOrNull { it.name == name } } ?: TravelMode.SCOOTER
+        set(value) = prefs.edit().putString("default_travel_mode", value.name).apply()
+
+    /** App 內的騎乘中畫面開著時保持螢幕開啟（較耗電） */
+    var keepScreenOnRiding: Boolean
+        get() = prefs.getBoolean("keep_screen_on_riding", false)
+        set(value) = prefs.edit().putBoolean("keep_screen_on_riding", value).apply()
+
     /** 騎乘中與行車提醒時記錄軌跡，存成足跡 */
     var recordJourneys: Boolean
         get() = prefs.getBoolean("record_journeys", true)
