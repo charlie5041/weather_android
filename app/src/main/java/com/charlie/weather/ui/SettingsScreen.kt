@@ -1,5 +1,12 @@
 package com.charlie.weather.ui
 
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.charlie.weather.data.JourneyStore
+import kotlinx.coroutines.launch
+import java.util.Locale
 import android.Manifest
 import android.content.Intent
 import android.os.Build
@@ -75,6 +82,12 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
     var speedCameras by remember { mutableStateOf(settings.speedCameras) }
     var voiceAlerts by remember { mutableStateOf(settings.voiceAlerts) }
     var recordJourneys by remember { mutableStateOf(settings.recordJourneys) }
+    val journeyStore = remember { JourneyStore(context) }
+    val journeysVersion by JourneyStore.changed.collectAsStateWithLifecycle()
+    var journeyBytes by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(journeysVersion) { journeyBytes = journeyStore.usageBytes() }
+    var confirmClearJourneys by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
 
@@ -224,6 +237,20 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
                 recordJourneys = it
                 settings.recordJourneys = it
             }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("足跡佔用空間", color = Color.White, fontSize = 17.sp)
+                    Text(
+                        journeyBytes?.let { "%.1f MB（含照片）".format(Locale.US, it / 1_048_576.0) } ?: "計算中…",
+                        color = Color.Gray,
+                        fontSize = 14.sp,
+                    )
+                }
+                TextButton(onClick = { confirmClearJourneys = true }, enabled = (journeyBytes ?: 0L) > 0L) {
+                    Text("全部清除", color = Color(0xFFFF453A), fontSize = 16.sp)
+                }
+            }
         }
         Text(
             "沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。\n" +
@@ -253,6 +280,21 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
         )
         Spacer(Modifier.height(8.dp))
         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+    }
+    if (confirmClearJourneys) {
+        AlertDialog(
+            onDismissRequest = { confirmClearJourneys = false },
+            containerColor = PanelColor,
+            title = { Text("清除全部足跡？", color = Color.White) },
+            text = { Text("所有足跡與加入的照片副本都會刪除，無法復原。相簿裡的照片不受影響。", color = Color.Gray) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClearJourneys = false
+                    scope.launch { journeyStore.clearAll() }
+                }) { Text("清除", color = Color(0xFFFF453A)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmClearJourneys = false }) { Text("取消", color = Accent) } },
+        )
     }
 }
 
