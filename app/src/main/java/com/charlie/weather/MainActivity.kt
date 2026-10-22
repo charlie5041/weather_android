@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.widget.Toast
+import androidx.core.app.NotificationManagerCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -25,6 +26,9 @@ class MainActivity : ComponentActivity() {
     /** 點常用路線通知開啟時要開的路線 */
     private var favoriteRouteId by mutableStateOf<String?>(null)
 
+    /** 從通知的「開始騎乘」開啟：路線查好後直接開始騎乘中模式 */
+    private var startFavoriteRide by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -36,7 +40,7 @@ class MainActivity : ComponentActivity() {
         WeatherSyncWorker.schedule(this)
         if (savedInstanceState == null) {
             sharedText = sharedTextOf(intent)
-            favoriteRouteId = intent?.getStringExtra(WeatherNotifier.EXTRA_FAVORITE_ROUTE)
+            openFavoriteIfAsked(intent)
             startDriveIfAsked(intent)
         }
         setContent {
@@ -44,7 +48,11 @@ class MainActivity : ComponentActivity() {
                 sharedText = sharedText,
                 onSharedTextHandled = { sharedText = null },
                 favoriteRouteId = favoriteRouteId,
-                onFavoriteRouteHandled = { favoriteRouteId = null },
+                startFavoriteRide = startFavoriteRide,
+                onFavoriteRouteHandled = {
+                    favoriteRouteId = null
+                    startFavoriteRide = false
+                },
             )
         }
     }
@@ -52,8 +60,19 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         sharedTextOf(intent)?.let { sharedText = it }
-        intent.getStringExtra(WeatherNotifier.EXTRA_FAVORITE_ROUTE)?.let { favoriteRouteId = it }
+        openFavoriteIfAsked(intent)
         startDriveIfAsked(intent)
+    }
+
+    /** 點常用路線通知（或通知上的「開始騎乘」）開啟時要開的路線 */
+    private fun openFavoriteIfAsked(intent: Intent?) {
+        val id = intent?.getStringExtra(WeatherNotifier.EXTRA_FAVORITE_ROUTE) ?: return
+        startFavoriteRide = intent.getBooleanExtra(WeatherNotifier.EXTRA_START_RIDE, false)
+        favoriteRouteId = id
+        // 按通知上的按鈕不會自動收起通知
+        if (intent.hasExtra(WeatherNotifier.EXTRA_NOTIFICATION_ID)) {
+            NotificationManagerCompat.from(this).cancel(intent.getIntExtra(WeatherNotifier.EXTRA_NOTIFICATION_ID, 0))
+        }
     }
 
     /** 快速設定方塊開啟時開始行車提醒（App 在前景才能啟動定位的前景服務） */

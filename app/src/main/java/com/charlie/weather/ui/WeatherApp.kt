@@ -15,6 +15,7 @@ import com.charlie.weather.data.SharePrivacy
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
 import com.charlie.weather.data.FavoriteRoute
+import com.charlie.weather.data.FavoriteRoutes
 import com.charlie.weather.data.Journey
 import com.charlie.weather.data.JourneyStore
 import com.charlie.weather.data.RouteData
@@ -77,6 +78,8 @@ fun WeatherApp(
     onSharedTextHandled: () -> Unit = {},
     /** 點常用路線的出發提醒通知開啟時，要開的路線 id */
     favoriteRouteId: String? = null,
+    /** 從通知的「開始騎乘」開啟：路線查好後直接開始騎乘中模式 */
+    startFavoriteRide: Boolean = false,
     onFavoriteRouteHandled: () -> Unit = {},
 ) {
     val cities by vm.cities.collectAsStateWithLifecycle()
@@ -89,7 +92,10 @@ fun WeatherApp(
     val recentPlaces by vm.recentPlaces.collectAsStateWithLifecycle()
     val riding by RideService.active.collectAsStateWithLifecycle()
 
-    var tab by rememberSaveable { mutableStateOf(Tab.WEATHER) }
+    // 常用路線快要出發時直接開在「出門」，其他時候開在「天氣」
+    var tab by rememberSaveable {
+        mutableStateOf(if (FavoriteRoutes.departingSoon(vm.favorites.value, LocalDateTime.now())) Tab.OUTING else Tab.WEATHER)
+    }
     val driving by RideService.driving.collectAsStateWithLifecycle()
     var showList by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -132,16 +138,24 @@ fun WeatherApp(
             routeRequest = request
         }
     }
-    fun openFavorite(route: FavoriteRoute, departure: LocalDateTime?) {
+    fun openFavorite(route: FavoriteRoute, departure: LocalDateTime?, autoStartRide: Boolean = false) {
         val r = vm.latestRoute(route)
         showList = false
         showSettings = false
         detail = null
-        routeRequest = RouteRequest(r.from, r.to, departure, r.mode, r.via)
+        routeRequest = RouteRequest(r.from, r.to, departure, r.mode, r.via, autoStartRide = autoStartRide)
     }
     LaunchedEffect(favoriteRouteId) {
         val id = favoriteRouteId ?: return@LaunchedEffect
-        vm.favorites.value.firstOrNull { it.id == id }?.let { openFavorite(it, it.reminder?.next(LocalDateTime.now())) }
+        vm.favorites.value.firstOrNull { it.id == id }?.let { route ->
+            // 按「開始騎乘」是現在就要出發，沿路天氣從現在算起
+            if (startFavoriteRide) {
+                tab = Tab.OUTING
+                openFavorite(route, null, autoStartRide = true)
+            } else {
+                openFavorite(route, route.reminder?.next(LocalDateTime.now()))
+            }
+        }
         onFavoriteRouteHandled()
     }
     fun startRide(data: RouteData) {

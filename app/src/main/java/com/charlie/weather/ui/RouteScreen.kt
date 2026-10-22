@@ -142,6 +142,8 @@ data class RouteRequest(
     val departure: LocalDateTime? = null,
     val mode: TravelMode? = null,
     val via: List<City> = emptyList(),
+    /** 查到沿路天氣後直接開始騎乘中模式（從通知的「開始騎乘」開啟） */
+    val autoStartRide: Boolean = false,
 )
 
 /**
@@ -220,6 +222,14 @@ fun RouteScreen(
     val data = routes?.getOrNull(selected)
     val effectiveDeparture = departureFor(data)
     val forecast = remember(data, effectiveDeparture) { data?.let { RoutePlanner.evaluate(it, effectiveDeparture) } }
+    // 從通知的「開始騎乘」開啟：第一次查到結果就開始，之後改條件不再自動開始
+    var autoStartPending by remember { mutableStateOf(request.autoStartRide) }
+    LaunchedEffect(forecast) {
+        val f = forecast ?: return@LaunchedEffect
+        if (!autoStartPending) return@LaunchedEffect
+        autoStartPending = false
+        if (!rideActive) onStartRide?.invoke(f.data)
+    }
 
     val endpoint = editing
     if (endpoint != null) {
