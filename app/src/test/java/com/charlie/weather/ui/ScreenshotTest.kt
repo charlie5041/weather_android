@@ -113,8 +113,8 @@ class ScreenshotTest {
     }
 
     @Test
-    @Config(qualifiers = "w400dp-h760dp-xhdpi")
-    fun tripCard() {
+    @Config(qualifiers = "w400dp-h1300dp-xhdpi")
+    fun outingScreen() {
         val home = City("addr_1", "內湖區", "臺北市內湖區", 25.08, 121.57, label = "住家")
         val work = City("addr_2", "信義區", "臺北市信義區", 25.03, 121.56, label = "公司")
         val dry = sampleWeather(code = 2)
@@ -134,15 +134,47 @@ class ScreenshotTest {
             reminder = com.charlie.weather.data.RouteReminder(setOf(java.time.DayOfWeek.SATURDAY, java.time.DayOfWeek.SUNDAY), 9, 30),
         )
         val trip = UpcomingTrip(commute, now, com.charlie.weather.data.RoutePlanner.evaluate(data, now, now))
-        capture("13_trip_card") {
-            androidx.compose.foundation.layout.Column(
-                androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF3F7CC0)).padding(16.dp),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
-            ) {
-                TripCard(listOf(commute, weekend), trip, androidx.compose.ui.Modifier.fillMaxWidth(), now.toLocalDate(), onOpen = { _, _ -> }, onNewRoute = {})
-                TripCard(emptyList(), null, androidx.compose.ui.Modifier.fillMaxWidth(), now.toLocalDate(), onOpen = { _, _ -> }, onNewRoute = {})
-            }
+        val commuteTrip = com.charlie.weather.data.Commute.trip(home, work, dry, wet, now, 8, 18)
+        capture("13_outing") {
+            OutingScreen(
+                favorites = listOf(commute, weekend),
+                upcoming = trip,
+                commute = commuteTrip,
+                rideActive = false,
+                driving = false,
+                canReportCameras = false,
+                onNewRoute = {},
+                onOpen = { _, _ -> },
+                onOpenCommuteRoute = {},
+                onStartRide = {},
+                onStopRide = {},
+                onStartDrive = {},
+                onReportCamera = {},
+                onOpenSettings = {},
+                today = now.toLocalDate(),
+            )
         }
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h880dp-xhdpi")
+    fun outingScreenEmpty() = capture("14_outing_empty") {
+        OutingScreen(
+            favorites = emptyList(),
+            upcoming = null,
+            commute = null,
+            rideActive = false,
+            driving = true,
+            canReportCameras = true,
+            onNewRoute = {},
+            onOpen = { _, _ -> },
+            onOpenCommuteRoute = {},
+            onStartRide = {},
+            onStopRide = {},
+            onStartDrive = {},
+            onReportCamera = {},
+            onOpenSettings = {},
+        )
     }
 
     @Test

@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -50,14 +49,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.charlie.weather.data.AppSettings
-import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.RoutePlanner
-import com.charlie.weather.sync.RideService
 import com.charlie.weather.sync.WeatherNotifier
 import com.charlie.weather.sync.WeatherSyncWorker
-import com.google.firebase.FirebaseApp
 
 private val SectionColor = Color(0xFF1C1C1E)
 
@@ -79,8 +74,6 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
     var routeStep by remember { mutableIntStateOf(settings.routeStepKm) }
     var speedCameras by remember { mutableStateOf(settings.speedCameras) }
     var voiceAlerts by remember { mutableStateOf(settings.voiceAlerts) }
-    val driving by RideService.driving.collectAsStateWithLifecycle()
-    val canReportCameras = speedCameras && remember { FirebaseApp.getApps(context).isNotEmpty() }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
 
@@ -182,7 +175,7 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
 
         SectionTitle("通勤")
         Section {
-            ToggleRow("通勤預報卡片", "有「住家」與「公司」（或「學校」）地點時，在主畫面顯示下一趟通勤兩地的天氣", commuteCard) {
+            ToggleRow("通勤預報卡片", "有「住家」與「公司」（或「學校」）地點時，在「出門」分頁顯示下一趟通勤兩地的天氣", commuteCard) {
                 commuteCard = it
                 settings.commuteCard = it
             }
@@ -232,38 +225,6 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
             color = Color.Gray,
             fontSize = 13.sp,
         )
-
-        SectionTitle("行車提醒（不設目的地）")
-        Section {
-            Text(
-                if (driving) "行車提醒進行中" else "不用輸入目的地，依行進方向提醒前方的測速照相",
-                color = Color.White,
-                fontSize = 15.sp,
-            )
-            Text(
-                "常駐通知可按「回報測速」分享看到的移動式測速，2 小時內會提醒經過的人。停留超過 20 分鐘自動結束；" +
-                    "也可以在通知欄的快速設定加入「測速提醒」方塊。",
-                color = Color.Gray,
-                fontSize = 14.sp,
-            )
-            TextButton(onClick = {
-                when {
-                    driving -> RideService.stop(context)
-                    !LocationProvider(context).hasPermission() ->
-                        Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
-                    else -> RideService.startDrive(context)
-                }
-            }) {
-                Text(if (driving) "結束行車提醒" else "開始行車提醒", color = Color(0xFF0A84FF), fontSize = 16.sp)
-            }
-            // 行車提醒進行中才有目前位置與行進方向
-            if (driving && canReportCameras) {
-                TextButton(onClick = { RideService.report(context) }) {
-                    Text("📷 回報移動式測速", color = Color(0xFFFF9F0A), fontSize = 16.sp)
-                }
-            }
-        }
-
 
         SectionTitle("桌面小工具")
         Section {
