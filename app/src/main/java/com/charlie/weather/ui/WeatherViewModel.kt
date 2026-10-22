@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.charlie.weather.data.AddressGeocoder
 import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
+import com.charlie.weather.data.Commute
 import com.charlie.weather.data.CwaParser
 import com.charlie.weather.data.FavoriteRoute
 import com.charlie.weather.data.FavoriteRoutes
@@ -53,7 +54,7 @@ data class UpcomingTrip(
 )
 
 class WeatherViewModel(app: Application) : AndroidViewModel(app) {
-    private val repository = WeatherRepository.get(app)
+    private val repository = WeatherRepository.get(app).also { it.migrateCommute() }
     private val store = repository.store
     private val locationProvider = LocationProvider(app)
 
@@ -270,15 +271,6 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         return result?.toRouteCity()
     }
 
-    private val _commuteMinutes = MutableStateFlow<Int?>(null)
-
-    /** 住家到公司的行車時間（分鐘）；通勤卡片用來算抵達時間 */
-    val commuteMinutes: StateFlow<Int?> = _commuteMinutes.asStateFlow()
-
-    fun loadCommuteMinutes(home: City, work: City) {
-        viewModelScope.launch { _commuteMinutes.value = repository.commuteMinutes(home, work) }
-    }
-
     /** 行車時間含路況時，改出發時間要重新查詢路線 */
     val trafficAwareRoutes: Boolean get() = repository.trafficAwareRoutes
 
@@ -304,6 +296,14 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         _favorites.update { list ->
             if (list.any { it.id == route.id }) list.map { if (it.id == route.id) route else it } else list + route
         }
+        store.saveFavoriteRoutes(_favorites.value)
+        refreshUpcoming(force = true)
+    }
+
+    /** 用住家與公司（或學校）一次建立平日的「上班」「下班」兩條常用路線 */
+    fun createCommuteRoutes(home: City, work: City) {
+        val mode = store.loadLastRoute()?.mode ?: TravelMode.SCOOTER
+        _favorites.update { list -> Commute.merge(list, Commute.routes(home, work, mode)) }
         store.saveFavoriteRoutes(_favorites.value)
         refreshUpcoming(force = true)
     }
