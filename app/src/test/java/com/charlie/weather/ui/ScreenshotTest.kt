@@ -177,6 +177,60 @@ class ScreenshotTest {
         )
     }
 
+    /** 中和到內湖一帶彎曲的假軌跡 */
+    private fun sampleJourney(id: String, start: java.time.LocalDateTime, km: Double, minutes: Long, wiggle: Double, from: String?, to: String?, name: String? = null): com.charlie.weather.data.Journey {
+        val startMs = start.toInstant(ZoneOffset.ofHours(8)).toEpochMilli()
+        val points = (0..40).map { i ->
+            val t = i / 40.0
+            com.charlie.weather.data.TrackPoint(
+                startMs + (minutes * 60_000 * t).toLong(),
+                25.0 + 0.08 * t + 0.01 * kotlin.math.sin(t * PI * wiggle),
+                121.5 + 0.07 * t + 0.012 * cos(t * PI * wiggle * 0.7),
+            )
+        }
+        return com.charlie.weather.data.Journey(id, points.first().time, points.last().time, km, points, from, to, name)
+    }
+
+    private val sampleJourneys by lazy {
+        listOf(
+            sampleJourney("3", java.time.LocalDateTime.of(2026, 10, 21, 18, 5), 14.2, 41, 3.0, "內湖區", "中和區"),
+            sampleJourney("2", java.time.LocalDateTime.of(2026, 10, 21, 8, 12), 13.6, 37, 2.0, "中和區", "內湖區"),
+            sampleJourney("1", java.time.LocalDateTime.of(2026, 10, 18, 9, 30), 52.8, 128, 6.0, "中和區", "烏來區", name = "週末烏來"),
+            sampleJourney("0", java.time.LocalDateTime.of(2026, 9, 28, 14, 0), 6.1, 18, 1.0, "中和區", null),
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h900dp-xhdpi")
+    fun footprints() = capture("15_footprints") {
+        FootprintsScreen(
+            journeys = sampleJourneys,
+            onOpen = {},
+            onOpenSettings = {},
+            today = LocalDate.of(2026, 10, 22),
+            zone = ZoneOffset.ofHours(8),
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h500dp-xhdpi")
+    fun footprintsEmpty() = capture("16_footprints_empty") {
+        FootprintsScreen(journeys = emptyList(), onOpen = {}, onOpenSettings = {}, today = LocalDate.of(2026, 10, 22))
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h900dp-xhdpi")
+    fun footprintDetail() = capture("17_footprint_detail") {
+        FootprintDetailScreen(
+            journey = sampleJourneys[1],
+            onRename = {},
+            onDelete = {},
+            onClose = {},
+            googleMap = false,
+            zone = ZoneOffset.ofHours(8),
+        )
+    }
+
     @Test
     @Config(qualifiers = "w400dp-h400dp-xhdpi")
     fun routeHazards() = capture("12_route_hazards") {

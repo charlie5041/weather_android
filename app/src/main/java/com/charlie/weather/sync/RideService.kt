@@ -27,6 +27,7 @@ import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.CameraAhead
 import com.charlie.weather.data.CameraAlerts
 import com.charlie.weather.data.CameraReportRepository
+import com.charlie.weather.data.JourneyStore
 import com.charlie.weather.data.LatLon
 import com.charlie.weather.data.LocationProvider
 import com.charlie.weather.data.ReportResult
@@ -35,6 +36,8 @@ import com.charlie.weather.data.RouteCamera
 import com.charlie.weather.data.RouteData
 import com.charlie.weather.data.SpeedCamera
 import com.charlie.weather.data.SpeedCameraRepository
+import com.charlie.weather.data.Track
+import com.charlie.weather.data.TrackPoint
 import com.charlie.weather.data.TravelMode
 import com.charlie.weather.data.WeatherRepository
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +62,7 @@ import java.util.Locale
  *   （同一段雨只提醒一次）。開啟測速照相提醒時，路線前方 500 公尺內有測速照相也會提醒。抵達終點時停止。
  * - 行車提醒（沒有目的地，[startDrive]）：依行進方向提醒前方的測速照相；停留超過 20 分鐘自動結束。
  * 兩種模式都可以從通知「回報測速」分享移動式測速，並可用語音播報。按「結束」時停止。
+ * 開啟足跡紀錄時（預設開），從開始到結束的軌跡會存成一趟足跡（[JourneyStore]），切換模式不會中斷。
  * 路線資料只放在記憶體；程序被系統回收後服務不會自行恢復。
  */
 class RideService : Service() {
@@ -89,6 +94,14 @@ class RideService : Service() {
     private var anchor: Location? = null
     private var movedAt = 0L
     private var lastCamera: String? = null
+
+    /** 足跡紀錄：還沒寫入檔案的點、上一個記下的點與目前里程 */
+    private var recording = false
+    private var recordJob: Job? = null
+    private val pendingPoints = mutableListOf<TrackPoint>()
+    private var lastTrackPoint: TrackPoint? = null
+    private var recordedKm = 0.0
+    private val journeys by lazy { JourneyStore(this) }
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -142,6 +155,7 @@ class RideService : Service() {
         lastCamera = null
         lastStatusAt = 0L
         if (settings.voiceAlerts) initSpeech()
+        if (!recording && settings.recordJourneys) startRecording()
         // 切換模式時重新開始定位（間隔可能不同）與背景工作
         stopLocationUpdates()
         startLocationUpdates()
@@ -253,6 +267,7 @@ class RideService : Service() {
                     return
                 }
                 lastLocation = location
+                record(location)
                 trackMovement(location)
                 checkCameras(location)
                 // 有測速照相時定位很頻繁，天氣不必每次都重算
@@ -264,16 +279,88 @@ class RideService : Service() {
             override fun onProviderEnabled(provider: String) = Unit
             override fun onProviderDisabled(provider: String) = Unit
         }
-        // 要提醒測速照相時需要每幾秒一次的位置，否則 20 秒、100 公尺一次就夠
-        val cameras = route == null || routeCameras.isNotEmpty()
-        val interval = if (cameras) CAMERA_LOCATION_MS else LOCATION_MS
-        val distance = if (cameras) CAMERA_LOCATION_M else LOCATION_M
+        // 要提醒測速照相或記錄足跡時需要每幾秒一次的位置，否則 20 秒、100 公尺一次就夠
+        val frequent = recording || route == null || routeCameras.isNotEmpty()
+        val interval = if (frequent) CAMERA_LOCATION_MS else LOCATION_MS
+        val distance = if (frequent) CAMERA_LOCATION_M else LOCATION_M
         listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             .filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
             .forEach { provider ->
                 runCatching { lm.requestLocationUpdates(provider, interval, distance, l, Looper.getMainLooper()) }
             }
         listener = l
+    }
+
+    private fun startRecording() {
+        recording = true
+        pendingPoints.clear()
+        lastTrackPoint = null
+        recordedKm = 0.0
+        recordJob = scope.launch {
+            withContext(Dispatchers.IO) { journeys.begin() }
+            while (isActive) {
+                delay(FLUSH_MS)
+                flushPoints()
+                update()
+            }
+        }
+    }
+
+    /** 把精度夠、不是跳點的位置加進足跡 */
+    private fun record(location: Location) {
+        if (!recording) return
+        val point = TrackPoint(location.time, location.latitude, location.longitude, location.accuracy.takeIf { location.hasAccuracy() })
+        val previous = lastTrackPoint
+        if (!Track.accept(previous, point)) return
+        if (previous != null) recordedKm += Track.distanceKm(previous.position, point.position)
+        lastTrackPoint = point
+        pendingPoints += point
+    }
+
+    private suspend fun flushPoints() {
+        if (pendingPoints.isEmpty()) return
+        val batch = pendingPoints.toList()
+        pendingPoints.clear()
+        withContext(Dispatchers.IO) { journeys.append(batch) }
+    }
+
+    /** 結束足跡紀錄：服務停止後仍在背景整理存檔，存好時通知 */
+    private fun finishRecording() {
+        if (!recording) return
+        recording = false
+        val job = recordJob
+        recordJob = null
+        val batch = pendingPoints.toList()
+        pendingPoints.clear()
+        val store = journeys
+        val app = applicationContext
+        saveScope.launch {
+            job?.cancelAndJoin()
+            store.append(batch)
+            val journey = store.finish() ?: return@launch
+            JourneyStore.announce(journey)
+            val text = "%s · %.1f 公里 · %d 分鐘".format(Locale.US, journey.title, journey.distanceKm, journey.durationMinutes)
+            try {
+                NotificationManagerCompat.from(app).notify(
+                    ID_JOURNEY,
+                    NotificationCompat.Builder(app, WeatherNotifier.CHANNEL_RIDE)
+                        .setSmallIcon(R.drawable.ic_stat_weather)
+                        .setContentTitle("足跡已儲存")
+                        .setContentText(text)
+                        .setContentIntent(
+                            PendingIntent.getActivity(
+                                app, 3,
+                                Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                            ),
+                        )
+                        .setAutoCancel(true)
+                        .build(),
+                )
+            } catch (e: SecurityException) {
+                // 沒有通知權限
+            }
+        }
     }
 
     private fun trackMovement(location: Location) {
@@ -446,6 +533,7 @@ class RideService : Service() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setSubText(if (recording) "足跡記錄中 · %.1f 公里".format(Locale.US, recordedKm) else null)
             .setContentIntent(openApp())
         if (repository.cameraReports.available && (route == null || settings.speedCameras)) {
             builder.addAction(
@@ -483,6 +571,7 @@ class RideService : Service() {
 
     private fun stopRide() {
         stopLocationUpdates()
+        finishRecording()
         loops?.cancel()
         loops = null
         route = null
@@ -495,6 +584,13 @@ class RideService : Service() {
 
     override fun onDestroy() {
         stopLocationUpdates()
+        // 被系統結束時：已收到的點先寫入，下次開啟 App 時補存成一趟足跡
+        if (recording) {
+            journeys.append(pendingPoints.toList())
+            pendingPoints.clear()
+            recordJob?.cancel()
+            recording = false
+        }
         scope.cancel()
         tts?.shutdown()
         tts = null
@@ -510,6 +606,10 @@ class RideService : Service() {
         private const val ID_ALERT = 5002
         private const val ID_CAMERA = 5003
         private const val ID_REPORT = 5004
+        private const val ID_JOURNEY = 5005
+
+        /** 足跡的定位點每隔這麼久寫入檔案一次 */
+        private const val FLUSH_MS = 30_000L
         private const val STATUS_MS = 15_000L
         private const val CAMERA_LOCATION_MS = 2_000L
         private const val CAMERA_LOCATION_M = 10f
@@ -539,6 +639,9 @@ class RideService : Service() {
         private const val LOCATION_MS = 20_000L
         private const val LOCATION_M = 100f
         private const val ALERT_MINUTES = 20L
+
+        /** 存足跡用，服務停止後仍要把檔案整理完 */
+        private val saveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         @Volatile
         private var route: RouteData? = null
