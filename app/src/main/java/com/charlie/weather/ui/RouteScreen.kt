@@ -192,6 +192,8 @@ fun RouteScreen(
     var editFavorite by remember { mutableStateOf(false) }
     // 按「重試」時加一，重新查詢
     var reload by remember { mutableIntStateOf(0) }
+    // 查到結果後把起終點、交通方式收成一行，結論放最上面；按「修改」展開
+    var editInputs by remember { mutableStateOf(false) }
     val favorite = favorites.firstOrNull { f -> from?.let { a -> to?.let { b -> f.sameRoute(a, b, via) } } == true }
 
     fun departureFor(route: RouteData?): LocalDateTime =
@@ -241,11 +243,15 @@ fun RouteScreen(
                 Box(Modifier.width(96.dp)) {
                     TextButton(onClick = onClose) { Text("完成", color = Accent, fontSize = 17.sp) }
                 }
+                val a = from
+                val b = to
                 Text(
-                    "沿路天氣",
+                    if (a != null && b != null) "${a.displayName} → ${b.displayName}" else "沿路天氣",
                     color = Color.White,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center,
                 )
@@ -261,83 +267,66 @@ fun RouteScreen(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Panel {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            EndpointRow(RouteDry, "起點", from) { editing = Endpoint.FROM }
-                            HorizontalDivider(Modifier.padding(start = 26.dp), color = Color.White.copy(alpha = 0.1f))
-                            if (via.isNotEmpty()) {
-                                ViaRow(via, onClear = { via = emptyList() })
+                if (editInputs || from == null || to == null) {
+                    Panel {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                EndpointRow(RouteDry, "起點", from) { editing = Endpoint.FROM }
                                 HorizontalDivider(Modifier.padding(start = 26.dp), color = Color.White.copy(alpha = 0.1f))
-                            }
-                            EndpointRow(Color(0xFFFF453A), "終點", to) { editing = Endpoint.TO }
-                        }
-                        Text(
-                            "⇅",
-                            color = Accent,
-                            fontSize = 22.sp,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .clickable {
-                                    val a = from
-                                    from = to
-                                    to = a
-                                    via = via.reversed()
+                                if (via.isNotEmpty()) {
+                                    ViaRow(via, onClear = { via = emptyList() })
+                                    HorizontalDivider(Modifier.padding(start = 26.dp), color = Color.White.copy(alpha = 0.1f))
                                 }
-                                .padding(10.dp),
+                                EndpointRow(Color(0xFFFF453A), "終點", to) { editing = Endpoint.TO }
+                            }
+                            Text(
+                                "⇅",
+                                color = Accent,
+                                fontSize = 22.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        val a = from
+                                        from = to
+                                        to = a
+                                        via = via.reversed()
+                                    }
+                                    .padding(10.dp),
+                            )
+                        }
+                    }
+
+                    ChipRow(TravelMode.entries.map { modeEmoji(it) + " " + it.label }, TravelMode.entries.indexOf(mode)) {
+                        mode = TravelMode.entries[it]
+                    }
+
+                    ChipRow(listOf("出發時間", "抵達時間"), if (arriveBy == null) 0 else 1) { i ->
+                        if (i == 1 && arriveBy == null) {
+                            // 改用目前這趟的抵達時間（進位到 5 分鐘）
+                            val arrival = forecast?.arrival ?: openedAt.plusHours(1)
+                            arriveBy = arrival.truncatedTo(ChronoUnit.MINUTES).plusMinutes(((5 - arrival.minute % 5) % 5).toLong())
+                        } else if (i == 0 && arriveBy != null) {
+                            departure = effectiveDeparture.truncatedTo(ChronoUnit.MINUTES)
+                            anchor = departure
+                            arriveBy = null
+                        }
+                    }
+                    if (from != null && to != null) {
+                        Text(
+                            "收合",
+                            color = Accent,
+                            fontSize = 15.sp,
+                            modifier = Modifier.clickable { editInputs = false }.padding(horizontal = 4.dp, vertical = 4.dp),
                         )
                     }
-                }
-
-                ChipRow(TravelMode.entries.map { modeEmoji(it) + " " + it.label }, TravelMode.entries.indexOf(mode)) {
-                    mode = TravelMode.entries[it]
-                }
-
-                ChipRow(listOf("出發時間", "抵達時間"), if (arriveBy == null) 0 else 1) { i ->
-                    if (i == 1 && arriveBy == null) {
-                        // 改用目前這趟的抵達時間（進位到 5 分鐘）
-                        val arrival = forecast?.arrival ?: openedAt.plusHours(1)
-                        arriveBy = arrival.truncatedTo(ChronoUnit.MINUTES).plusMinutes(((5 - arrival.minute % 5) % 5).toLong())
-                    } else if (i == 0 && arriveBy != null) {
-                        departure = effectiveDeparture.truncatedTo(ChronoUnit.MINUTES)
-                        anchor = departure
-                        arriveBy = null
-                    }
-                }
-
-                val arrival = arriveBy
-                if (arrival == null) {
-                    val departures = remember(anchor) {
-                        val times = anchor?.let { a -> listOf(0L, 30L, 60L, 90L, 120L).map { a.plusMinutes(it) } }
-                            ?: listOf(30L, 60L, 90L, 120L, 180L).map { openedAt.plusMinutes(it) }
-                        (listOf(openedAt) + times).distinct().sorted()
-                    }
-                    val options = remember(data, departures) { data?.let { RoutePlanner.compare(it, departures) } }
-                    DepartureStrip(
-                        departures,
-                        options,
-                        selected = departure,
-                        now = openedAt,
-                        onSelect = { departure = it },
-                        onCustom = { pickTime = true },
-                    )
                 } else {
-                    // 比較抵達時間：前 90 分鐘到後 30 分鐘；出發時間已經過去的不列
-                    val seconds = data?.let { (it.path.durationMinutes * 60).roundToLong() } ?: 0L
-                    val arrivals = listOf(-90L, -60L, -30L, 0L, 30L).map { arrival.plusMinutes(it) }
-                        .filter { it == arrival || !it.minusSeconds(seconds).isBefore(openedAt.minusMinutes(5)) }
-                    val options = remember(data, arrivals) { data?.let { d -> RoutePlanner.compare(d, arrivals.map { it.minusSeconds(seconds) }) } }
-                    DepartureStrip(
-                        arrivals,
-                        options,
-                        selected = arrival,
-                        now = openedAt,
-                        onSelect = { arriveBy = it },
-                        onCustom = { pickTime = true },
-                        suffix = " 到",
+                    InputSummary(
+                        mode = mode,
+                        time = arriveBy?.let { "${clock(it)} 抵達" } ?: "${clock(effectiveDeparture)} 出發",
+                        via = via,
+                        onEdit = { editInputs = true },
                     )
                 }
-
                 when {
                     from == null || to == null -> {
                         Hint("輸入起點與終點，查看路上每一段經過時的天氣。")
@@ -359,16 +348,56 @@ fun RouteScreen(
                     }
                     forecast != null -> {
                         val all = routes.orEmpty()
-                        if (all.size > 1) RouteChoices(all, selected, ::departureFor) { selected = it }
                         RouteResult(
                             forecast,
-                            ride = onStartRide?.let { start ->
-                                RideControl(rideActive, onStart = { start(forecast.data) }, onStop = onStopRide, onReport = onReportCamera)
+                            afterVerdict = {
+                                // 結論下面直接比較其他出發時間與替代路線
+                                val arrival = arriveBy
+                                if (arrival == null) {
+                                    val departures = remember(anchor) {
+                                        val times = anchor?.let { a -> listOf(0L, 30L, 60L, 90L, 120L).map { a.plusMinutes(it) } }
+                                            ?: listOf(30L, 60L, 90L, 120L, 180L).map { openedAt.plusMinutes(it) }
+                                        (listOf(openedAt) + times).distinct().sorted()
+                                    }
+                                    val options = remember(data, departures) { data?.let { RoutePlanner.compare(it, departures) } }
+                                    DepartureStrip(
+                                        departures,
+                                        options,
+                                        selected = departure,
+                                        now = openedAt,
+                                        onSelect = { departure = it },
+                                        onCustom = { pickTime = true },
+                                    )
+                                } else {
+                                    // 比較抵達時間：前 90 分鐘到後 30 分鐘；出發時間已經過去的不列
+                                    val seconds = data?.let { (it.path.durationMinutes * 60).roundToLong() } ?: 0L
+                                    val arrivals = listOf(-90L, -60L, -30L, 0L, 30L).map { arrival.plusMinutes(it) }
+                                        .filter { it == arrival || !it.minusSeconds(seconds).isBefore(openedAt.minusMinutes(5)) }
+                                    val options = remember(data, arrivals) { data?.let { d -> RoutePlanner.compare(d, arrivals.map { it.minusSeconds(seconds) }) } }
+                                    DepartureStrip(
+                                        arrivals,
+                                        options,
+                                        selected = arrival,
+                                        now = openedAt,
+                                        onSelect = { arriveBy = it },
+                                        onCustom = { pickTime = true },
+                                        suffix = " 到",
+                                    )
+                                }
+                                if (all.size > 1) RouteChoices(all, selected, ::departureFor) { selected = it }
                             },
                         )
                     }
                 }
                 Spacer(Modifier.height(24.dp))
+            }
+            // 開始騎乘固定在底部，不用捲到結論下面找
+            if (forecast != null && onStartRide != null) {
+                RideButtons(
+                    RideControl(rideActive, onStart = { onStartRide(forecast.data) }, onStop = onStopRide, onReport = onReportCamera),
+                    forecast.data.mode,
+                    Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+                )
             }
         }
     }
@@ -504,6 +533,30 @@ private fun ChipRow(options: List<String>, selected: Int, onSelect: (Int) -> Uni
     }
 }
 
+/** 查到結果後收起來的查詢條件：交通方式、出發或抵達時間、途經點 */
+@Composable
+private fun InputSummary(mode: TravelMode, time: String, via: List<City>, onEdit: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(50))
+            .background(PanelColor)
+            .clickable(role = Role.Button, onClick = onEdit)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            listOfNotNull("${modeEmoji(mode)} ${mode.label}", time, via.takeIf { it.isNotEmpty() }?.let { "途經 ${it.size} 處" }).joinToString("・"),
+            color = Color(0xFFD0D0D6),
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text("修改", color = Accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
 @Composable
 private fun Hint(text: String) {
     Text(text, color = Color.Gray, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp))
@@ -512,8 +565,8 @@ private fun Hint(text: String) {
 @Composable
 fun RouteResult(
     forecast: RouteForecast,
-    /** 開始／結束騎乘中模式；null 時不顯示按鈕 */
-    ride: RideControl? = null,
+    /** 結論下方的內容（出發時間比較、替代路線） */
+    afterVerdict: @Composable () -> Unit = {},
     /** 有 Google 金鑰時用 Google 地圖；截圖測試固定用圖磚地圖 */
     googleMap: Boolean = BuildConfig.GOOGLE_MAPS_API_KEY.isNotBlank(),
 ) {
@@ -553,44 +606,7 @@ fun RouteResult(
             )
         }
 
-        ride?.let { control ->
-            val riding = data.mode == TravelMode.SCOOTER || data.mode == TravelMode.BIKE
-            Text(
-                when {
-                    control.active -> "■ 結束沿途提醒"
-                    riding -> "▶ 開始騎乘：前方下雨時通知"
-                    else -> "▶ 開始出發：前方下雨時通知"
-                },
-                color = if (control.active) Color.White else Color.Black,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (control.active) Color(0xFF3A3A3C) else Color.White)
-                    .clickable(role = Role.Button, onClick = if (control.active) control.onStop else control.onStart)
-                    .padding(vertical = 13.dp),
-            )
-            // 騎乘中才有目前位置與行進方向，可以回報移動式測速
-            val report = control.onReport
-            if (control.active && report != null && data.mode != TravelMode.WALK && data.mode != TravelMode.BIKE) {
-                Text(
-                    "📷 回報移動式測速",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFFF9F0A).copy(alpha = 0.85f))
-                        .clickable(role = Role.Button, onClick = report)
-                        .padding(vertical = 13.dp),
-                )
-            }
-        }
-
+        afterVerdict()
         Panel {
             RouteMap(
                 forecast,
@@ -1058,6 +1074,48 @@ private fun StripCell(
         Box(Modifier.padding(vertical = 6.dp).height(22.dp).fillMaxWidth(), contentAlignment = Alignment.BottomCenter, content = graphic)
         Text(bottom, color = bottomColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Text("建議", color = if (recommended) Accent else Color.Transparent, fontSize = 10.sp)
+    }
+}
+
+/** 開始／結束騎乘中模式；騎乘中可回報移動式測速 */
+@Composable
+internal fun RideButtons(control: RideControl, mode: TravelMode, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val riding = mode == TravelMode.SCOOTER || mode == TravelMode.BIKE
+        Text(
+            when {
+                control.active -> "■ 結束沿途提醒"
+                riding -> "▶ 開始騎乘：前方下雨時通知"
+                else -> "▶ 開始出發：前方下雨時通知"
+            },
+            color = if (control.active) Color.White else Color.Black,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (control.active) Color(0xFF3A3A3C) else Color.White)
+                .clickable(role = Role.Button, onClick = if (control.active) control.onStop else control.onStart)
+                .padding(vertical = 13.dp),
+        )
+        // 騎乘中才有目前位置與行進方向，可以回報移動式測速
+        val report = control.onReport
+        if (control.active && report != null && mode != TravelMode.WALK && mode != TravelMode.BIKE) {
+            Text(
+                "📷 回報移動式測速",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFFF9F0A).copy(alpha = 0.85f))
+                    .clickable(role = Role.Button, onClick = report)
+                    .padding(vertical = 13.dp),
+            )
+        }
     }
 }
 

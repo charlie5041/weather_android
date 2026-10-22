@@ -14,6 +14,7 @@ import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
 import com.charlie.weather.data.FavoriteRoute
+import com.charlie.weather.data.RouteData
 import com.charlie.weather.sync.RideService
 import com.charlie.weather.sync.WeatherNotifier
 import androidx.activity.compose.BackHandler
@@ -29,11 +30,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.Text
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,13 +45,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -62,7 +57,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -92,6 +86,8 @@ fun WeatherApp(
     val recentPlaces by vm.recentPlaces.collectAsStateWithLifecycle()
     val riding by RideService.active.collectAsStateWithLifecycle()
 
+    var tab by rememberSaveable { mutableStateOf(Tab.WEATHER) }
+    val driving by RideService.driving.collectAsStateWithLifecycle()
     var showList by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var detail by remember { mutableStateOf<DetailRequest?>(null) }
@@ -121,10 +117,6 @@ fun WeatherApp(
             routeRequest = request
         }
     }
-    /** 帶入上次查詢的路線；第一次使用時從目前看的頁面出發，再選終點 */
-    fun defaultRouteRequest(current: City?): RouteRequest =
-        vm.lastRoute()?.let { RouteRequest(it.from, it.to, mode = it.mode, via = it.via) } ?: RouteRequest(current, null)
-
     fun openFavorite(route: FavoriteRoute, departure: LocalDateTime?) {
         val r = vm.latestRoute(route)
         showList = false
@@ -136,6 +128,14 @@ fun WeatherApp(
         val id = favoriteRouteId ?: return@LaunchedEffect
         vm.favorites.value.firstOrNull { it.id == id }?.let { openFavorite(it, it.reminder?.next(LocalDateTime.now())) }
         onFavoriteRouteHandled()
+    }
+    fun startRide(data: RouteData) {
+        if (!vm.hasLocationPermission()) {
+            Toast.makeText(context, "需要定位權限才能在路上提醒前方天氣", Toast.LENGTH_LONG).show()
+        } else {
+            RideService.start(context, data)
+            Toast.makeText(context, "已開始：前方 20 分鐘內會下雨時通知", Toast.LENGTH_SHORT).show()
+        }
     }
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
@@ -189,42 +189,56 @@ fun WeatherApp(
                 WeatherBackground(1, true)
                 CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center))
             } else {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    beyondViewportPageCount = 1,
-                    key = { cities.getOrNull(it)?.id ?: it },
-                ) { page ->
-                    val city = cities.getOrNull(page) ?: return@HorizontalPager
-                    val outingCard: @Composable () -> Unit = {
-                        TripCard(
-                            favorites = favorites,
-                            upcoming = upcoming,
-                            modifier = Modifier.fillMaxWidth(),
-                            onOpen = { route, departure -> openFavorite(route, departure) },
-                            onNewRoute = { routeRequest = defaultRouteRequest(city) },
+                val openSettings = { showSettings = true }
+                when (tab) {
+                    Tab.WEATHER -> HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        beyondViewportPageCount = 1,
+                        key = { cities.getOrNull(it)?.id ?: it },
+                    ) { page ->
+                        val city = cities.getOrNull(page) ?: return@HorizontalPager
+                        CityWeatherPage(
+                            city = city,
+                            ui = weather[city.id] ?: CityWeatherUi(loading = true),
+                            onRefresh = { vm.refresh(city, force = true) },
+                            onOpenDetail = { metric, date -> detail = DetailRequest(city.id, metric, date) },
+                            onOpenTyphoon = { typhoonCityId = city.id },
+                            page = page,
+                            pageCount = cities.size,
+                            firstIsLocation = cities.firstOrNull()?.isCurrentLocation == true,
+                            onOpenList = { showList = true },
+                            onOpenSettings = openSettings,
                         )
                     }
-                    CityWeatherPage(
-                        city = city,
-                        ui = weather[city.id] ?: CityWeatherUi(loading = true),
-                        onRefresh = { vm.refresh(city, force = true) },
-                        onOpenDetail = { metric, date -> detail = DetailRequest(city.id, metric, date) },
-                        onOpenTyphoon = { typhoonCityId = city.id },
-                        // 通勤卡片顯示在第一頁與住家、公司頁
-                        commute = commuteTrip?.takeIf { page == 0 || city.id == it.from.id || city.id == it.to.id },
+                    Tab.OUTING -> OutingScreen(
+                        favorites = favorites,
+                        upcoming = upcoming,
+                        commute = commuteTrip,
+                        rideActive = riding,
+                        driving = driving,
+                        canReportCameras = vm.canReportCameras,
+                        onNewRoute = { routeRequest = RouteRequest(cities.firstOrNull(), null, mode = vm.lastRoute()?.mode) },
+                        onOpen = { route, departure -> openFavorite(route, departure) },
                         onOpenCommuteRoute = {
                             commuteTrip?.let { routeRequest = RouteRequest(it.from, it.to, it.departure, vm.lastRoute()?.mode) }
                         },
-                        outing = outingCard.takeIf { page == 0 },
+                        onStartRide = ::startRide,
+                        onStopRide = { RideService.stop(context) },
+                        onStartDrive = {
+                            if (!vm.hasLocationPermission()) {
+                                Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
+                            } else {
+                                RideService.startDrive(context)
+                            }
+                        },
+                        onReportCamera = { RideService.report(context) },
+                        onOpenSettings = openSettings,
                     )
                 }
-                BottomBar(
-                    pageCount = cities.size,
-                    currentPage = pagerState.currentPage,
-                    firstIsLocation = cities.firstOrNull()?.isCurrentLocation == true,
-                    onList = { showList = true },
-                    onRoute = { routeRequest = defaultRouteRequest(cities.getOrNull(pagerState.currentPage)) },
+                TabBar(
+                    selected = tab,
+                    onSelect = { tab = it },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
@@ -332,14 +346,7 @@ fun WeatherApp(
                             onSaveFavorite = vm::saveFavorite,
                             onRemoveFavorite = vm::removeFavorite,
                             rideActive = riding,
-                            onStartRide = { data ->
-                                if (!vm.hasLocationPermission()) {
-                                    Toast.makeText(context, "需要定位權限才能在路上提醒前方天氣", Toast.LENGTH_LONG).show()
-                                } else {
-                                    RideService.start(context, data)
-                                    Toast.makeText(context, "已開始：前方 20 分鐘內會下雨時通知", Toast.LENGTH_SHORT).show()
-                                }
-                            },
+                            onStartRide = ::startRide,
                             onStopRide = { RideService.stop(context) },
                             onReportCamera = if (vm.canReportCameras) {
                                 { RideService.report(context) }
@@ -382,57 +389,61 @@ fun WeatherApp(
     }
 }
 
+private enum class Tab(val label: String) { WEATHER("天氣"), OUTING("出門") }
+
+/** 底部分頁：天氣、出門。 */
 @Composable
-private fun BottomBar(
-    pageCount: Int,
-    currentPage: Int,
-    firstIsLocation: Boolean,
-    onList: () -> Unit,
-    onRoute: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun TabBar(selected: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier
             .fillMaxWidth()
-            .background(Color.Black.copy(alpha = 0.22f))
+            .background(Color(0xFF0A192D).copy(alpha = 0.78f))
             .navigationBarsPadding()
-            .height(52.dp)
-            .padding(horizontal = 8.dp),
+            .height(56.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier
-                .clip(RoundedCornerShape(50))
-                .background(Color.White.copy(alpha = 0.18f))
-                .clickable(role = Role.Button, onClick = onRoute)
-                .padding(start = 10.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RouteIcon(Color.White, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("沿路天氣", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        }
-        Row(
-            Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            repeat(pageCount) { i ->
-                val color = if (i == currentPage) Color.White else Color.White.copy(alpha = 0.4f)
-                if (i == 0 && firstIsLocation) {
-                    Icon(Icons.Filled.LocationOn, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
-                } else {
-                    Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+        Tab.entries.forEach { t ->
+            val color = if (t == selected) Color.White else Color.White.copy(alpha = 0.55f)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .selectable(selected = t == selected, role = Role.Tab, onClick = { onSelect(t) }),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                when (t) {
+                    Tab.WEATHER -> WeatherTabIcon(color, Modifier.size(22.dp))
+                    Tab.OUTING -> RouteIcon(color, Modifier.size(22.dp))
                 }
+                Spacer(Modifier.height(2.dp))
+                Text(t.label, color = color, fontSize = 12.sp, fontWeight = if (t == selected) FontWeight.SemiBold else FontWeight.Normal)
             }
-        }
-        IconButton(onClick = onList) {
-            Icon(Icons.Filled.Menu, contentDescription = "城市列表", tint = Color.White)
         }
     }
 }
 
-/** 沿路天氣按鈕：起點、彎曲路線與終點。 */
+/** 天氣分頁：太陽與雲。 */
+@Composable
+private fun WeatherTabIcon(color: Color, modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        drawCircle(color, radius = w * 0.16f, center = androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.36f), style = stroke)
+        val cloud = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.36f, h * 0.84f)
+            lineTo(w * 0.74f, h * 0.84f)
+            cubicTo(w * 0.98f, h * 0.84f, w * 0.98f, h * 0.52f, w * 0.74f, h * 0.54f)
+            cubicTo(w * 0.68f, h * 0.36f, w * 0.42f, h * 0.38f, w * 0.38f, h * 0.58f)
+            cubicTo(w * 0.2f, h * 0.58f, w * 0.2f, h * 0.84f, w * 0.36f, h * 0.84f)
+            close()
+        }
+        drawPath(cloud, color, style = stroke)
+    }
+}
+
+/** 出門分頁：起點、彎曲路線與終點。 */
 @Composable
 private fun RouteIcon(color: Color, modifier: Modifier = Modifier.size(22.dp)) {
     androidx.compose.foundation.Canvas(modifier) {
