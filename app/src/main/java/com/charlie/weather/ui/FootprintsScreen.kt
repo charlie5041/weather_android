@@ -178,6 +178,15 @@ fun FootprintsScreen(
     onOpen: (Journey) -> Unit,
     onOpenSettings: () -> Unit,
     photoFiles: PhotoFiles = { _, _, _ -> null },
+    /** 騎乘中模式（從出門的路線開始）進行中 */
+    rideActive: Boolean = false,
+    /** 行車提醒（不設目的地）進行中 */
+    driving: Boolean = false,
+    canReportCameras: Boolean = false,
+    recordJourneys: Boolean = true,
+    onStartDrive: () -> Unit = {},
+    onStop: () -> Unit = {},
+    onReportCamera: () -> Unit = {},
     today: LocalDate = LocalDate.now(),
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
@@ -195,6 +204,21 @@ fun FootprintsScreen(
                 }
             }
         }
+        item {
+            when {
+                driving -> ActiveCard(
+                    if (recordJourneys) "行車提醒進行中・記錄足跡" else "行車提醒進行中",
+                    onStop = onStop,
+                    onReport = onReportCamera.takeIf { canReportCameras },
+                )
+                rideActive -> ActiveCard(
+                    if (recordJourneys) "騎乘中・結束後存成足跡" else "騎乘中",
+                    onStop = onStop,
+                    onReport = onReportCamera.takeIf { canReportCameras },
+                )
+                else -> DriveCard(onStartDrive, recordJourneys)
+            }
+        }
         if (journeys.isEmpty()) {
             item {
                 Column(
@@ -203,7 +227,7 @@ fun FootprintsScreen(
                 ) {
                     Text("還沒有足跡", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "在「出門」分頁開始騎乘或行車提醒，結束後就會自動存一趟足跡。只存在這支手機，不會上傳。",
+                        "按上面的「開始」行車提醒，或在「出門」查路線後開始騎乘，結束後就會自動存一趟足跡。只存在這支手機，不會上傳。",
                         color = FootSecondary,
                         fontSize = 14.sp,
                     )
