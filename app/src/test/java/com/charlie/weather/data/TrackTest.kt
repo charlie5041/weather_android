@@ -201,4 +201,17 @@ class TrackTest {
         assertEquals(85.0, back.climbM!!, 0.0)
         assertEquals(8, back.durationMinutes)
     }
+
+    @Test
+    fun recordingWeatherFileSurvivesTruncationAndMerges() {
+        val a = sample(0, false)
+        val b = sample(3, true, "中和區")
+        val lines = listOf(Track.weatherToJson(a).toString(), "", Track.weatherToJson(b).toString(), "{\"t\":17600")
+        val saved = Track.decodeWeatherLines(lines)
+        assertEquals(listOf(a, b), saved)
+        // 程序被結束後只有檔案；正常結束時記憶體與檔案重複的只留一筆
+        val c = sample(6, false)
+        assertEquals(listOf(a, b, c), Track.mergeWeather(listOf(c, b), saved))
+        assertEquals(listOf(a, b), Track.mergeWeather(emptyList(), saved))
+    }
 }
