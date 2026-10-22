@@ -14,6 +14,8 @@ import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
 import com.charlie.weather.data.FavoriteRoute
+import com.charlie.weather.data.Journey
+import com.charlie.weather.data.JourneyStore
 import com.charlie.weather.data.RouteData
 import com.charlie.weather.sync.RideService
 import com.charlie.weather.sync.WeatherNotifier
@@ -99,6 +101,15 @@ fun WeatherApp(
     var lastRouteRequest by remember { mutableStateOf<RouteRequest?>(null) }
     LaunchedEffect(routeRequest) { routeRequest?.let { lastRouteRequest = it } }
     val context = LocalContext.current
+    val journeyStore = remember { JourneyStore(context) }
+    val journeysVersion by JourneyStore.changed.collectAsStateWithLifecycle()
+    val savedJourney by JourneyStore.saved.collectAsStateWithLifecycle()
+    var journeys by remember { mutableStateOf<List<Journey>>(emptyList()) }
+    var openJourneyId by rememberSaveable { mutableStateOf<String?>(null) }
+    var lastJourney by remember { mutableStateOf<Journey?>(null) }
+    LaunchedEffect(journeysVersion) { journeys = journeyStore.list() }
+    // 上次騎乘中程序被系統結束時，留下的紀錄補存成一趟足跡
+    LaunchedEffect(Unit) { journeyStore.recover(active = RideService.active.value || RideService.driving.value) }
     LaunchedEffect(sharedText) {
         val text = sharedText ?: return@LaunchedEffect
         Toast.makeText(context, "正在讀取 Google 地圖路線…", Toast.LENGTH_SHORT).show()
@@ -235,6 +246,11 @@ fun WeatherApp(
                         onReportCamera = { RideService.report(context) },
                         onOpenSettings = openSettings,
                     )
+                    Tab.FOOTPRINTS -> FootprintsScreen(
+                        journeys = journeys,
+                        onOpen = { openJourneyId = it.id },
+                        onOpenSettings = openSettings,
+                    )
                 }
                 TabBar(
                     selected = tab,
@@ -358,6 +374,40 @@ fun WeatherApp(
                     }
                 }
             }
+            val openJourney = openJourneyId?.let { id -> journeys.firstOrNull { it.id == id } }
+            LaunchedEffect(openJourney) { openJourney?.let { lastJourney = it } }
+            AnimatedVisibility(
+                visible = openJourney != null,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+            ) {
+                (openJourney ?: lastJourney)?.let { j ->
+                    FootprintDetailScreen(
+                        journey = j,
+                        onRename = { name -> scope.launch { journeyStore.rename(j.id, name) } },
+                        onDelete = {
+                            openJourneyId = null
+                            scope.launch { journeyStore.delete(j.id) }
+                        },
+                        onClose = { openJourneyId = null },
+                    )
+                }
+            }
+            savedJourney?.let { j ->
+                JourneySavedDialog(
+                    journey = j,
+                    onView = {
+                        JourneyStore.clearSaved()
+                        showList = false
+                        showSettings = false
+                        detail = null
+                        routeRequest = null
+                        tab = Tab.FOOTPRINTS
+                        openJourneyId = j.id
+                    },
+                    onDismiss = { JourneyStore.clearSaved() },
+                )
+            }
             AnimatedVisibility(
                 visible = showPlaceEditor,
                 enter = slideInVertically { it },
@@ -386,12 +436,13 @@ fun WeatherApp(
         BackHandler(enabled = showSettings) { showSettings = false }
         BackHandler(enabled = showPlaceEditor) { showPlaceEditor = false }
         BackHandler(enabled = routeRequest != null) { routeRequest = null }
+        BackHandler(enabled = openJourneyId != null) { openJourneyId = null }
     }
 }
 
-private enum class Tab(val label: String) { WEATHER("天氣"), OUTING("出門") }
+private enum class Tab(val label: String) { WEATHER("天氣"), OUTING("出門"), FOOTPRINTS("足跡") }
 
-/** 底部分頁：天氣、出門。 */
+/** 底部分頁：天氣、出門、足跡。 */
 @Composable
 private fun TabBar(selected: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
     Row(
@@ -415,6 +466,7 @@ private fun TabBar(selected: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = 
                 when (t) {
                     Tab.WEATHER -> WeatherTabIcon(color, Modifier.size(22.dp))
                     Tab.OUTING -> RouteIcon(color, Modifier.size(22.dp))
+                    Tab.FOOTPRINTS -> FootprintsIcon(color, Modifier.size(22.dp))
                 }
                 Spacer(Modifier.height(2.dp))
                 Text(t.label, color = color, fontSize = 12.sp, fontWeight = if (t == selected) FontWeight.SemiBold else FontWeight.Normal)
@@ -465,5 +517,25 @@ private fun RouteIcon(color: Color, modifier: Modifier = Modifier.size(22.dp)) {
         )
         drawCircle(color, radius = w * 0.12f, center = androidx.compose.ui.geometry.Offset(w * 0.2f, h * 0.82f))
         drawCircle(color, radius = w * 0.14f, center = androidx.compose.ui.geometry.Offset(w * 0.8f, h * 0.2f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+    }
+}
+
+/** 足跡分頁：地圖圖釘。 */
+@Composable
+private fun FootprintsIcon(color: Color, modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round)
+        val pin = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.5f, h * 0.92f)
+            cubicTo(w * 0.28f, h * 0.66f, w * 0.18f, h * 0.52f, w * 0.18f, h * 0.38f)
+            cubicTo(w * 0.18f, h * 0.2f, w * 0.32f, h * 0.06f, w * 0.5f, h * 0.06f)
+            cubicTo(w * 0.68f, h * 0.06f, w * 0.82f, h * 0.2f, w * 0.82f, h * 0.38f)
+            cubicTo(w * 0.82f, h * 0.52f, w * 0.72f, h * 0.66f, w * 0.5f, h * 0.92f)
+            close()
+        }
+        drawPath(pin, color, style = stroke)
+        drawCircle(color, radius = w * 0.1f, center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.38f))
     }
 }

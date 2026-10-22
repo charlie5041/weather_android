@@ -90,6 +90,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("speed_cameras", false)
         set(value) = prefs.edit().putBoolean("speed_cameras", value).apply()
 
+    /** 騎乘中與行車提醒時記錄軌跡，存成足跡 */
+    var recordJourneys: Boolean
+        get() = prefs.getBoolean("record_journeys", true)
+        set(value) = prefs.edit().putBoolean("record_journeys", value).apply()
+
     /** 騎乘中與行車提醒用語音播報測速照相與前方降雨 */
     var voiceAlerts: Boolean
         get() = prefs.getBoolean("voice_alerts", true)

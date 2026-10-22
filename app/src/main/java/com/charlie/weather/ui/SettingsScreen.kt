@@ -74,6 +74,7 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
     var routeStep by remember { mutableIntStateOf(settings.routeStepKm) }
     var speedCameras by remember { mutableStateOf(settings.speedCameras) }
     var voiceAlerts by remember { mutableStateOf(settings.voiceAlerts) }
+    var recordJourneys by remember { mutableStateOf(settings.recordJourneys) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { canNotify = WeatherNotifier.canNotify(context) }
 
@@ -217,6 +218,11 @@ fun SettingsScreen(primaryCityName: String?, onDataSourceChanged: () -> Unit, on
             ToggleRow("語音播報", "騎乘中與行車提醒時，用語音念出測速照相與前方降雨", voiceAlerts) {
                 voiceAlerts = it
                 settings.voiceAlerts = it
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow("記錄足跡", "騎乘中與行車提醒時記錄軌跡，結束後存到「足跡」分頁；只存在這支手機，記錄時定位較頻繁、較耗電", recordJourneys) {
+                recordJourneys = it
+                settings.recordJourneys = it
             }
         }
         Text(
