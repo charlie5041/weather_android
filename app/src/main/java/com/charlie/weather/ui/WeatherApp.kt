@@ -230,7 +230,6 @@ fun WeatherApp(
                         upcoming = upcoming,
                         commute = commuteTrip,
                         rideActive = riding,
-                        driving = driving,
                         canReportCameras = vm.canReportCameras,
                         onNewRoute = { routeRequest = RouteRequest(cities.firstOrNull(), null, mode = vm.lastRoute()?.mode) },
                         onOpen = { route, departure -> openFavorite(route, departure) },
@@ -239,13 +238,6 @@ fun WeatherApp(
                         },
                         onStartRide = ::startRide,
                         onStopRide = { RideService.stop(context) },
-                        onStartDrive = {
-                            if (!vm.hasLocationPermission()) {
-                                Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
-                            } else {
-                                RideService.startDrive(context)
-                            }
-                        },
                         onReportCamera = { RideService.report(context) },
                         onOpenSettings = openSettings,
                     )
@@ -254,6 +246,19 @@ fun WeatherApp(
                         onOpen = { openJourneyId = it.id },
                         onOpenSettings = openSettings,
                         photoFiles = photoFiles,
+                        rideActive = riding,
+                        driving = driving,
+                        canReportCameras = vm.canReportCameras,
+                        recordJourneys = remember(settingsVersion) { AppSettings(context).recordJourneys },
+                        onStartDrive = {
+                            if (!vm.hasLocationPermission()) {
+                                Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
+                            } else {
+                                RideService.startDrive(context)
+                            }
+                        },
+                        onStop = { RideService.stop(context) },
+                        onReportCamera = { RideService.report(context) },
                     )
                 }
                 TabBar(

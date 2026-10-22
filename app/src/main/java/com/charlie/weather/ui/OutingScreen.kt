@@ -68,8 +68,8 @@ private fun dayWord(time: LocalDateTime, today: LocalDate) = when (time.toLocalD
 }
 
 /**
- * 「出門」分頁：查新路線、12 小時內下一趟常用路線的沿路結論、通勤、其他常用路線，
- * 以及不設目的地的行車提醒。
+ * 「出門」分頁：看路線上的天氣。查新路線、12 小時內下一趟常用路線的沿路結論、通勤、其他常用路線。
+ * 不設目的地的行車提醒（測速）在「足跡」分頁。
  */
 @Composable
 fun OutingScreen(
@@ -78,15 +78,12 @@ fun OutingScreen(
     commute: CommuteTrip?,
     /** 騎乘中模式進行中 */
     rideActive: Boolean,
-    /** 行車提醒（不設目的地）進行中 */
-    driving: Boolean,
     canReportCameras: Boolean,
     onNewRoute: () -> Unit,
     onOpen: (FavoriteRoute, LocalDateTime?) -> Unit,
     onOpenCommuteRoute: () -> Unit,
     onStartRide: (RouteData) -> Unit,
     onStopRide: () -> Unit,
-    onStartDrive: () -> Unit,
     onReportCamera: () -> Unit,
     onOpenSettings: () -> Unit,
     today: LocalDate = LocalDate.now(),
@@ -120,10 +117,10 @@ fun OutingScreen(
                 Text("要去哪裡？查沿路天氣", color = OutingSecondary, fontSize = 16.sp)
             }
         }
-        if (rideActive || driving) {
+        if (rideActive) {
             item {
                 ActiveCard(
-                    title = if (rideActive) "騎乘中：前方下雨時通知" else "行車提醒進行中",
+                    title = "騎乘中：前方下雨時通知",
                     onStop = onStopRide,
                     onReport = onReportCamera.takeIf { canReportCameras },
                 )
@@ -136,14 +133,11 @@ fun OutingScreen(
             item { CommuteCard(trip, Modifier.fillMaxWidth(), today = today, onOpenRoute = onOpenCommuteRoute) }
         }
         item { FavoritesCard(favorites.filter { it.id != upcoming?.route?.id }, upcoming != null, onOpen) }
-        if (!rideActive && !driving) {
-            item { DriveCard(onStartDrive) }
-        }
     }
 }
 
 @Composable
-private fun OutingPanel(content: @Composable ColumnScope.() -> Unit) {
+internal fun OutingPanel(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(PanelColor).padding(horizontal = 16.dp, vertical = 14.dp),
         content = content,
@@ -151,7 +145,7 @@ private fun OutingPanel(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun PillButton(text: String, background: Color, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun PillButton(text: String, background: Color, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Text(
         text,
         color = color,
@@ -214,7 +208,7 @@ private fun NextTripCard(
 }
 
 @Composable
-private fun ActiveCard(title: String, onStop: () -> Unit, onReport: (() -> Unit)?) {
+internal fun ActiveCard(title: String, onStop: () -> Unit, onReport: (() -> Unit)?) {
     OutingPanel {
         Text(title, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -268,12 +262,16 @@ private fun FavoritesCard(routes: List<FavoriteRoute>, hasUpcoming: Boolean, onO
 
 /** 不設目的地的行車提醒：依行進方向提醒前方的測速照相。 */
 @Composable
-private fun DriveCard(onStart: () -> Unit) {
+internal fun DriveCard(onStart: () -> Unit, recordJourneys: Boolean) {
     OutingPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("行車提醒", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Medium)
-                Text("不用設目的地，提醒前方的測速照相", fontSize = 13.sp, color = OutingSecondary)
+                Text(
+                    if (recordJourneys) "不用設目的地，提醒前方的測速照相並記錄足跡" else "不用設目的地，提醒前方的測速照相",
+                    fontSize = 13.sp,
+                    color = OutingSecondary,
+                )
             }
             Spacer(Modifier.width(12.dp))
             Text(

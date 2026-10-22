@@ -27,6 +27,7 @@ import com.charlie.weather.data.AppSettings
 import com.charlie.weather.data.CameraAhead
 import com.charlie.weather.data.CameraAlerts
 import com.charlie.weather.data.CameraReportRepository
+import com.charlie.weather.data.Commute
 import com.charlie.weather.data.JourneyStore
 import com.charlie.weather.data.LatLon
 import com.charlie.weather.data.LocationProvider
@@ -104,6 +105,9 @@ class RideService : Service() {
     private var lastTrackPoint: TrackPoint? = null
     private var recordedKm = 0.0
     private val weatherSamples = mutableListOf<WeatherSample>()
+
+    /** 行車提醒記錄足跡時用的雷達短時預報（騎乘中用路線資料裡的） */
+    private var driveRadar: RainNowcast? = null
     private val journeys by lazy { JourneyStore(this) }
 
     private var tts: TextToSpeech? = null
@@ -233,7 +237,11 @@ class RideService : Service() {
                 val radar = withContext(Dispatchers.IO) { repository.nowcast() }
                 route = route?.copy(nowcast = radar ?: route?.nowcast)
                 lastRadar = System.currentTimeMillis()
+            } else if (route == null && recording && System.currentTimeMillis() - lastRadar >= RADAR_MS) {
+                driveRadar = withContext(Dispatchers.IO) { repository.nowcast() } ?: driveRadar
+                lastRadar = System.currentTimeMillis()
             }
+            if (route == null) sampleDriveWeather()
             if (route == null && System.currentTimeMillis() - movedAt >= STILL_MS) {
                 notify(
                     ID_REPORT,
@@ -300,6 +308,7 @@ class RideService : Service() {
         lastTrackPoint = null
         recordedKm = 0.0
         weatherSamples.clear()
+        driveRadar = null
         recordJob = scope.launch {
             withContext(Dispatchers.IO) { journeys.begin() }
             while (isActive) {
@@ -495,6 +504,30 @@ class RideService : Service() {
             rainMm = mm,
             wet = wet,
             place = stop.place,
+        )
+    }
+
+    /**
+     * 行車提醒記錄足跡時的天氣：「我的位置」已快取的逐時預報（背景約 30 分鐘更新）加上
+     * 每 10 分鐘的雷達短時預報，不另外查預報。
+     */
+    private suspend fun sampleDriveWeather() {
+        if (!recording) return
+        val location = lastLocation ?: return
+        val time = System.currentTimeMillis()
+        if (weatherSamples.lastOrNull()?.let { time - it.time < WEATHER_SAMPLE_MS } == true) return
+        val now = LocalDateTime.now()
+        val hour = withContext(Dispatchers.Default) { repository.primaryCity()?.let { repository.cached(it) } }
+            ?.hourly?.lastOrNull { !it.time.isAfter(now) }
+        val radarMm = driveRadar?.takeIf { it.covers(now, now) }?.at(location.latitude, location.longitude)
+        if (hour == null && radarMm == null) return
+        weatherSamples += WeatherSample(
+            time = time,
+            position = LatLon(location.latitude, location.longitude),
+            temperature = hour?.temperature,
+            weatherCode = hour?.weatherCode,
+            rainMm = radarMm ?: hour?.precipitation,
+            wet = if (radarMm != null) radarMm >= RainNowcast.WET_MM else hour?.let(Commute::isWet) == true,
         )
     }
 
