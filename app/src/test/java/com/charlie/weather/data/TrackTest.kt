@@ -164,4 +164,41 @@ class TrackTest {
         val j = Journey("1", t0, t0 + 600_000, 3.2, line(3).map { it.copy(accuracy = null) }, weather = weather)
         assertEquals(weather, Track.fromJson(org.json.JSONObject(Track.toJson(j).toString())).weather)
     }
+
+    @Test
+    fun pauseSplitsSegmentsAndIsNotCounted() {
+        // 10 分鐘、約 2.2 公里；暫停 30 分鐘（期間移動到 1 公里外）；再 10 分鐘、約 2.2 公里
+        val first = line(201)
+        val resumeAt = first.last().time + 30 * 60_000L
+        val second = (0..200).map { TrackPoint(resumeAt + it * 3000L, 25.03 + it * 0.0001, 121.5, 5f) }
+        val lines = first.map(Track::encodePoint) + Track.PAUSE_LINE + Track.PAUSE_LINE + second.map(Track::encodePoint)
+        val segments = Track.parseSegments(lines)
+        assertEquals(2, segments.size)
+        val journey = Track.build("p", segments)!!
+        // 暫停期間的 1 公里不算
+        assertEquals(4.45, journey.distanceKm, 0.05)
+        assertEquals(30 * 60_000L, journey.pausedMs)
+        assertEquals(20, journey.durationMinutes)
+        assertEquals(13.3, journey.averageKmh, 0.3)
+    }
+
+    @Test
+    fun shortAfterRemovingPauseIsDiscarded() {
+        // 兩段各 1 分鐘、約 0.3 公里，中間暫停 10 分鐘：扣掉暫停只有 2 分鐘
+        val a = line(21)
+        val b = line(21).map { it.copy(time = it.time + 11 * 60_000L, latitude = it.latitude + 0.01) }
+        assertNull(Track.build("s", listOf(a, b)))
+        assertTrue(Track.tooShort(0.4, 10 * 60_000L))
+        assertTrue(Track.tooShort(2.0, 2 * 60_000L))
+        assertFalse(Track.tooShort(0.6, 4 * 60_000L))
+    }
+
+    @Test
+    fun pauseAndClimbSurviveJson() {
+        val j = Journey("1", t0, t0 + 600_000, 3.2, line(3).map { it.copy(accuracy = null) }, pausedMs = 120_000, climbM = 85.0)
+        val back = Track.fromJson(org.json.JSONObject(Track.toJson(j).toString()))
+        assertEquals(120_000L, back.pausedMs)
+        assertEquals(85.0, back.climbM!!, 0.0)
+        assertEquals(8, back.durationMinutes)
+    }
 }

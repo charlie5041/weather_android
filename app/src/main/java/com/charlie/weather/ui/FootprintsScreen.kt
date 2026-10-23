@@ -175,7 +175,7 @@ internal fun rememberThumbs(journey: Journey, photoFiles: PhotoFiles): Map<Strin
 }
 
 /**
- * 「足跡」分頁：每次騎乘或直接出發自動記下的軌跡，依月份分組，新的在前。
+ * 「足跡」分頁：最上面「開始記錄」，下面是每次記錄、騎乘或直接出發記下的軌跡，依月份分組，新的在前。
  * 只存在手機裡，不上傳。
  */
 @Composable
@@ -183,6 +183,8 @@ fun FootprintsScreen(
     journeys: List<Journey>,
     onOpen: (Journey) -> Unit,
     onOpenSettings: () -> Unit,
+    /** 開始只記錄足跡；已經在記錄、騎乘或行車提醒時為 null（進行中橫條會顯示） */
+    onStartRecording: (() -> Unit)? = null,
     photoFiles: PhotoFiles = { _, _, _ -> null },
     today: LocalDate = LocalDate.now(),
     zone: ZoneId = ZoneId.systemDefault(),
@@ -201,6 +203,7 @@ fun FootprintsScreen(
                 }
             }
         }
+        onStartRecording?.let { start -> item { RecordCard(start) } }
         if (journeys.isEmpty()) {
             item {
                 Column(
@@ -209,7 +212,7 @@ fun FootprintsScreen(
                 ) {
                     Text("還沒有足跡", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "在「出門」查路線後開始騎乘，或按「直接出發」，結束後就會自動存一趟足跡。只存在這支手機，不會上傳。",
+                        "按「開始記錄」，或在「出門」開始騎乘、直接出發，結束後就會存一趟足跡。只存在這支手機，不會上傳。",
                         color = FootSecondary,
                         fontSize = 14.sp,
                     )
@@ -237,6 +240,41 @@ fun FootprintsScreen(
             }
             items(list, key = { it.id }) { j -> JourneyRow(j, zone, photoFiles, onClick = { onOpen(j) }) }
         }
+    }
+}
+
+/** 開始記錄：不設目的地、不提醒測速照相，只記軌跡 */
+@Composable
+private fun RecordCard(onStart: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(PanelColor)
+            .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("記錄這一趟", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "不用設目的地，關掉螢幕也會繼續記錄；休息時可以暫停。",
+                color = FootSecondary,
+                fontSize = 13.sp,
+                lineHeight = 17.sp,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            "● 開始記錄",
+            color = Color.Black,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Color(0xFF30D158))
+                .clickable(role = Role.Button, onClick = onStart)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        )
     }
 }
 
@@ -406,6 +444,7 @@ fun FootprintDetailScreen(
             Stat("距離", "%.1f 公里".format(Locale.US, journey.distanceKm), Modifier.weight(1f))
             Stat("時間", durationLabel(journey.durationMinutes), Modifier.weight(1f))
             Stat("平均時速", "%.0f 公里".format(Locale.US, journey.averageKmh), Modifier.weight(1f))
+            journey.climbM?.let { Stat("爬升", "%.0f 公尺".format(Locale.US, it), Modifier.weight(1f)) }
         }
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(PanelColor).padding(16.dp),

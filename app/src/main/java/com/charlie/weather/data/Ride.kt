@@ -18,7 +18,7 @@ data class RideProgress(
 
 /**
  * App 內進行中橫條與騎乘中畫面顯示的即時狀態，內容與常駐通知相同。
- * [routeName] 為 null 時是不設目的地的行車提醒。
+ * [routeName] 為 null 時是不設目的地的行車提醒，或 [recordOnly] 的單純記錄足跡。
  */
 data class LiveRide(
     val routeName: String?,
@@ -30,7 +30,88 @@ data class LiveRide(
     val cameraDetail: String? = null,
     /** 記錄足跡時目前的里程 */
     val recordedKm: Double? = null,
-)
+    /** 從「足跡」分頁開始的單純記錄（不提醒測速照相） */
+    val recordOnly: Boolean = false,
+    val paused: Boolean = false,
+    /** 記錄足跡時：開始時間（epoch 毫秒）、已暫停的總時間與這次暫停的開始時間，畫面用來走秒 */
+    val startedAt: Long? = null,
+    val pausedMs: Long = 0,
+    val pausedAt: Long? = null,
+    /** 記錄足跡時目前的累計爬升（公尺） */
+    val climbM: Double? = null,
+    val gps: GpsSignal? = null,
+) {
+    /** 記錄的時間（扣掉暫停） */
+    fun movingMs(now: Long): Long {
+        val start = startedAt ?: return 0
+        val pausing = pausedAt?.let { now - it } ?: 0
+        return (now - start - pausedMs - pausing).coerceAtLeast(0)
+    }
+
+    /** 記錄足跡中但距離或時間還不夠，現在結束不會存 */
+    fun tooShort(now: Long): Boolean = recordedKm != null && Track.tooShort(recordedKm, movingMs(now))
+}
+
+/** GPS 訊號：依最近一次 GPS 定位的精度與多久以前 */
+enum class GpsSignal(val label: String) {
+    SEARCHING("搜尋 GPS"),
+    WEAK("GPS 弱"),
+    FAIR("GPS 普通"),
+    GOOD("GPS 良好");
+
+    companion object {
+        /** 超過這麼久沒有 GPS 定位就當作沒訊號 */
+        const val STALE_MS = 15_000L
+
+        fun of(accuracyM: Float?, ageMs: Long?): GpsSignal {
+            if (ageMs == null || ageMs > STALE_MS) return SEARCHING
+            val accuracy = accuracyM ?: return WEAK
+            return when {
+                accuracy > Track.MAX_ACCURACY_M -> WEAK
+                accuracy > 12f -> FAIR
+                else -> GOOD
+            }
+        }
+    }
+}
+
+/**
+ * 累計爬升：GPS 高度誤差大，先取最近幾個高度的平均，
+ * 比參考高度高出 [thresholdM] 才算爬升，往下時把參考高度跟著降低。
+ */
+class ClimbCounter(private val thresholdM: Double = 5.0, private val window: Int = 5) {
+    private val recent = ArrayDeque<Double>()
+    private var reference: Double? = null
+
+    var climbM: Double = 0.0
+        private set
+
+    /** 有沒有收到過高度 */
+    var hasAltitude: Boolean = false
+        private set
+
+    fun add(altitudeM: Double) {
+        hasAltitude = true
+        recent.addLast(altitudeM)
+        if (recent.size > window) recent.removeFirst()
+        val smooth = recent.average()
+        val ref = reference
+        when {
+            ref == null -> reference = smooth
+            smooth - ref >= thresholdM -> {
+                climbM += smooth - ref
+                reference = smooth
+            }
+            smooth < ref -> reference = smooth
+        }
+    }
+
+    /** 暫停後繼續：可能換了地方，高度重新起算（已累計的爬升保留） */
+    fun restart() {
+        recent.clear()
+        reference = null
+    }
+}
 
 /** 騎乘中通知的內容 */
 data class RideStatus(

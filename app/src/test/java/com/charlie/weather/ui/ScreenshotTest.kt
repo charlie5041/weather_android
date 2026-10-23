@@ -198,6 +198,7 @@ class ScreenshotTest {
             journeys = sampleJourneys,
             onOpen = {},
             onOpenSettings = {},
+            onStartRecording = {},
             today = LocalDate.of(2026, 10, 22),
             zone = ZoneOffset.ofHours(8),
         )
@@ -232,6 +233,43 @@ class ScreenshotTest {
     }
 
     @Test
+    @Config(qualifiers = "w400dp-h880dp-xhdpi")
+    fun recordScreen() = capture("23_record_screen") {
+        val t0 = 1_760_000_000_000L
+        RideScreen(
+            live = com.charlie.weather.data.LiveRide(
+                routeName = null,
+                title = "足跡記錄中",
+                detail = "關掉螢幕也會繼續記錄；停下來休息可以按暫停。",
+                speedKmh = 18,
+                recordedKm = 12.4,
+                recordOnly = true,
+                startedAt = t0,
+                pausedMs = 10 * 60_000L,
+                climbM = 236.0,
+                gps = com.charlie.weather.data.GpsSignal.GOOD,
+            ),
+            onReportCamera = null,
+            onStop = {},
+            onClose = {},
+            onPause = {},
+            onResume = {},
+            clock = { t0 + 58 * 60_000L + 12_000L },
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h300dp-xhdpi")
+    fun recordBars() = capture("24_record_bars") {
+        val t0 = 1_760_000_000_000L
+        val live = com.charlie.weather.data.LiveRide(null, "足跡記錄中", "", recordedKm = 12.4, recordOnly = true, startedAt = t0)
+        androidx.compose.foundation.layout.Column {
+            LiveBar(live, onOpen = {}, onStop = {})
+            LiveBar(live.copy(title = "已暫停", detail = "暫停期間不定位，時間和距離都不算。", paused = true, pausedAt = t0), onOpen = {}, onStop = {})
+        }
+    }
+
+    @Test
     @Config(qualifiers = "w400dp-h800dp-xhdpi")
     fun setupScreen() = capture("22_setup") {
         SetupScreen(places = emptyList(), initialMode = com.charlie.weather.data.TravelMode.SCOOTER, onEditPlace = { _, _ -> }, onFinish = { _, _, _ -> }, onSkip = {})
@@ -240,7 +278,7 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "w400dp-h500dp-xhdpi")
     fun footprintsEmpty() = capture("16_footprints_empty") {
-        FootprintsScreen(journeys = emptyList(), onOpen = {}, onOpenSettings = {}, today = LocalDate.of(2026, 10, 22))
+        FootprintsScreen(journeys = emptyList(), onOpen = {}, onOpenSettings = {}, onStartRecording = {}, today = LocalDate.of(2026, 10, 22))
     }
 
     @Test

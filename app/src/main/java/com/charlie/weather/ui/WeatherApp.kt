@@ -11,6 +11,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.charlie.weather.data.AppSettings
+import com.charlie.weather.data.BackgroundPower
+import com.charlie.weather.data.Track
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import com.charlie.weather.data.SharePrivacy
 import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
@@ -130,7 +134,7 @@ fun WeatherApp(
     val photoFiles = remember<PhotoFiles>(journeyStore) { { id, photo, thumb -> journeyStore.photoFile(id, photo, thumb) } }
     LaunchedEffect(journeysVersion) { journeys = journeyStore.list() }
     // 上次騎乘中程序被系統結束時，留下的紀錄補存成一趟足跡
-    LaunchedEffect(Unit) { journeyStore.recover(active = RideService.active.value || RideService.driving.value) }
+    LaunchedEffect(Unit) { journeyStore.recover(active = RideService.live.value != null) }
     LaunchedEffect(sharedText) {
         val text = sharedText ?: return@LaunchedEffect
         Toast.makeText(context, "正在讀取 Google 地圖路線…", Toast.LENGTH_SHORT).show()
@@ -169,13 +173,37 @@ fun WeatherApp(
         }
         onFavoriteRouteHandled()
     }
+    // 第一次開始騎乘或記錄時，電池最佳化還開著就提醒一次（關螢幕後可能被系統停掉）
+    var showBatteryPrompt by remember { mutableStateOf(false) }
+    fun promptBatteryOnce() {
+        val settings = AppSettings(context)
+        if (!settings.batteryPromptShown && !BackgroundPower.unrestricted(context)) {
+            settings.batteryPromptShown = true
+            showBatteryPrompt = true
+        }
+    }
     fun startRide(data: RouteData) {
         if (!vm.hasLocationPermission()) {
             Toast.makeText(context, "需要定位權限才能在路上提醒前方天氣", Toast.LENGTH_LONG).show()
         } else {
             RideService.start(context, data)
             Toast.makeText(context, "已開始：前方 20 分鐘內會下雨時通知", Toast.LENGTH_SHORT).show()
+            promptBatteryOnce()
         }
+    }
+    fun startRecording() {
+        if (!vm.hasLocationPermission()) {
+            Toast.makeText(context, "需要定位權限才能記錄足跡", Toast.LENGTH_LONG).show()
+        } else {
+            RideService.startRecord(context)
+            showRide = true
+            promptBatteryOnce()
+        }
+    }
+    // 記錄還太短時結束要先確認（結束後不會存）
+    var confirmShortStop by remember { mutableStateOf(false) }
+    fun stopLive() {
+        if (live?.tooShort(System.currentTimeMillis()) == true) confirmShortStop = true else RideService.stop(context)
     }
     val pagerState = rememberPagerState { cities.size }
     val scope = rememberCoroutineScope()
@@ -258,6 +286,7 @@ fun WeatherApp(
                                 Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
                             } else {
                                 RideService.startDrive(context)
+                                promptBatteryOnce()
                             }
                         },
                         recordJourneys = remember(settingsVersion) { AppSettings(context).recordJourneys },
@@ -267,12 +296,13 @@ fun WeatherApp(
                         journeys = journeys,
                         onOpen = { openJourneyId = it.id },
                         onOpenSettings = openSettings,
+                        onStartRecording = if (live == null) ::startRecording else null,
                         photoFiles = photoFiles,
                     )
                 }
                 Column(Modifier.align(Alignment.BottomCenter)) {
                     // 騎乘中或行車提醒時，三個分頁都看得到狀態，點了打開騎乘中畫面
-                    live?.let { LiveBar(it, onOpen = { showRide = true }, onStop = { RideService.stop(context) }) }
+                    live?.let { LiveBar(it, onOpen = { showRide = true }, onStop = ::stopLive) }
                     TabBar(selected = tab, onSelect = { tab = it })
                 }
             }
@@ -457,11 +487,52 @@ fun WeatherApp(
                         } else {
                             null
                         },
-                        onStop = { RideService.stop(context) },
+                        onStop = ::stopLive,
                         onClose = { showRide = false },
                         keepScreenOn = remember(settingsVersion) { AppSettings(context).keepScreenOnRiding },
+                        onPause = { RideService.pause(context) },
+                        onResume = { RideService.resume(context) },
                     )
                 }
+            }
+            if (confirmShortStop) {
+                AlertDialog(
+                    onDismissRequest = { confirmShortStop = false },
+                    title = { Text("這趟還太短") },
+                    text = {
+                        Text(
+                            "不到 ${(Track.MIN_KM * 1000).toInt()} 公尺或 ${Track.MIN_MS / 60_000} 分鐘的紀錄不會存成足跡。現在結束，這段會刪掉。",
+                            color = Color.Gray,
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            confirmShortStop = false
+                            RideService.stop(context, discard = true)
+                        }) { Text("刪除並結束", color = Color(0xFFFF453A)) }
+                    },
+                    dismissButton = { TextButton(onClick = { confirmShortStop = false }) { Text("繼續記錄", color = Accent) } },
+                )
+            }
+            if (showBatteryPrompt) {
+                AlertDialog(
+                    onDismissRequest = { showBatteryPrompt = false },
+                    title = { Text("讓背景記錄不中斷") },
+                    text = {
+                        Text(
+                            "這支手機對一路晴開著電池最佳化，關掉螢幕一段時間後，系統可能停掉定位，足跡和前方降雨提醒會斷掉。" +
+                                "建議到「應用程式資訊 → 電池」改成「不限制」。之後也可以在設定 → 足跡修改。",
+                            color = Color.Gray,
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showBatteryPrompt = false
+                            BackgroundPower.openSettings(context)
+                        }) { Text("去設定", color = Accent) }
+                    },
+                    dismissButton = { TextButton(onClick = { showBatteryPrompt = false }) { Text("之後再說", color = Color.Gray) } },
+                )
             }
             savedJourney?.let { j ->
                 JourneySavedDialog(

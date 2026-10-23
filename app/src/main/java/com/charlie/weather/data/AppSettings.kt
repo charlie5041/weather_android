@@ -113,6 +113,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("keep_screen_on_riding", false)
         set(value) = prefs.edit().putBoolean("keep_screen_on_riding", value).apply()
 
+    /** 第一次開始騎乘或記錄時，已經提醒過關閉電池最佳化 */
+    var batteryPromptShown: Boolean
+        get() = prefs.getBoolean("battery_prompt_shown", false)
+        set(value) = prefs.edit().putBoolean("battery_prompt_shown", value).apply()
+
     /** 騎乘中與行車提醒時記錄軌跡，存成足跡 */
     var recordJourneys: Boolean
         get() = prefs.getBoolean("record_journeys", true)

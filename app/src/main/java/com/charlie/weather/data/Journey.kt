@@ -74,6 +74,10 @@ data class Journey(
     val photos: List<JourneyPhoto> = emptyList(),
     /** 騎乘中模式才有（行車提醒沒有查天氣） */
     val weather: List<WeatherSample> = emptyList(),
+    /** 中途暫停的總時間（毫秒），不算進時間與平均時速 */
+    val pausedMs: Long = 0,
+    /** 累計爬升（公尺）；GPS 沒有高度或程序被結束後補存的足跡為 null */
+    val climbM: Double? = null,
 ) {
     /** 途中有遇到雨 */
     val metRain: Boolean get() = weather.any { it.wet }
@@ -100,10 +104,13 @@ data class Journey(
             return events.sortedWith(compareBy<JourneyEvent>({ it.time }, { if (it is JourneyEvent.Start) 0 else if (it is JourneyEvent.End) 2 else 1 }))
         }
 
-    val durationMinutes: Long get() = ((endTime - startTime) / 60_000).coerceAtLeast(0)
+    /** 扣掉暫停的時間（毫秒） */
+    val movingMs: Long get() = (endTime - startTime - pausedMs).coerceAtLeast(0)
 
-    /** 平均時速（公里），不扣掉停下來的時間 */
-    val averageKmh: Double get() = if (endTime > startTime) distanceKm / ((endTime - startTime) / 3_600_000.0) else 0.0
+    val durationMinutes: Long get() = movingMs / 60_000
+
+    /** 平均時速（公里）：扣掉暫停，不扣掉沒暫停的停等 */
+    val averageKmh: Double get() = if (movingMs > 0) distanceKm / (movingMs / 3_600_000.0) else 0.0
 
     /** 例：中和區 → 內湖區；有自訂名稱時用名稱 */
     val title: String
@@ -200,13 +207,41 @@ object Track {
         return sqrt(dx * dx + dy * dy)
     }
 
+    /** 記錄中的里程與時間（扣掉暫停）是否還太短，結束後不會存 */
+    fun tooShort(km: Double, movingMs: Long): Boolean = km < MIN_KM || movingMs < MIN_MS
+
     /** 整理原始點成一趟足跡；太短（誤觸）時回傳 null */
-    fun build(id: String, raw: List<TrackPoint>): Journey? {
-        val points = clean(raw)
+    fun build(id: String, raw: List<TrackPoint>): Journey? = build(id, listOf(raw))
+
+    /**
+     * 有暫停時軌跡分成幾段：距離只算各段內，段與段之間的時間算暫停。
+     * 地圖仍把各段接起來畫（暫停期間移動的那段會是直線）。
+     */
+    @JvmName("buildSegments")
+    fun build(id: String, segments: List<List<TrackPoint>>): Journey? {
+        val parts = segments.map(::clean).filter { it.isNotEmpty() }
+        val points = parts.flatten()
         if (points.size < 2) return null
-        val distance = distanceKm(points)
-        if (distance < MIN_KM || points.last().time - points.first().time < MIN_MS) return null
-        return Journey(id, points.first().time, points.last().time, distance, simplify(points))
+        val distance = parts.sumOf { distanceKm(it) }
+        val paused = (1 until parts.size).sumOf { (parts[it].first().time - parts[it - 1].last().time).coerceAtLeast(0) }
+        if (tooShort(distance, points.last().time - points.first().time - paused)) return null
+        return Journey(id, points.first().time, points.last().time, distance, parts.flatMap { simplify(it) }, pausedMs = paused)
+    }
+
+    /** 記錄檔中暫停的標記行 */
+    const val PAUSE_LINE = "pause"
+
+    /** 讀記錄檔：依暫停標記分段 */
+    fun parseSegments(lines: List<String>): List<List<TrackPoint>> {
+        val segments = mutableListOf(mutableListOf<TrackPoint>())
+        lines.forEach { line ->
+            if (line.trim() == PAUSE_LINE) {
+                if (segments.last().isNotEmpty()) segments += mutableListOf<TrackPoint>()
+            } else {
+                decodePoint(line)?.let { segments.last() += it }
+            }
+        }
+        return segments.filter { it.isNotEmpty() }
     }
 
     /** 拍攝時間在旅程前後這麼久以內，仍依時間放到起點或終點 */
@@ -308,6 +343,8 @@ object Track {
         .put("from", j.fromArea)
         .put("to", j.toArea)
         .put("name", j.name)
+        .put("paused", j.pausedMs)
+        .put("climb", j.climbM)
         .put(
             "points",
             JSONArray().apply {
@@ -377,6 +414,8 @@ object Track {
             name = o.optString("name").takeIf { o.has("name") && !o.isNull("name") && it.isNotBlank() },
             photos = photos,
             weather = weather,
+            pausedMs = o.optLong("paused", 0),
+            climbM = if (o.has("climb") && !o.isNull("climb")) o.getDouble("climb") else null,
         )
     }
 }
@@ -406,18 +445,24 @@ class JourneyStore(context: Context) {
         runCatching { recording.appendText(points.joinToString("") { Track.encodePoint(it) + "\n" }) }
     }
 
-    /** 結束紀錄並存成一趟足跡（附上騎乘中記下的天氣）；太短時不存，回傳 null */
-    suspend fun finish(weather: List<WeatherSample> = emptyList()): Journey? = withContext(Dispatchers.IO) { finishLocked(weather) }
+    /** 暫停：之後的點是新的一段，中間的時間與距離不算 */
+    fun pause() {
+        runCatching { recording.appendText(Track.PAUSE_LINE + "\n") }
+    }
+
+    /** 結束紀錄並存成一趟足跡（附上騎乘中記下的天氣與爬升）；太短時不存，回傳 null */
+    suspend fun finish(weather: List<WeatherSample> = emptyList(), climbM: Double? = null): Journey? =
+        withContext(Dispatchers.IO) { finishLocked(weather, climbM) }
 
     /** App 開啟時：沒有在騎乘卻留著紀錄檔（程序被結束），補存起來 */
     suspend fun recover(active: Boolean) = withContext(Dispatchers.IO) {
         if (!active && recording.exists()) finishLocked()
     }
 
-    private suspend fun finishLocked(weather: List<WeatherSample> = emptyList()): Journey? {
-        val raw = runCatching { recording.readLines().mapNotNull(Track::decodePoint) }.getOrDefault(emptyList())
-        val id = raw.firstOrNull()?.time?.toString() ?: System.currentTimeMillis().toString()
-        val built = Track.build(id, raw)
+    private suspend fun finishLocked(weather: List<WeatherSample> = emptyList(), climbM: Double? = null): Journey? {
+        val segments = runCatching { Track.parseSegments(recording.readLines()) }.getOrDefault(emptyList())
+        val id = segments.firstOrNull()?.firstOrNull()?.time?.toString() ?: System.currentTimeMillis().toString()
+        val built = Track.build(id, segments)
         if (built == null) {
             recording.delete()
             return null
@@ -428,6 +473,7 @@ class JourneyStore(context: Context) {
             fromArea = from,
             toArea = to,
             weather = weather.filter { it.time in built.startTime - 60_000..built.endTime + 60_000 },
+            climbM = climbM,
         )
         File(dir, "$id.json").writeText(Track.toJson(journey).toString())
         if (!recording.renameTo(File(dir, "$id.csv"))) recording.delete()
