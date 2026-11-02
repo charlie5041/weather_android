@@ -23,6 +23,7 @@ import com.charlie.weather.data.FavoriteRoutes
 import com.charlie.weather.data.Journey
 import com.charlie.weather.data.JourneyStore
 import com.charlie.weather.data.RouteData
+import com.charlie.weather.sync.MovementDetector
 import com.charlie.weather.sync.RideService
 import com.charlie.weather.sync.WeatherNotifier
 import androidx.activity.compose.BackHandler
@@ -173,10 +174,18 @@ fun WeatherApp(
         }
         onFavoriteRouteHandled()
     }
-    // 第一次開始騎乘或記錄時，電池最佳化還開著就提醒一次（關螢幕後可能被系統停掉）
+    // 第一次開始騎乘或記錄時：電池最佳化還開著就提醒一次（關螢幕後可能被系統停掉）
     var showBatteryPrompt by remember { mutableStateOf(false) }
-    fun promptBatteryOnce() {
+    // 自動繼續要偵測開始移動：第一次開始騎乘或記錄時問一次體能活動權限
+    val activityLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    fun promptBackgroundOnce() {
         val settings = AppSettings(context)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && settings.autoResume && !settings.askedActivityPermission &&
+            !MovementDetector.hasPermission(context)
+        ) {
+            settings.askedActivityPermission = true
+            activityLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+        }
         if (!settings.batteryPromptShown && !BackgroundPower.unrestricted(context)) {
             settings.batteryPromptShown = true
             showBatteryPrompt = true
@@ -188,7 +197,7 @@ fun WeatherApp(
         } else {
             RideService.start(context, data)
             Toast.makeText(context, "已開始：前方 20 分鐘內會下雨時通知", Toast.LENGTH_SHORT).show()
-            promptBatteryOnce()
+            promptBackgroundOnce()
         }
     }
     fun startRecording() {
@@ -197,7 +206,7 @@ fun WeatherApp(
         } else {
             RideService.startRecord(context)
             showRide = true
-            promptBatteryOnce()
+            promptBackgroundOnce()
         }
     }
     // 記錄還太短時結束要先確認（結束後不會存）
@@ -286,7 +295,7 @@ fun WeatherApp(
                                 Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
                             } else {
                                 RideService.startDrive(context)
-                                promptBatteryOnce()
+                                promptBackgroundOnce()
                             }
                         },
                         recordJourneys = remember(settingsVersion) { AppSettings(context).recordJourneys },

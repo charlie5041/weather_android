@@ -113,6 +113,16 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("keep_screen_on_riding", false)
         set(value) = prefs.edit().putBoolean("keep_screen_on_riding", value).apply()
 
+    /** 記錄足跡時停下來自動暫停，偵測到開始移動就自動繼續（需要體能活動權限） */
+    var autoResume: Boolean
+        get() = prefs.getBoolean("auto_resume", true)
+        set(value) = prefs.edit().putBoolean("auto_resume", value).apply()
+
+    /** 已經詢問過體能活動權限（自動繼續用），只主動問一次 */
+    var askedActivityPermission: Boolean
+        get() = prefs.getBoolean("asked_activity_permission", false)
+        set(value) = prefs.edit().putBoolean("asked_activity_permission", value).apply()
+
     /** 第一次開始騎乘或記錄時，已經提醒過關閉電池最佳化 */
     var batteryPromptShown: Boolean
         get() = prefs.getBoolean("battery_prompt_shown", false)

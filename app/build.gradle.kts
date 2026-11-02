@@ -105,6 +105,8 @@ dependencies {
     implementation("androidx.car.app:app:1.7.0")
     // 路線降雨的地圖（有 Google 金鑰時）
     implementation("com.google.maps.android:maps-compose:6.4.1")
+    // 暫停記錄時偵測開始移動（活動偵測）
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-crashlytics")
     // 移動式測速的使用者回報（Firestore + 匿名登入）；沒有 google-services.json 時不會啟用

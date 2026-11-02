@@ -65,6 +65,7 @@ import com.charlie.weather.data.NotificationPreset
 import com.charlie.weather.data.NotificationToggles
 import com.charlie.weather.data.RoutePlanner
 import com.charlie.weather.data.SharePrivacy
+import com.charlie.weather.sync.MovementDetector
 import com.charlie.weather.sync.WeatherNotifier
 import com.charlie.weather.sync.WeatherSyncWorker
 
@@ -109,9 +110,15 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
 
     var backgroundOk by remember { mutableStateOf(BackgroundPower.unrestricted(context)) }
+    var autoResume by remember { mutableStateOf(settings.autoResume) }
+    var activityAllowed by remember { mutableStateOf(MovementDetector.hasPermission(context)) }
+    val activityLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        activityAllowed = granted
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         canNotify = WeatherNotifier.canNotify(context)
         backgroundOk = BackgroundPower.unrestricted(context)
+        activityAllowed = MovementDetector.hasPermission(context)
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -340,6 +347,23 @@ fun SettingsScreen(
                     TextButton(onClick = { BackgroundPower.openSettings(context) }) {
                         Text("去設定", color = Accent, fontSize = 16.sp)
                     }
+                }
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            ToggleRow(
+                "移動時自動繼續",
+                when {
+                    !autoResume -> "停下來太久會自動結束（記錄足跡 1 小時、直接出發 20 分鐘），暫停後要手動按繼續"
+                    !activityAllowed -> "需要允許「體能活動」權限才能偵測開始移動；目前仍照舊停太久自動結束"
+                    else -> "停下來超過 5 分鐘自動暫停，暫停不限時間；開始走路、騎車或坐車時自動繼續"
+                },
+                autoResume,
+            ) {
+                autoResume = it
+                settings.autoResume = it
+                if (it && !activityAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    settings.askedActivityPermission = true
+                    activityLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
                 }
             }
             HorizontalDivider(color = Color.White.copy(alpha = 0.1f))

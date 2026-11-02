@@ -67,11 +67,13 @@ import java.util.Locale
  * 前景服務持續取得位置，有兩種模式：
  * - 騎乘中（有路線，[start]）：常駐通知顯示前方天氣與抵達時間；前方 20 分鐘內會遇到雨時另外跳出提醒
  *   （同一段雨只提醒一次）。開啟測速照相提醒時，路線前方 500 公尺內有測速照相也會提醒。抵達終點時停止。
- * - 行車提醒（沒有目的地，[startDrive]）：依行進方向提醒前方的測速照相；停留超過 20 分鐘自動結束。
- * - 記錄足跡（[startRecord]）：只記錄軌跡，不提醒測速照相；停留超過 1 小時自動結束。
+ * - 行車提醒（沒有目的地，[startDrive]）：依行進方向提醒前方的測速照相；停留太久自動結束或暫停（見下）。
+ * - 記錄足跡（[startRecord]）：只記錄軌跡，不提醒測速照相。
+ * 停留太久時：開啟「移動時自動繼續」且有體能活動權限就自動暫停（記錄足跡 5 分鐘、行車提醒 10 分鐘），
+ * 用 [MovementDetector] 等開始移動再自動繼續；否則照舊自動結束（記錄足跡 1 小時、行車提醒 20 分鐘）。
  * 前兩種模式都可以從通知「回報測速」分享移動式測速，並可用語音播報。按「結束」時停止。
  * 開啟足跡紀錄時（預設開），從開始到結束的軌跡會存成一趟足跡（[JourneyStore]），切換模式不會中斷。
- * 記錄足跡時可以暫停：暫停期間不定位（省電），時間與距離都不算。
+ * 記錄足跡時可以暫停，不限時間：暫停期間不定位（省電），時間與距離都不算；手動暫停也會在移動時自動繼續。
  * 路線資料只放在記憶體；程序被系統回收後服務不會自行恢復。
  */
 class RideService : Service() {
@@ -123,6 +125,10 @@ class RideService : Service() {
     private var pausedMs = 0L
     private var climb = ClimbCounter()
 
+    /** 停留太久自動暫停的；暫停期間正在用活動偵測等開始移動 */
+    private var autoPaused = false
+    private var watchingMovement = false
+
     /** 在 App 裡確認過「太短，刪除並結束」，不必再通知沒有儲存 */
     private var discardNotice = false
     private var lastGpsAccuracy: Float? = null
@@ -160,7 +166,11 @@ class RideService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_RESUME -> {
-                if (loops == null) stopSelf() else resume()
+                when {
+                    loops == null -> stopSelf()
+                    intent.getBooleanExtra(EXTRA_AUTO, false) -> autoResume()
+                    else -> resume()
+                }
                 return START_NOT_STICKY
             }
         }
@@ -281,9 +291,15 @@ class RideService : Service() {
                 lastRadar = System.currentTimeMillis()
             }
             if (route == null && !paused) sampleDriveWeather()
-            // 暫停中不定位，也不自動結束
+            // 暫停中不定位，也不自動結束；能自動繼續時，停下來改成自動暫停而不是結束
+            val still = System.currentTimeMillis() - movedAt
+            if (route == null && !paused && canAutoResume() && still >= if (recordOnly) RECORD_AUTO_PAUSE_MS else DRIVE_AUTO_PAUSE_MS) {
+                pause(auto = true)
+                delay(REFRESH_MS)
+                continue
+            }
             val stillMs = if (recordOnly) RECORD_STILL_MS else STILL_MS
-            if (route == null && !paused && System.currentTimeMillis() - movedAt >= stillMs) {
+            if (route == null && !paused && still >= stillMs) {
                 if (settings.rideEndNotices) notify(
                     ID_REPORT,
                     NotificationCompat.Builder(this, WeatherNotifier.CHANNEL_RIDE)
@@ -383,12 +399,20 @@ class RideService : Service() {
     private fun altitudeReliable(location: Location): Boolean =
         !location.hasVerticalAccuracy() || location.verticalAccuracyMeters <= MAX_VERTICAL_ACCURACY_M
 
-    /** 暫停記錄：停止定位，之後的軌跡是新的一段 */
-    private fun pause() {
+    /** 記錄足跡中、設定開著且有體能活動權限：暫停後偵測到移動會自動繼續 */
+    private fun canAutoResume(): Boolean = recording && settings.autoResume && MovementDetector.hasPermission(this)
+
+    /**
+     * 暫停記錄：停止定位，之後的軌跡是新的一段。不限時間；
+     * 能自動繼續時改用活動偵測等開始移動。[auto] 是停留太久自動暫停。
+     */
+    private fun pause(auto: Boolean = false) {
         if (!recording || paused) return
         paused = true
+        autoPaused = auto
         pausedAt = System.currentTimeMillis()
         stopLocationUpdates()
+        watchingMovement = canAutoResume() && MovementDetector.start(this)
         val batch = pendingPoints.toList()
         pendingPoints.clear()
         journeys.append(batch)
@@ -405,7 +429,35 @@ class RideService : Service() {
         update()
     }
 
+    /** 活動偵測說開始移動了：自動繼續，另外通知一聲（可以馬上按暫停改回來） */
+    private fun autoResume() {
+        // 剛暫停時活動偵測可能先回報暫停前的狀態（例如還在車上），不算
+        if (!paused || !watchingMovement || System.currentTimeMillis() - pausedAt < AUTO_RESUME_GRACE_MS) return
+        resume()
+        notify(
+            ID_REPORT,
+            NotificationCompat.Builder(this, WeatherNotifier.CHANNEL_RIDE)
+                .setSmallIcon(R.drawable.ic_stat_weather)
+                .setContentTitle("偵測到移動，已繼續記錄")
+                .setContentText("不想記這段的話按「暫停」")
+                .setContentIntent(openApp())
+                .addAction(
+                    0, "暫停",
+                    PendingIntent.getService(
+                        this, 5, Intent(this, RideService::class.java).setAction(ACTION_PAUSE),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    ),
+                )
+                .setAutoCancel(true)
+                .setTimeoutAfter(2 * 60_000L)
+                .build(),
+        )
+    }
+
     private fun endPause() {
+        if (watchingMovement) MovementDetector.stop(this)
+        watchingMovement = false
+        autoPaused = false
         paused = false
         pausedMs += System.currentTimeMillis() - pausedAt
         climb.restart()
@@ -523,9 +575,11 @@ class RideService : Service() {
         val location = lastLocation
         lastStatusAt = System.currentTimeMillis()
         if (paused) {
-            val text = "已記錄 %.1f 公里 · %s，按「繼續」接著記錄".format(Locale.US, recordedKm, minutesLabel(movingMs()))
-            notify(ID_ONGOING, ongoing("已暫停", text))
-            publish("已暫停", "暫停期間不定位，時間和距離都不算。")
+            val next = if (watchingMovement) "開始移動時會自動繼續" else "按「繼續」接著記錄"
+            val text = "已記錄 %.1f 公里 · %s，%s".format(Locale.US, recordedKm, minutesLabel(movingMs()), next)
+            val title = if (autoPaused) "停下來了，已自動暫停" else "已暫停"
+            notify(ID_ONGOING, ongoing(title, text))
+            publish(title, "暫停期間不定位，時間和距離都不算。" + if (watchingMovement) "開始走路、騎車或坐車時會自動繼續。" else "")
             return
         }
         val data = route
@@ -771,6 +825,8 @@ class RideService : Service() {
 
     private fun stopRide() {
         stopLocationUpdates()
+        if (watchingMovement) MovementDetector.stop(this)
+        watchingMovement = false
         finishRecording()
         loops?.cancel()
         loops = null
@@ -787,6 +843,8 @@ class RideService : Service() {
 
     override fun onDestroy() {
         stopLocationUpdates()
+        if (watchingMovement) MovementDetector.stop(this)
+        watchingMovement = false
         // 被系統結束時：已收到的點先寫入，下次開啟 App 時補存成一趟足跡
         if (recording) {
             journeys.append(pendingPoints.toList())
@@ -847,6 +905,14 @@ class RideService : Service() {
 
         /** 記錄足跡：停留這麼久（沒按暫停）自動結束，避免忘了按結束一直定位 */
         private const val RECORD_STILL_MS = 60 * 60_000L
+
+        /** 能自動繼續時：停留這麼久就自動暫停（行車提醒久一點，避免塞車時停掉測速提醒） */
+        private const val RECORD_AUTO_PAUSE_MS = 5 * 60_000L
+        private const val DRIVE_AUTO_PAUSE_MS = 10 * 60_000L
+        private const val EXTRA_AUTO = "auto"
+
+        /** 暫停後這段時間內的活動轉換不自動繼續 */
+        private const val AUTO_RESUME_GRACE_MS = 60_000L
 
         /** 高度精度比這個差（公尺）時不算爬升 */
         private const val MAX_VERTICAL_ACCURACY_M = 15f
@@ -936,6 +1002,14 @@ class RideService : Service() {
 
         fun resume(context: Context) {
             context.startService(Intent(context, RideService::class.java).setAction(ACTION_RESUME))
+        }
+
+        /** 活動偵測說開始移動了（服務在前景，可以從背景呼叫） */
+        fun autoResume(context: Context) {
+            if (_live.value?.paused != true) return
+            runCatching {
+                context.startService(Intent(context, RideService::class.java).setAction(ACTION_RESUME).putExtra(EXTRA_AUTO, true))
+            }
         }
 
         /** 從 App 內回報移動式測速（騎乘中或行車提醒進行中才有位置與行進方向） */

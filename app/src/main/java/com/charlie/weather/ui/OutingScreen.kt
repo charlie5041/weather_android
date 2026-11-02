@@ -315,7 +315,7 @@ internal fun DriveCard(onStart: () -> Unit, recordJourneys: Boolean, speedCamera
             )
         }
         Text(
-            "停留超過 20 分鐘自動結束；通知欄的快速設定也可以加入「測速提醒」方塊。",
+            "停下來太久會自動暫停（開始移動時繼續）或結束，見設定 → 足跡；通知欄的快速設定也可以加入「測速提醒」方塊。",
             fontSize = 12.sp,
             color = OutingSecondary,
             lineHeight = 16.sp,
