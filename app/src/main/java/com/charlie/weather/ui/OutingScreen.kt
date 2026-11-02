@@ -87,6 +87,8 @@ fun OutingScreen(
     onCreateCommute: (Pair<City, City>) -> Unit,
     onStartRide: (RouteData) -> Unit,
     onOpenSettings: () -> Unit,
+    /** 開 Google 地圖導航並開始騎乘；null 時不顯示按鈕 */
+    onNavigate: ((RouteData) -> Unit)? = null,
     /** 直接出發：不設目的地的行車提醒 */
     onStartDrive: () -> Unit = {},
     recordJourneys: Boolean = true,
@@ -127,7 +129,7 @@ fun OutingScreen(
             item { DriveCard(onStartDrive, recordJourneys, speedCameras) }
         }
         upcoming?.let { trip ->
-            item { NextTripCard(trip, today, rideActive, onOpen = { onOpen(trip.route, trip.departure) }, onStartRide = onStartRide) }
+            item { NextTripCard(trip, today, rideActive, onOpen = { onOpen(trip.route, trip.departure) }, onStartRide = onStartRide, onNavigate = onNavigate) }
         }
         val newCommute = commutePlaces?.takeUnless { (home, work) -> Commute.hasRoutes(favorites, home, work) }
         item {
@@ -174,6 +176,7 @@ private fun NextTripCard(
     rideActive: Boolean,
     onOpen: () -> Unit,
     onStartRide: (RouteData) -> Unit,
+    onNavigate: ((RouteData) -> Unit)? = null,
 ) {
     OutingPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -205,6 +208,9 @@ private fun NextTripCard(
         }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PillButton("看路線", OutingDivider, Color.White, Modifier.weight(1f), onOpen)
+            if (forecast != null && onNavigate != null) {
+                PillButton("導航", NavigateBlue, Color.White, Modifier.weight(1f)) { onNavigate(forecast.data) }
+            }
             if (forecast != null && !rideActive) {
                 val riding = trip.route.mode == TravelMode.SCOOTER || trip.route.mode == TravelMode.BIKE
                 PillButton(if (riding) "開始騎乘" else "開始出發", Color.White, Color.Black, Modifier.weight(1f)) { onStartRide(forecast.data) }

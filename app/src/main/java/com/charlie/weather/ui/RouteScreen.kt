@@ -173,6 +173,8 @@ fun RouteScreen(
     onStopRide: () -> Unit = {},
     /** 騎乘中回報移動式測速；null 時不顯示按鈕 */
     onReportCamera: (() -> Unit)? = null,
+    /** 開 Google 地圖導航並開始騎乘；null 時不顯示按鈕 */
+    onNavigate: ((RouteData) -> Unit)? = null,
     onClose: () -> Unit,
 ) {
     val openedAt = remember { LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES) }
@@ -404,7 +406,13 @@ fun RouteScreen(
             // 開始騎乘固定在底部，不用捲到結論下面找
             if (forecast != null && onStartRide != null) {
                 RideButtons(
-                    RideControl(rideActive, onStart = { onStartRide(forecast.data) }, onStop = onStopRide, onReport = onReportCamera),
+                    RideControl(
+                        rideActive,
+                        onStart = { onStartRide(forecast.data) },
+                        onStop = onStopRide,
+                        onReport = onReportCamera,
+                        onNavigate = onNavigate?.let { navigate -> { navigate(forecast.data) } },
+                    ),
                     forecast.data.mode,
                     Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
                 )
@@ -1109,6 +1117,22 @@ internal fun RideButtons(control: RideControl, mode: TravelMode, modifier: Modif
                 .clickable(role = Role.Button, onClick = if (control.active) control.onStop else control.onStart)
                 .padding(vertical = 13.dp),
         )
+        // 交給 Google 地圖導航，一路晴在背景繼續提醒天氣與測速、記錄足跡
+        control.onNavigate?.let { navigate ->
+            Text(
+                if (control.active) "🧭 回到導航" else "🧭 導航（同時開始提醒）",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(NavigateBlue)
+                    .clickable(role = Role.Button, onClick = navigate)
+                    .padding(vertical = 13.dp),
+            )
+        }
         // 騎乘中才有目前位置與行進方向，可以回報移動式測速
         val report = control.onReport
         if (control.active && report != null && mode != TravelMode.WALK && mode != TravelMode.BIKE) {
@@ -1130,7 +1154,17 @@ internal fun RideButtons(control: RideControl, mode: TravelMode, modifier: Modif
 }
 
 /** 路線結果上的騎乘中模式按鈕 */
-class RideControl(val active: Boolean, val onStart: () -> Unit, val onStop: () -> Unit, val onReport: (() -> Unit)? = null)
+class RideControl(
+    val active: Boolean,
+    val onStart: () -> Unit,
+    val onStop: () -> Unit,
+    val onReport: (() -> Unit)? = null,
+    /** 開 Google 地圖導航（還沒開始時一起開始騎乘） */
+    val onNavigate: (() -> Unit)? = null,
+)
+
+/** 導航按鈕（接近 Google 地圖導航的藍色） */
+internal val NavigateBlue = Color(0xFF0A84FF)
 
 /** 柱高：不靠顏色也看得出雨勢 */
 private fun RainLevel.barHeight() = when (this) {

@@ -146,6 +146,7 @@ class ScreenshotTest {
                 onCreateCommute = {},
                 onStartRide = {},
                 onOpenSettings = {},
+                onNavigate = {},
                 today = now.toLocalDate(),
             )
         }
@@ -220,6 +221,7 @@ class ScreenshotTest {
             onReportCamera = {},
             onStop = {},
             onClose = {},
+            onNavigate = {},
         )
     }
 
