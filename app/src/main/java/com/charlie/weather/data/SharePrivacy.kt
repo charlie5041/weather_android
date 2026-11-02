@@ -81,6 +81,40 @@ object SharePrivacy {
         return SharedRoute(if (hidden) emptyList() else segments, keptKm, totalKm, trimStart, trimEnd, hidden)
     }
 
+    /**
+     * 匯出 GPX 用：和 [apply] 同樣的規則（隱私區內全移除、起訖點各裁同樣的距離），
+     * 但保留原本的定位點與時間，不補點。[segments] 是暫停分開的各段；經過隱私區的地方會再斷開，
+     * 兩點連線穿過隱私區（中間沒有點落在裡面）也會斷開。
+     */
+    fun applyToTrack(journeyId: String, segments: List<List<TrackPoint>>, zones: List<PrivacyZone>): List<List<TrackPoint>> {
+        val points = segments.flatten()
+        if (points.isEmpty()) return emptyList()
+        val segmentOf = segments.flatMapIndexed { i, seg -> List(seg.size) { i } }
+        val cumulative = DoubleArray(points.size)
+        for (i in 1 until points.size) cumulative[i] = cumulative[i - 1] + Track.distanceKm(points[i - 1].position, points[i].position) * 1000
+        fun inside(p: LatLon) = zones.any { Track.distanceKm(it.center, p) * 1000 <= it.radiusM }
+        val outside = BooleanArray(points.size) { !inside(points[it].position) }
+        val first = outside.indexOfFirst { it }
+        if (first < 0) return emptyList()
+        val last = outside.indexOfLast { it }
+        val from = cumulative[first] + trimM(journeyId, end = false)
+        val to = cumulative[last] - trimM(journeyId, end = true)
+        val keep = BooleanArray(points.size) { outside[it] && cumulative[it] >= from && cumulative[it] <= to }
+        val result = mutableListOf<List<TrackPoint>>()
+        var run = mutableListOf<TrackPoint>()
+        for (i in points.indices) {
+            val continues = i > 0 && keep[i - 1] && segmentOf[i] == segmentOf[i - 1] &&
+                (zones.isEmpty() || densify(listOf(points[i - 1].position, points[i].position), STEP_M).none(::inside))
+            if (!keep[i] || !continues) {
+                if (run.size >= 2) result += run
+                run = mutableListOf()
+            }
+            if (keep[i]) run += points[i]
+        }
+        if (run.size >= 2) result += run
+        return result
+    }
+
     /** 在相鄰兩點之間等距補點，讓每段不超過 [stepM] 公尺 */
     fun densify(points: List<LatLon>, stepM: Double): List<LatLon> {
         if (points.size < 2) return points

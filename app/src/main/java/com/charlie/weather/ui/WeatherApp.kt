@@ -22,6 +22,7 @@ import com.charlie.weather.data.FavoriteRoute
 import com.charlie.weather.data.FavoriteRoutes
 import com.charlie.weather.data.Journey
 import com.charlie.weather.data.JourneyStore
+import com.charlie.weather.data.Gpx
 import com.charlie.weather.data.RouteData
 import com.charlie.weather.sync.MovementDetector
 import com.charlie.weather.sync.RideService
@@ -132,6 +133,7 @@ fun WeatherApp(
     var lastJourney by remember { mutableStateOf<Journey?>(null) }
     var pickPhotosFor by remember { mutableStateOf<String?>(null) }
     var addingPhotos by remember { mutableStateOf(false) }
+    var importingGpx by remember { mutableStateOf(false) }
     val photoFiles = remember<PhotoFiles>(journeyStore) { { id, photo, thumb -> journeyStore.photoFile(id, photo, thumb) } }
     LaunchedEffect(journeysVersion) { journeys = journeyStore.list() }
     // 上次騎乘中程序被系統結束時，留下的紀錄補存成一趟足跡
@@ -307,6 +309,23 @@ fun WeatherApp(
                         onOpenSettings = openSettings,
                         onStartRecording = if (live == null) ::startRecording else null,
                         photoFiles = photoFiles,
+                        onImportGpx = { uri ->
+                            scope.launch {
+                                importingGpx = true
+                                val result = try {
+                                    journeyStore.importGpx(uri)
+                                } finally {
+                                    importingGpx = false
+                                }
+                                Toast.makeText(context, gpxImportMessage(result), Toast.LENGTH_LONG).show()
+                                when (result) {
+                                    is JourneyStore.GpxImport.Imported -> openJourneyId = result.journey.id
+                                    is JourneyStore.GpxImport.Duplicate -> openJourneyId = result.journey.id
+                                    else -> Unit
+                                }
+                            }
+                        },
+                        importing = importingGpx,
                     )
                 }
                 Column(Modifier.align(Alignment.BottomCenter)) {
@@ -479,6 +498,16 @@ fun WeatherApp(
                         onPickHandled = { pickPhotosFor = null },
                         privacyZones = privacyZones,
                         privacyRadiusM = privacyRadiusM,
+                        onExportGpx = { hide ->
+                            scope.launch {
+                                val file = journeyStore.exportGpx(j, if (hide) privacyZones else null, gpxFileName(j))
+                                if (file == null) {
+                                    Toast.makeText(context, "藏起隱私區與起訖點後沒有剩下路線，可以改匯出完整軌跡", Toast.LENGTH_LONG).show()
+                                } else {
+                                    ShareCard.shareFile(context, file, Gpx.MIME, "匯出 GPX")
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -731,3 +760,20 @@ internal fun photosAddedMessage(picked: Int, added: Int, unplaced: Int): String 
     if (unplaced > 0) append("，其中 $unplaced 張沒有拍攝時間或不在這趟騎乘期間，可以點照片手動放到路線上")
     if (added in 1 until picked) append("；${picked - added} 張無法讀取")
 }
+
+/** 匯入 GPX 後的提示 */
+internal fun gpxImportMessage(result: JourneyStore.GpxImport): String = when (result) {
+    is JourneyStore.GpxImport.Imported -> "已匯入「${result.journey.title}」"
+    is JourneyStore.GpxImport.Duplicate -> "足跡裡已經有這一趟"
+    JourneyStore.GpxImport.NoTime -> "這個 GPX 沒有時間，看起來是規劃的路線，不是騎過的紀錄"
+    JourneyStore.GpxImport.TooShort -> "這段紀錄太短（少於 0.5 公里或 3 分鐘），沒有匯入"
+    JourneyStore.GpxImport.Invalid -> "讀不到軌跡，請確認是 GPX 檔"
+}
+
+/** 匯出的檔名，例：一路晴_20261021_中和區-內湖區 */
+internal fun gpxFileName(j: Journey, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String {
+    val d = java.time.Instant.ofEpochMilli(j.startTime).atZone(zone)
+    val title = j.title.replace(" → ", "-").replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_").take(40)
+    return "一路晴_%04d%02d%02d_%s".format(java.util.Locale.US, d.year, d.monthValue, d.dayOfMonth, title)
+}
+

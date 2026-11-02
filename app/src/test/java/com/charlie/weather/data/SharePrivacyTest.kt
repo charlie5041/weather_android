@@ -85,4 +85,48 @@ class SharePrivacyTest {
         val zones = SharePrivacy.zonesFrom(places, excludedIds = setOf("work"), radiusM = 200)
         assertEquals(listOf(PrivacyZone(LatLon(25.0, 121.5), 200.0)), zones)
     }
+
+    /** 往北的原始軌跡：每 10 秒一點、每點約 50 公尺 */
+    private fun rawNorth(km: Double, startTime: Long = 0L, fromLat: Double = 25.0): List<TrackPoint> =
+        (0..(km * 20).toInt()).map { i -> TrackPoint(startTime + i * 10_000L, fromLat + i * 0.05 / 111.2, 121.5) }
+
+    @Test
+    fun trackExportKeepsOriginalPointsAndTimes() {
+        val raw = rawNorth(5.0)
+        val segs = SharePrivacy.applyToTrack("a", listOf(raw), emptyList())
+        assertEquals(1, segs.size)
+        // 沒有補點：留下的都是原本的點（含時間）
+        assertTrue(segs[0].all { it in raw })
+        val startGap = Track.distanceKm(raw.first().position, segs[0].first().position) * 1000
+        assertTrue(startGap >= SharePrivacy.trimM("a", end = false))
+        assertTrue(startGap <= SharePrivacy.trimM("a", end = false) + 60)
+    }
+
+    @Test
+    fun trackExportCutsAroundZonesAndAtPauses() {
+        val first = rawNorth(3.0)
+        val second = rawNorth(3.0, startTime = 10_000_000L, fromLat = 25.04)
+        val zoneCenter = first[30].position // 第一段中間（約 1.5 公里處）
+        val segs = SharePrivacy.applyToTrack("b", listOf(first, second), listOf(PrivacyZone(zoneCenter, 500.0)))
+        // 隱私區把第一段切成兩截，暫停另起一段：共三段
+        assertEquals(3, segs.size)
+        segs.flatten().forEach { assertTrue(Track.distanceKm(it.position, zoneCenter) * 1000 > 500) }
+    }
+
+    @Test
+    fun trackExportBreaksWhenStraightLineCrossesZone() {
+        // 兩點相距 3 公里、中間沒有點落在隱私區，但連線穿過
+        val raw = listOf(TrackPoint(0, 25.0, 121.5)) + rawNorth(1.0, 10_000, 25.0 + 3 / 111.2) +
+            listOf(TrackPoint(1_000_000, 25.0 + 6 / 111.2, 121.5))
+        val center = LatLon(25.0 + 1.5 / 111.2, 121.5)
+        val withPoint = listOf(TrackPoint(-100_000, 24.99, 121.5)) + raw
+        val segs = SharePrivacy.applyToTrack("c", listOf(withPoint), listOf(PrivacyZone(center, 300.0)))
+        segs.forEach { seg ->
+            (1 until seg.size).forEach { i ->
+                val dense = SharePrivacy.densify(listOf(seg[i - 1].position, seg[i].position), SharePrivacy.STEP_M)
+                assertTrue(dense.all { Track.distanceKm(it, center) * 1000 > 300 })
+            }
+        }
+    }
 }
+

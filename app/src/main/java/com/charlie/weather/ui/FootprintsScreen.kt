@@ -64,6 +64,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -186,10 +188,17 @@ fun FootprintsScreen(
     /** 開始只記錄足跡；已經在記錄、騎乘或行車提醒時為 null（進行中橫條會顯示） */
     onStartRecording: (() -> Unit)? = null,
     photoFiles: PhotoFiles = { _, _, _ -> null },
+    /** 挑好要匯入的 GPX 檔 */
+    onImportGpx: (Uri) -> Unit = {},
+    /** 正在匯入 */
+    importing: Boolean = false,
     today: LocalDate = LocalDate.now(),
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
     val groups = remember(journeys, zone) { journeys.groupBy { YearMonth.from(it.startDateTime(zone)) } }
+    var menu by remember { mutableStateOf(false) }
+    // GPX 在各家檔案管理員的類型不一（application/gpx+xml、octet-stream、text/xml…），不篩類型，讀不到再說明
+    val gpxPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(onImportGpx) }
     LazyColumn(
         Modifier.fillMaxSize().background(Color.Black).statusBarsPadding(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 160.dp),
@@ -198,8 +207,24 @@ fun FootprintsScreen(
         item {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("足跡", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+                if (importing) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                 IconButton(onClick = onOpenSettings) {
                     Icon(Icons.Filled.Settings, contentDescription = "設定", tint = Color.White)
+                }
+                Box {
+                    IconButton(onClick = { menu = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "更多", tint = Color.White)
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = PanelColor) {
+                        DropdownMenuItem(
+                            text = { Text("匯入 GPX 檔", color = Color.White) },
+                            enabled = !importing,
+                            onClick = {
+                                menu = false
+                                gpxPicker.launch(arrayOf("*/*"))
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -212,7 +237,7 @@ fun FootprintsScreen(
                 ) {
                     Text("還沒有足跡", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "按「開始記錄」，或在「出門」開始騎乘、直接出發，結束後就會存一趟足跡。只存在這支手機，不會上傳。",
+                        "按「開始記錄」，或在「出門」開始騎乘、直接出發，結束後就會存一趟足跡。也可以從右上角匯入其他 App 的 GPX 檔。只存在這支手機，不會上傳。",
                         color = FootSecondary,
                         fontSize = 14.sp,
                     )
@@ -362,9 +387,12 @@ fun FootprintDetailScreen(
     /** 分享時要藏起來的地點（住家、公司…） */
     privacyZones: List<PrivacyZone> = emptyList(),
     privacyRadiusM: Int = SharePrivacy.DEFAULT_RADIUS_M,
+    /** 匯出 GPX；[hidePrivate] 時套用隱私區 */
+    onExportGpx: (hidePrivate: Boolean) -> Unit = {},
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
     var renaming by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -414,6 +442,13 @@ fun FootprintDetailScreen(
                         onClick = {
                             menu = false
                             renaming = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("匯出 GPX", color = Color.White) },
+                        onClick = {
+                            menu = false
+                            exporting = true
                         },
                     )
                     DropdownMenuItem(
@@ -522,6 +557,17 @@ fun FootprintDetailScreen(
     if (sharing) {
         ShareJourneyScreen(journey, privacyZones, privacyRadiusM, photoFiles, onClose = { sharing = false }, zone = zone)
     }
+    if (exporting) {
+        GpxExportDialog(
+            zoneCount = privacyZones.size,
+            radiusM = privacyRadiusM,
+            onExport = { hide ->
+                exporting = false
+                onExportGpx(hide)
+            },
+            onDismiss = { exporting = false },
+        )
+    }
     if (deleting) {
         AlertDialog(
             onDismissRequest = { deleting = false },
@@ -540,6 +586,54 @@ fun FootprintDetailScreen(
 }
 
 private const val MAX_PICK = 30
+
+/** 匯出 GPX 前選要不要藏起住家、公司附近與起訖點（預設藏起來，同分享卡） */
+@Composable
+internal fun GpxExportDialog(zoneCount: Int, radiusM: Int, onExport: (hidePrivate: Boolean) -> Unit, onDismiss: () -> Unit) {
+    var hide by remember { mutableStateOf(true) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = PanelColor,
+        title = { Text("匯出 GPX", color = Color.White) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("GPX 檔可以匯入 Strava、Google 地球等 App。", color = FootSecondary, fontSize = 14.sp)
+                GpxOption(
+                    selected = hide,
+                    title = "藏起隱私區與起訖點",
+                    detail = if (zoneCount > 0) {
+                        "移除 $zoneCount 個有名稱的地點（住家、公司…）$radiusM 公尺內的路線，起訖點再各裁掉 ${SharePrivacy.MIN_TRIM_M}–${SharePrivacy.MAX_TRIM_M} 公尺"
+                    } else {
+                        "起訖點各裁掉 ${SharePrivacy.MIN_TRIM_M}–${SharePrivacy.MAX_TRIM_M} 公尺（還沒有替地點取名稱，沒有隱私區）"
+                    },
+                    onClick = { hide = true },
+                )
+                GpxOption(
+                    selected = !hide,
+                    title = "完整軌跡",
+                    detail = "包含出發與抵達的位置，適合自己備份",
+                    onClick = { hide = false },
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onExport(hide) }) { Text("匯出", color = Accent) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = Accent) } },
+    )
+}
+
+@Composable
+private fun GpxOption(selected: Boolean, title: String, detail: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onClick, colors = RadioButtonDefaults.colors(selectedColor = Accent, unselectedColor = FootSecondary))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontSize = 16.sp)
+            Text(detail, color = FootSecondary, fontSize = 13.sp)
+        }
+    }
+}
 
 /** 地圖下方的照片列：依拍攝時間排序，最後是「加照片」 */
 @Composable
