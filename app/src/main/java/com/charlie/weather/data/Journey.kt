@@ -521,6 +521,55 @@ class JourneyStore(context: Context) {
         runCatching { File(dir, "${journey.id}.csv").readLines().mapNotNull(Track::decodePoint) }.getOrNull()
             ?.let(Track::clean)?.takeIf { it.size >= 2 } ?: journey.points
 
+    /** 匯出用的軌跡：原始點依暫停分段（比精簡軌跡完整）；沒有原始點時用精簡軌跡 */
+    private fun segmentsOf(journey: Journey): List<List<TrackPoint>> =
+        runCatching { Track.parseSegments(File(dir, "${journey.id}.csv").readLines()) }.getOrNull()
+            ?.map(Track::clean)?.filter { it.size >= 2 }?.takeIf { it.isNotEmpty() } ?: listOf(journey.points)
+
+    /**
+     * 把足跡寫成 GPX 檔（放在 cacheDir/share/gpx，交給分享用）。
+     * [zones] 不是 null 時套用隱私區（同分享卡的規則）；套用後沒有剩下軌跡時回傳 null。
+     */
+    suspend fun exportGpx(journey: Journey, zones: List<PrivacyZone>?, fileName: String): File? = withContext(Dispatchers.IO) {
+        val segments = segmentsOf(journey).let { segs -> zones?.let { SharePrivacy.applyToTrack(journey.id, segs, it) } ?: segs }
+        if (segments.none { it.size >= 2 }) return@withContext null
+        val out = File(app.cacheDir, "share/gpx").apply { deleteRecursively(); mkdirs() }
+        File(out, "$fileName.gpx").apply { writeText(Gpx.write(journey.title, segments)) }
+    }
+
+    /** 匯入 GPX 的結果 */
+    sealed interface GpxImport {
+        data class Imported(val journey: Journey) : GpxImport
+        /** 已經有同一趟（第一個點的時間相同） */
+        data class Duplicate(val journey: Journey) : GpxImport
+        /** 只有規劃路線或沒有時間的點，不是騎過的紀錄 */
+        data object NoTime : GpxImport
+        /** 少於 [Track.MIN_KM] 公里或 [Track.MIN_MS] 毫秒 */
+        data object TooShort : GpxImport
+        /** 讀不到（不是 GPX 或檔案壞掉） */
+        data object Invalid : GpxImport
+    }
+
+    /** 把其他 App 匯出的 GPX 存成一趟足跡（原始點一起存，之後加照片定位用） */
+    suspend fun importGpx(uri: Uri): GpxImport = withContext(Dispatchers.IO) {
+        val gpx = runCatching { app.contentResolver.openInputStream(uri)?.use(Gpx::parse) }.getOrNull()
+            ?: return@withContext GpxImport.Invalid
+        if (gpx.segments.isEmpty()) return@withContext if (gpx.withoutTime > 0) GpxImport.NoTime else GpxImport.Invalid
+        // 有些 App 匯出的點沒照時間排；依時間排好再整理
+        val segments = gpx.segments.map { seg -> seg.sortedBy { it.time } }.sortedBy { it.first().time }
+        val id = segments.first().first().time.toString()
+        load(id)?.let { return@withContext GpxImport.Duplicate(it) }
+        val built = Track.build(id, segments) ?: return@withContext GpxImport.TooShort
+        val from = geocoder.reverse(built.points.first().latitude, built.points.first().longitude)?.area
+        val to = geocoder.reverse(built.points.last().latitude, built.points.last().longitude)?.area
+        val journey = built.copy(fromArea = from, toArea = to, name = gpx.name, climbM = Gpx.climbM(gpx.elevations))
+        File(dir, "$id.csv").writeText(
+            segments.joinToString(Track.PAUSE_LINE + "\n") { seg -> seg.joinToString("") { Track.encodePoint(it) + "\n" } },
+        )
+        save(journey)
+        GpxImport.Imported(journey)
+    }
+
     private fun load(id: String): Journey? =
         runCatching { Track.fromJson(JSONObject(File(dir, "$id.json").readText())) }.getOrNull()
 

@@ -250,4 +250,13 @@ object ShareCard {
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         context.startActivity(Intent.createChooser(intent, "分享足跡"))
     }
+
+    /** 把單一檔案（例如 GPX）交給其他 App；檔案要放在 cacheDir/share 底下 */
+    fun shareFile(context: Context, file: File, mime: String, title: String) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.share", file)
+        val intent = Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uri).setType(mime)
+        intent.clipData = ClipData.newRawUri(null, uri)
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(Intent.createChooser(intent, title))
+    }
 }
