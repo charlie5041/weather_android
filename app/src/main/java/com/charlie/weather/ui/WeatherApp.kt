@@ -180,9 +180,10 @@ fun WeatherApp(
     var showBatteryPrompt by remember { mutableStateOf(false) }
     // 自動繼續要偵測開始移動：第一次開始騎乘或記錄時問一次體能活動權限
     val activityLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    fun promptBackgroundOnce() {
+    /** [askActivity]：馬上要切到其他 App（導航）時不跳權限詢問，下次在 App 內開始時再問 */
+    fun promptBackgroundOnce(askActivity: Boolean = true) {
         val settings = AppSettings(context)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && settings.autoResume && !settings.askedActivityPermission &&
+        if (askActivity && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && settings.autoResume && !settings.askedActivityPermission &&
             !MovementDetector.hasPermission(context)
         ) {
             settings.askedActivityPermission = true
@@ -201,6 +202,19 @@ fun WeatherApp(
             Toast.makeText(context, "已開始：前方 20 分鐘內會下雨時通知", Toast.LENGTH_SHORT).show()
             promptBackgroundOnce()
         }
+    }
+    /** 開 Google 地圖導航；還沒在騎乘時一起開始，讓沿路天氣、測速與足跡在背景繼續 */
+    fun navigate(data: RouteData) {
+        if (!riding) {
+            if (vm.hasLocationPermission()) {
+                RideService.start(context, data)
+                // 電池最佳化的提醒留在 App 裡，回來時看得到
+                promptBackgroundOnce(askActivity = false)
+            } else {
+                Toast.makeText(context, "沒有定位權限，一路晴無法在導航時提醒天氣與測速", Toast.LENGTH_LONG).show()
+            }
+        }
+        openNavigation(context, data)
     }
     fun startRecording() {
         if (!vm.hasLocationPermission()) {
@@ -292,6 +306,7 @@ fun WeatherApp(
                         onCreateCommute = { (home, work) -> vm.createCommuteRoutes(home, work) },
                         onStartRide = ::startRide,
                         onOpenSettings = openSettings,
+                        onNavigate = ::navigate,
                         onStartDrive = {
                             if (!vm.hasLocationPermission()) {
                                 Toast.makeText(context, "需要定位權限才能提醒前方的測速照相", Toast.LENGTH_LONG).show()
@@ -452,6 +467,7 @@ fun WeatherApp(
                             onRemoveFavorite = vm::removeFavorite,
                             rideActive = riding,
                             onStartRide = ::startRide,
+                            onNavigate = ::navigate,
                             onStopRide = { RideService.stop(context) },
                             onReportCamera = if (vm.canReportCameras) {
                                 { RideService.report(context) }
@@ -530,6 +546,7 @@ fun WeatherApp(
                         keepScreenOn = remember(settingsVersion) { AppSettings(context).keepScreenOnRiding },
                         onPause = { RideService.pause(context) },
                         onResume = { RideService.resume(context) },
+                        onNavigate = RideService.currentRoute()?.takeIf { live != null }?.let { data -> { openNavigation(context, data) } },
                     )
                 }
             }

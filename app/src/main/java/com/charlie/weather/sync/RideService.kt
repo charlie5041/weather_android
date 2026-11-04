@@ -11,11 +11,14 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -238,11 +241,15 @@ class RideService : Service() {
         val hadCameras = routeCameras.isNotEmpty()
         if (data == null) {
             fixedCameras = withContext(Dispatchers.IO) { repository.allSpeedCameras() }
-        } else if (data.cameras.isEmpty()) {
+        } else {
+            // 偏離規劃路線（導航改道、自己抄小路）時改用行進方向找前方的測速照相
             val fixed = withContext(Dispatchers.IO) { repository.speedCameras() }
-            val along = withContext(Dispatchers.Default) { SpeedCameraRepository.along(fixed, data.path) }
-            route = route?.copy(cameras = along)
-            routeCameras = along
+            fixedCameras = fixed
+            if (data.cameras.isEmpty()) {
+                val along = withContext(Dispatchers.Default) { SpeedCameraRepository.along(fixed, data.path) }
+                route = route?.copy(cameras = along)
+                routeCameras = along
+            }
         }
         if (!hadCameras && (fixedCameras.isNotEmpty() || routeCameras.isNotEmpty())) {
             stopLocationUpdates()
@@ -350,7 +357,7 @@ class RideService : Service() {
             override fun onProviderDisabled(provider: String) = Unit
         }
         // 要提醒測速照相或記錄足跡時需要每幾秒一次的位置，否則 20 秒、100 公尺一次就夠
-        val frequent = recording || (route == null && settings.speedCameras) || routeCameras.isNotEmpty()
+        val frequent = recording || (route == null && settings.speedCameras) || routeCameras.isNotEmpty() || fixedCameras.isNotEmpty()
         val interval = if (frequent) CAMERA_LOCATION_MS else LOCATION_MS
         val distance = if (frequent) CAMERA_LOCATION_M else LOCATION_M
         listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
@@ -533,12 +540,12 @@ class RideService : Service() {
         val position = LatLon(location.latitude, location.longitude)
         val speed = speedKmh(location)
         val data = route
-        val found: CameraAhead? = if (data != null) {
+        val progress = data?.let { RideTracker.progress(it.path, position) }
+        val found: CameraAhead? = if (data != null && progress != null && progress.offRouteKm <= CAMERA_OFF_ROUTE_KM) {
             if (routeCameras.isEmpty()) return
-            val progress = RideTracker.progress(data.path, position)
-            if (progress.offRouteKm > CAMERA_OFF_ROUTE_KM) return
             CameraAlerts.onRoute(routeCameras, data.path.distanceKm, progress.fraction)
         } else {
+            // 沒有路線，或偏離規劃路線（導航改道）：用行進方向找前方的測速照相
             // 停著或很慢時 GPS 的方位不可靠
             val bearing = location.bearing.toDouble().takeIf { location.hasBearing() && (speed ?: 0) >= MIN_BEARING_KMH }
             CameraAlerts.ahead(fixedCameras + mobileCameras, position, bearing)
@@ -749,24 +756,53 @@ class RideService : Service() {
         if (result == ReportResult.SENT) refreshMobile()
     }
 
+    private val speechAttributes: AudioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+
     private fun initSpeech() {
         if (tts != null) return
         tts = TextToSpeech(this) { status ->
             val engine = tts ?: return@TextToSpeech
             if (status != TextToSpeech.SUCCESS) return@TextToSpeech
             if (engine.setLanguage(Locale.TAIWAN) < TextToSpeech.LANG_AVAILABLE) engine.setLanguage(Locale.CHINESE)
-            engine.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            )
+            engine.setAudioAttributes(speechAttributes)
+            engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) = Unit
+                override fun onDone(utteranceId: String?) = utteranceEnded()
+
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) = utteranceEnded()
+            })
             ttsReady = true
+        }
+    }
+
+    private val audioManager by lazy { getSystemService(AudioManager::class.java) }
+
+    private val speechFocus by lazy {
+        AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(speechAttributes)
+            .build()
+    }
+
+    /** 還沒講完的提醒數；全部講完才還回音訊焦點（TTS 的回呼在其他執行緒） */
+    @Volatile
+    private var speaking = 0
+
+    private fun utteranceEnded() {
+        scope.launch(Dispatchers.Main) {
+            speaking = (speaking - 1).coerceAtLeast(0)
+            if (speaking == 0) audioManager?.abandonAudioFocusRequest(speechFocus)
         }
     }
 
     private fun speak(text: String) {
         if (!ttsReady || !settings.voiceAlerts) return
+        // 先要音訊焦點：導航語音、音樂會暫時降低音量，不會跟提醒同時大聲講；講完再還回去
+        audioManager?.requestAudioFocus(speechFocus)
+        speaking++
         tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "ride_${System.nanoTime()}")
     }
 
@@ -853,6 +889,7 @@ class RideService : Service() {
             recording = false
         }
         scope.cancel()
+        audioManager?.abandonAudioFocusRequest(speechFocus)
         tts?.shutdown()
         tts = null
         _active.value = false
@@ -939,6 +976,9 @@ class RideService : Service() {
 
         /** 騎乘中模式是否進行中（路線畫面用來切換按鈕） */
         val active: StateFlow<Boolean> = _active.asStateFlow()
+
+        /** 騎乘中的路線（「回到導航」用）；不是騎乘中時為 null */
+        fun currentRoute(): RouteData? = route.takeIf { _active.value }
 
         /** 行車提醒（沒有目的地）是否進行中 */
         val driving: StateFlow<Boolean> = _driving.asStateFlow()

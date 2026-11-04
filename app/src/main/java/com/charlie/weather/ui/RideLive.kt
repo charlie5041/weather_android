@@ -151,6 +151,8 @@ fun RideScreen(
     /** 記錄足跡時才有：暫停與繼續 */
     onPause: (() -> Unit)? = null,
     onResume: (() -> Unit)? = null,
+    /** 有目的地時：切回 Google 地圖導航 */
+    onNavigate: (() -> Unit)? = null,
     clock: () -> Long = System::currentTimeMillis,
 ) {
     val now = rememberNow(live.startedAt != null && !live.paused, clock)
@@ -208,6 +210,7 @@ fun RideScreen(
             }
         }
         Column(Modifier.padding(top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            onNavigate?.let { BigButton("🧭 回到導航", NavigateBlue, Color.White, it) }
             if (!live.paused) onReportCamera?.let { BigButton("📷 回報測速", LiveCamera, Color.Black, it) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val toggle = if (live.paused) onResume else onPause
