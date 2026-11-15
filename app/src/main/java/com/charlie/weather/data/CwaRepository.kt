@@ -1,6 +1,8 @@
 package com.charlie.weather.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -37,38 +39,44 @@ class CwaRepository(cacheDir: File) {
         val observationTtl = if (lowData) LOW_DATA_OBSERVATION_TTL else OBSERVATION_TTL
         val forecastTtl = if (lowData) LOW_DATA_FORECAST_TTL else FORECAST_TTL
 
-        val manned = stations("Observation/O-A0003-001.json", observationTtl, allowNetwork)
-        var observation = CwaParser.nearest(manned, latitude, longitude, MAX_STATION_KM)
-        var allStations = manned
-        if (observation == null) {
-            val auto = stations("Observation/O-A0001-001.json", observationTtl, allowNetwork)
-            observation = CwaParser.nearest(auto, latitude, longitude, MAX_STATION_KM)
-            allStations = manned + auto
-        }
+        coroutineScope {
+            // 檔案彼此獨立的先一起下載（每個 0.5～1.8 MB），不要一個接一個等
+            val rain = async {
+                runCatching { CwaParser.rainNow(rainGauges(OBSERVATION_TTL, allowNetwork && !lowData), latitude, longitude) }.getOrNull()
+            }
+            val alertsText = async { runCatching { file("Warning/W-C0033-001.json", observationTtl, allowNetwork) }.getOrNull() }
 
-        val county = observation?.station?.county
-            ?: CwaParser.nearest(allStations, latitude, longitude, 60.0)?.station?.county
-            ?: return@withContext observation?.let { CwaData(it, null, emptyList()) }
+            val manned = stations("Observation/O-A0003-001.json", observationTtl, allowNetwork)
+            var observation = CwaParser.nearest(manned, latitude, longitude, MAX_STATION_KM)
+            var allStations = manned
+            if (observation == null) {
+                val auto = stations("Observation/O-A0001-001.json", observationTtl, allowNetwork)
+                observation = CwaParser.nearest(auto, latitude, longitude, MAX_STATION_KM)
+                allStations = manned + auto
+            }
 
-        val forecast = runCatching {
-            val threeDay = CwaParser.threeDayForecastId(county)?.let { townships("Forecast/$it.json", forecastTtl, allowNetwork) }
-            val weekly = CwaParser.weeklyForecastId(county)?.let { townships("Forecast/$it.json", forecastTtl, allowNetwork) }
-            CwaParser.parseTownshipForecast(threeDay, weekly, latitude, longitude)
-        }.getOrNull()
+            val county = observation?.station?.county
+                ?: CwaParser.nearest(allStations, latitude, longitude, 60.0)?.station?.county
+                ?: return@coroutineScope observation?.let { CwaData(it, null, emptyList(), rain.await()) }
 
-        val alerts = runCatching {
-            file("Warning/W-C0033-001.json", observationTtl, allowNetwork)
-                ?.let { CwaParser.parseAlerts(it, county, LocalDateTime.now(TAIWAN)) }
-        }.getOrNull().orEmpty()
+            val threeDay = async {
+                runCatching { CwaParser.threeDayForecastId(county)?.let { townships("Forecast/$it.json", forecastTtl, allowNetwork) } }.getOrNull()
+            }
+            val weekly = async {
+                runCatching { CwaParser.weeklyForecastId(county)?.let { townships("Forecast/$it.json", forecastTtl, allowNetwork) } }.getOrNull()
+            }
+            val forecast = runCatching { CwaParser.parseTownshipForecast(threeDay.await(), weekly.await(), latitude, longitude) }.getOrNull()
 
-        val rain = runCatching {
-            CwaParser.rainNow(rainGauges(OBSERVATION_TTL, allowNetwork && !lowData), latitude, longitude)
-        }.getOrNull()
+            val alerts = runCatching {
+                alertsText.await()?.let { CwaParser.parseAlerts(it, county, LocalDateTime.now(TAIWAN)) }
+            }.getOrNull().orEmpty()
 
-        if (observation == null && forecast == null && alerts.isEmpty() && rain == null) {
-            null
-        } else {
-            CwaData(observation, forecast, alerts, rain)
+            val rainNow = rain.await()
+            if (observation == null && forecast == null && alerts.isEmpty() && rainNow == null) {
+                null
+            } else {
+                CwaData(observation, forecast, alerts, rainNow)
+            }
         }
     }
 
@@ -97,17 +105,16 @@ class CwaRepository(cacheDir: File) {
         cache: MutableMap<String, Pair<Long, T>>,
         parse: (String) -> T,
     ): T? {
+        val f = cacheFile(path)
+        // 下載不佔用解析的鎖：只讀快取的呼叫（啟動時顯示、重新整理逾時的退路）不必等下載
+        val fresh = f.exists() && System.currentTimeMillis() - f.lastModified() < ttl
+        if (!fresh && allowNetwork) file(path, ttl, allowNetwork = true)
         val lock = synchronized(parseLocks) { parseLocks.getOrPut(path) { Mutex() } }
         return lock.withLock {
-            val f = cacheFile(path)
-            val fresh = f.exists() && System.currentTimeMillis() - f.lastModified() < ttl
-            if (fresh || !allowNetwork) {
-                val modified = f.lastModified()
-                synchronized(cache) { cache[path]?.takeIf { it.first == modified } }?.let { return@withLock it.second }
-            }
-            val text = file(path, ttl, allowNetwork) ?: return@withLock null
+            if (!f.exists()) return@withLock null
             val modified = f.lastModified()
             synchronized(cache) { cache[path]?.takeIf { it.first == modified } }?.let { return@withLock it.second }
+            val text = f.readText()
             val value = parse(text)
             synchronized(cache) { cache[path] = modified to value }
             value
@@ -122,11 +129,13 @@ class CwaRepository(cacheDir: File) {
 
     /** 任意網址的文字快取（也給環境部 AQI 使用）。 */
     suspend fun cachedText(key: String, url: String, ttl: Long, allowNetwork: Boolean): String? = withContext(Dispatchers.IO) {
+        val f = File(dir, key)
+        // 只讀快取時不等其他呼叫的下載（檔案以改名方式整個換掉，不會讀到一半）
+        if (!allowNetwork) return@withContext f.takeIf { it.exists() }?.readText()
         val lock = synchronized(locks) { locks.getOrPut(key) { Mutex() } }
         lock.withLock {
-            val f = File(dir, key)
             val fresh = f.exists() && System.currentTimeMillis() - f.lastModified() < ttl
-            if (fresh || !allowNetwork) return@withLock f.takeIf { it.exists() }?.readText()
+            if (fresh) return@withLock f.readText()
             try {
                 val text = download(url)
                 val tmp = File(dir, "$key.tmp")

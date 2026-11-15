@@ -304,9 +304,11 @@ private fun Header(w: Weather) {
 private fun Footer(w: Weather, error: String?) {
     val updated = Instant.ofEpochMilli(w.fetchedAtMillis).atZone(ZoneId.systemDefault()).toLocalDateTime()
     val lines = buildList {
-        if (error != null) add("離線中 · 顯示先前的資料")
+        if (error != null) add("更新失敗 · 顯示先前的資料")
         add(if (w.cwa != null) "中央氣象署 · Open-Meteo" else "Open-Meteo")
-        add("更新於 ${timeLabel(updated)}")
+        // 不是今天抓的資料要寫出日期，才看得出是舊的
+        val date = if (updated.toLocalDate() == java.time.LocalDate.now()) "" else "${updated.monthValue}/${updated.dayOfMonth} "
+        add("更新於 $date${timeLabel(updated)}")
     }
     Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         lines.forEach {
