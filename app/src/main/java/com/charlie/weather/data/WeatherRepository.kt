@@ -4,9 +4,14 @@ import android.content.Context
 import com.charlie.weather.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Duration
 import java.time.LocalDateTime
 
@@ -15,6 +20,9 @@ class WeatherRepository private constructor(context: Context) {
     val store = CityStore(context)
     private val settings = AppSettings(context)
     private val cwa = CwaRepository(context.cacheDir)
+
+    /** 氣象署等附加資料的下載：不跟著單次重新整理取消，下載完的檔案留給之後使用 */
+    private val extrasScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val googleRoutes = BuildConfig.GOOGLE_MAPS_API_KEY.takeIf { it.isNotBlank() }?.let {
         GoogleRoutes(it, context.packageName, GoogleRoutes.certSha1(context))
     }
@@ -60,11 +68,24 @@ class WeatherRepository private constructor(context: Context) {
     /** 小工具與通知使用的城市：有定位時是「我的位置」，否則是列表第一個城市。 */
     fun primaryCity(): City? = store.loadLocationCity() ?: store.loadCities().firstOrNull()
 
-    /** @param lowData 背景更新且使用行動網路時為 true，減少下載量 */
-    suspend fun fetch(city: City, lowData: Boolean = false): Weather = coroutineScope {
-        val forecast = async { WeatherApi.fetchForecastJson(city.latitude, city.longitude) }
-        val airQuality = async { WeatherApi.fetchAirQualityJson(city.latitude, city.longitude) }
-        val cwaData = async {
+    /**
+     * 下載 Open-Meteo 預報，並套用中央氣象署、颱風與環境部空品資料。
+     *
+     * 氣象署的檔案很大（一個地點要 5～6 MB），網路慢時會拖很久；Open-Meteo 回來之後最多再等
+     * [EXTRAS_WAIT_MS]，還沒下載完就先用磁碟上的舊檔案組出結果，讓下拉重新整理盡快結束。
+     * 下載會在背景繼續（存進快取）；完成後若有 [onLateExtras]，用新資料重新組一次交給它。
+     *
+     * @param lowData 背景更新且使用行動網路時為 true，減少下載量
+     * @param waitForExtras 背景更新（沒有人在等畫面）時為 true：等附加資料全部下載完
+     */
+    suspend fun fetch(
+        city: City,
+        lowData: Boolean = false,
+        waitForExtras: Boolean = false,
+        onLateExtras: ((Weather) -> Unit)? = null,
+    ): Weather = coroutineScope {
+        // 附加資料放在獨立的 scope：等候逾時後不會卡住這次的重新整理，下載也不會因此中斷
+        val cwaData = extrasScope.async {
             if (!settings.useCwa) return@async null
             try {
                 cwa.load(city.latitude, city.longitude, allowNetwork = true, lowData = lowData)
@@ -74,17 +95,51 @@ class WeatherRepository private constructor(context: Context) {
                 null
             }
         }
-        val typhoons = async { typhoonsFor(city, allowNetwork = true) }
-        val moenv = async { moenvStation(city, allowNetwork = true) }
-        val forecastJson = forecast.await()
-        val airQualityJson = airQuality.await()
+        val typhoons = extrasScope.async { typhoonsFor(city, allowNetwork = true) }
+        val moenv = extrasScope.async { moenvStation(city, allowNetwork = true) }
+        val airQuality = extrasScope.async { WeatherApi.fetchAirQualityJson(city.latitude, city.longitude) }
+        val forecastJson = WeatherApi.fetchForecastJson(city.latitude, city.longitude)
+        // 空品與氣象署資料共用同一段等候時間
+        val deadline = System.currentTimeMillis() + EXTRAS_WAIT_MS
+        fun remaining() = (deadline - System.currentTimeMillis()).coerceAtLeast(1)
+        val airQualityJson = if (waitForExtras) airQuality.await() else withTimeoutOrNull(remaining()) { airQuality.await() }
         val now = System.currentTimeMillis()
-        val weather = withContext(Dispatchers.Default) {
-            WeatherApi.parse(forecastJson, airQualityJson, now).withCwa(cwaData.await())
-        }
+        val base = withContext(Dispatchers.Default) { WeatherApi.parse(forecastJson, airQualityJson, now) }
         store.saveCache(city.id, CachedWeather(forecastJson, airQualityJson, now))
-        weather.withExtras(typhoons.await(), moenv.await())
+
+        val ready = if (waitForExtras) {
+            awaitAll(cwaData, typhoons, moenv)
+            true
+        } else {
+            withTimeoutOrNull(remaining()) { awaitAll(cwaData, typhoons, moenv) } != null
+        }
+        if (ready) {
+            return@coroutineScope withContext(Dispatchers.Default) {
+                base.withCwa(cwaData.await()).withExtras(typhoons.await(), moenv.await())
+            }
+        }
+        // 還沒下載完：先用快取的檔案（可能是舊的）
+        val fallback = withContext(Dispatchers.Default) {
+            val cachedCwa = if (cwaData.isCompleted) cwaData.await() else cachedCwa(city)
+            val cachedTyphoons = if (typhoons.isCompleted) typhoons.await() else typhoonsFor(city, allowNetwork = false)
+            val cachedMoenv = if (moenv.isCompleted) moenv.await() else moenvStation(city, allowNetwork = false)
+            base.withCwa(cachedCwa).withExtras(cachedTyphoons, cachedMoenv)
+        }
+        if (onLateExtras != null) {
+            extrasScope.launch {
+                val late = runCatching {
+                    withContext(Dispatchers.Default) {
+                        base.withCwa(cwaData.await()).withExtras(typhoons.await(), moenv.await())
+                    }
+                }.getOrNull() ?: return@launch
+                onLateExtras(late)
+            }
+        }
+        fallback
     }
+
+    private suspend fun cachedCwa(city: City): CwaData? =
+        if (!settings.useCwa) null else runCatching { cwa.load(city.latitude, city.longitude, allowNetwork = false) }.getOrNull()
 
     /**
      * 規劃 [from] 到 [to] 的路線，並取得沿途各取樣點的逐時預報（台灣套用氣象署鄉鎮預報與雨量站）。
@@ -240,17 +295,21 @@ class WeatherRepository private constructor(context: Context) {
         } ?: airQuality,
     )
 
-    /** 只用磁碟快取（不連網）組出天氣資料。 */
+    /** 只用磁碟快取（不連網）組出天氣資料；已經完全過期時為 null。 */
     suspend fun cached(city: City): Weather? = withContext(Dispatchers.Default) {
         val cache = store.loadCache(city.id) ?: return@withContext null
+        // 快取可能是好幾天前的：先拿掉已經過去的日子與時段，否則會把前幾天當成「今天」
         val base = runCatching { WeatherApi.parse(cache.forecastJson, cache.airQualityJson, cache.fetchedAtMillis) }.getOrNull()
+            ?.asOf()
             ?: return@withContext null
-        val cwaData = if (settings.useCwa) runCatching { cwa.load(city.latitude, city.longitude, allowNetwork = false) }.getOrNull() else null
-        base.withCwa(cwaData).withExtras(typhoonsFor(city, allowNetwork = false), moenvStation(city, allowNetwork = false))
+        base.withCwa(cachedCwa(city)).withExtras(typhoonsFor(city, allowNetwork = false), moenvStation(city, allowNetwork = false))
     }
 
     companion object {
         private const val MOENV_TTL = 30 * 60_000L
+
+        /** Open-Meteo 回來之後，最多再等氣象署等附加資料多久 */
+        private const val EXTRAS_WAIT_MS = 4_000L
 
         @Volatile
         private var instance: WeatherRepository? = null

@@ -40,7 +40,8 @@ class LocationProvider(private val context: Context) {
         if (last != null && System.currentTimeMillis() - last.time < FRESH_MS) return last
 
         val provider = providers.firstOrNull { it != LocationManager.PASSIVE_PROVIDER } ?: return last
-        val fresh = withTimeoutOrNull(TIMEOUT_MS) { requestSingle(lm, provider) }
+        // 有舊位置可以退回時不要等太久（下拉重新整理會一直轉）
+        val fresh = withTimeoutOrNull(if (last != null) TIMEOUT_WITH_LAST_MS else TIMEOUT_MS) { requestSingle(lm, provider) }
         return fresh ?: last
     }
 
@@ -85,5 +86,6 @@ class LocationProvider(private val context: Context) {
     private companion object {
         const val FRESH_MS = 10 * 60_000L
         const val TIMEOUT_MS = 10_000L
+        const val TIMEOUT_WITH_LAST_MS = 4_000L
     }
 }

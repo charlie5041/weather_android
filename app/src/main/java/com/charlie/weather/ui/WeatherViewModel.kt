@@ -128,6 +128,9 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 開啟 App 或回到前景時呼叫；資料超過 10 分鐘才會重新抓取。 */
     fun refreshAll(force: Boolean = false) {
+        // App 放在背景好幾個小時（或跨過午夜）再回來：先把畫面上的舊資料對齊到現在，
+        // 不要在新資料回來之前把昨天當成「今天」
+        _weather.update { map -> map.mapValues { (_, s) -> s.weather?.let { s.copy(weather = it.asOf()) } ?: s } }
         if (locationProvider.hasPermission()) updateLocation(force)
         savedCities.forEach { refresh(it, force) }
         refreshUpcoming(force)
@@ -150,7 +153,11 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         updateState(city.id) { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
-                val weather = repository.fetch(city)
+                val weather = repository.fetch(city) { late ->
+                    // 氣象署資料比較晚下載完：同一次更新的結果還在畫面上才換掉
+                    updateState(city.id) { s -> if (s.weather?.fetchedAtMillis == late.fetchedAtMillis) s.copy(weather = late) else s }
+                    if (repository.primaryCity()?.id == city.id) updateWidget(city, late)
+                }
                 updateState(city.id) { CityWeatherUi(weather = weather) }
                 if (repository.primaryCity()?.id == city.id) updateWidget(city, weather)
             } catch (e: CancellationException) {
@@ -174,17 +181,24 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
             val previous = locationCity
             val movedFar = previous == null ||
                 distanceKm(previous.latitude, previous.longitude, location.latitude, location.longitude) > 1.0
-            val name = if (movedFar || previous?.name == DEFAULT_LOCATION_NAME) {
-                locationProvider.placeName(location.latitude, location.longitude) ?: previous?.name ?: DEFAULT_LOCATION_NAME
-            } else {
-                previous!!.name
-            }
-            val city = City(LOCATION_ID, name, DEFAULT_LOCATION_NAME, location.latitude, location.longitude, isCurrentLocation = true)
+            val needsName = movedFar || previous?.name == DEFAULT_LOCATION_NAME
+            // 地名查詢（系統 Geocoder 要連網、沒有逾時）不擋天氣更新：先用舊名稱抓天氣，查到再換
+            val city = City(LOCATION_ID, previous?.name ?: DEFAULT_LOCATION_NAME, DEFAULT_LOCATION_NAME, location.latitude, location.longitude, isCurrentLocation = true)
             locationCity = city
             store.saveLocationCity(city)
             publishCities()
             updateState(city.id) { it.copy(loading = false) }
             fetch(city, force || movedFar)
+            if (needsName) viewModelScope.launch {
+                val placeName = locationProvider.placeName(location.latitude, location.longitude) ?: return@launch
+                val current = locationCity
+                if (current != null && current.latitude == city.latitude && current.longitude == city.longitude && current.name != placeName) {
+                    val named = current.copy(name = placeName)
+                    locationCity = named
+                    store.saveLocationCity(named)
+                    publishCities()
+                }
+            }
         }
     }
 

@@ -94,4 +94,44 @@ data class Weather(
     fun localNow(): LocalDateTime = LocalDateTime.now(ZoneOffset.ofTotalSeconds(utcOffsetSeconds))
 
     val today: DailyForecast? get() = daily.firstOrNull()
+
+    /**
+     * 把資料對齊到 [now]（城市當地時間）：拿掉已經過去的日子與前幾天的逐時預報，
+     * 「目前天氣」太舊（超過 [CURRENT_MAX_AGE_MINUTES] 分鐘）時改用這個小時的逐時預報。
+     * 快取或更新失敗時顯示的舊資料，才不會把前幾天當成「今天」、逐時從幾天前的時間開始。
+     * 資料已經完全過期（沒有今天以後的每日預報）時回傳 null。
+     */
+    fun asOf(now: LocalDateTime = localNow()): Weather? {
+        val today = now.toLocalDate()
+        val days = daily.filter { !it.date.isBefore(today) }
+        if (days.isEmpty()) return null
+        val hours = hourly.filter { !it.time.toLocalDate().isBefore(today) }
+        val ageMinutes = java.time.Duration.between(current.time, now).toMinutes()
+        val currentNow = if (ageMinutes <= CURRENT_MAX_AGE_MINUTES) {
+            current
+        } else {
+            val hourStart = now.truncatedTo(java.time.temporal.ChronoUnit.HOURS)
+            hours.firstOrNull { it.time == hourStart }?.let { h ->
+                current.copy(
+                    time = hourStart,
+                    temperature = h.temperature,
+                    apparentTemperature = h.apparentTemperature.takeUnless { it.isNaN() } ?: h.temperature,
+                    humidity = h.humidity ?: current.humidity,
+                    isDay = h.isDay,
+                    precipitation = h.precipitation,
+                    weatherCode = h.weatherCode,
+                    windSpeed = h.windSpeed.takeUnless { it.isNaN() } ?: current.windSpeed,
+                    windGusts = h.windGusts.takeUnless { it.isNaN() } ?: current.windGusts,
+                    uvIndex = h.uvIndex.takeUnless { it.isNaN() } ?: current.uvIndex,
+                    description = null,
+                )
+            } ?: return null
+        }
+        if (days.size == daily.size && hours.size == hourly.size && currentNow === current) return this
+        return copy(current = currentNow, hourly = hours, daily = days)
+    }
+
+    companion object {
+        const val CURRENT_MAX_AGE_MINUTES = 90L
+    }
 }
