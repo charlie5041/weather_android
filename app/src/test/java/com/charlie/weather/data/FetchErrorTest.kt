@@ -42,4 +42,10 @@ class FetchErrorTest {
         assertEquals("Daily API request limit exceeded.", errorReason("""{"error":true,"reason":"Daily API request limit exceeded."}"""))
         assertEquals(null, errorReason("<html>bad gateway</html>"))
     }
+
+    @Test fun summaryOfHtmlBlockPage() {
+        val html = "<html><head><style>p{}</style><title>Access denied</title></head><body><h1>Error 1020</h1></body></html>"
+        assertEquals("api.open-meteo.com · Server cloudflare · Access denied Error 1020", errorSummary("api.open-meteo.com", "cloudflare", html))
+        assertEquals("api.open-meteo.com", errorSummary("api.open-meteo.com", null, null))
+    }
 }

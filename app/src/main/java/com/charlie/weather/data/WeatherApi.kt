@@ -229,12 +229,13 @@ object WeatherApi {
             conn.connectTimeout = 15_000
             conn.readTimeout = 15_000
             conn.setRequestProperty("Accept", "application/json")
-            // 沒帶 User-Agent 時 Android 送出的是通用的「Dalvik/…」，Open-Meteo 會擋（回 403）
             conn.setRequestProperty("User-Agent", USER_AGENT)
             val code = conn.responseCode
             if (code !in 200..299) {
-                val body = runCatching { conn.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull()
-                throw HttpStatusException(code, errorReason(body))
+                val body = runCatching { conn.errorStream?.bufferedReader()?.use { it.readText().take(2000) } }.getOrNull()
+                // 沒有 Open-Meteo 的 reason 時，附上是誰回的（主機、Server 標頭、內容開頭），才查得出是誰擋的
+                val reason = errorReason(body) ?: errorSummary(conn.url.host, conn.getHeaderField("Server"), body)
+                throw HttpStatusException(code, reason)
             }
             conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
