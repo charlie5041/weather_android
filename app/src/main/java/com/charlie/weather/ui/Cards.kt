@@ -143,10 +143,10 @@ private fun buildHourEntries(w: Weather): List<HourEntry> {
     }.toMutableList()
     w.daily.forEach { d ->
         d.sunrise?.takeIf { it.isAfter(w.current.time) && it.isBefore(end) }?.let {
-            entries += HourEntry(it, timeLabel(it), "", null, "日出", SunEvent.Rise)
+            entries += HourEntry(it, timeLabel(it), 0, true, null, "日出", SunEvent.Rise)
         }
         d.sunset?.takeIf { it.isAfter(w.current.time) && it.isBefore(end) }?.let {
-            entries += HourEntry(it, timeLabel(it), "", null, "日落", SunEvent.Set)
+            entries += HourEntry(it, timeLabel(it), 0, true, null, "日落", SunEvent.Set)
         }
     }
     return entries.sortedBy { it.time }
