@@ -27,6 +27,7 @@ object WeatherApi {
 
     /** 沿途預報每個請求的地點數 */
     private const val CHUNK = 40
+    const val USER_AGENT = "MyWeatherAndroid/1.0 (github.com/charlie5041/weather_android)"
     private const val RETRY_MS = 800L
 
     private const val CURRENT_VARS = "temperature_2m,relative_humidity_2m,apparent_temperature,is_day," +
@@ -228,6 +229,8 @@ object WeatherApi {
             conn.connectTimeout = 15_000
             conn.readTimeout = 15_000
             conn.setRequestProperty("Accept", "application/json")
+            // 沒帶 User-Agent 時 Android 送出的是通用的「Dalvik/…」，Open-Meteo 會擋（回 403）
+            conn.setRequestProperty("User-Agent", USER_AGENT)
             val code = conn.responseCode
             if (code !in 200..299) {
                 val body = runCatching { conn.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull()
