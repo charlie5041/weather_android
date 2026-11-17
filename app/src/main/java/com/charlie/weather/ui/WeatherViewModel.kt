@@ -3,6 +3,7 @@ package com.charlie.weather.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.charlie.weather.data.fetchErrorMessage
 import com.charlie.weather.data.AddressGeocoder
 import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
@@ -163,7 +164,7 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                updateState(city.id) { it.copy(loading = false, error = "無法更新天氣資料，請檢查網路連線") }
+                updateState(city.id) { it.copy(loading = false, error = fetchErrorMessage(e, "最新天氣")) }
             }
         }
     }

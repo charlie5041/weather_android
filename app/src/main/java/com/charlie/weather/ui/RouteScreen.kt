@@ -87,6 +87,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.charlie.weather.BuildConfig
+import com.charlie.weather.data.fetchErrorMessage
 import com.charlie.weather.data.AddressResult
 import com.charlie.weather.data.City
 import com.charlie.weather.data.CwaParser
@@ -220,7 +221,8 @@ fun RouteScreen(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            error = "無法取得沿路天氣，請檢查網路連線"
+            android.util.Log.w("RouteScreen", "route weather failed", e)
+            error = fetchErrorMessage(e, "沿路天氣")
         }
         loading = false
     }

@@ -73,23 +73,32 @@ object WeatherApi {
         if (points.isEmpty()) return@coroutineScope emptyList()
         val chunks = points.chunked(CHUNK)
         val results = chunks.map { chunk -> async { fetchWithRetry(chunk, days) } }.map { it.await() }
-        if (results.all { it == null }) throw IOException("無法取得沿路預報")
-        results.flatMapIndexed { i, jsons -> jsons ?: List(chunks[i].size) { null } }
+        // 全部失敗時拋出最後一個錯誤，讓畫面說得出真正的原因（沒網路、額度用完、服務故障）
+        if (results.all { it.isFailure }) throw IOException("無法取得沿路預報", results.last().exceptionOrNull())
+        results.flatMapIndexed { i, r -> r.getOrNull() ?: List(chunks[i].size) { null } }
     }
 
-    private suspend fun fetchWithRetry(chunk: List<LatLon>, days: Int): List<String>? {
+    private suspend fun fetchWithRetry(chunk: List<LatLon>, days: Int): Result<List<String>> {
+        var last: Exception = IOException("no attempt")
         repeat(2) { attempt ->
             try {
-                return fetchForecastJsons(chunk, days).takeIf { it.size == chunk.size }
+                val jsons = fetchForecastJsons(chunk, days)
+                if (jsons.size == chunk.size) return Result.success(jsons)
+                last = IOException("預報筆數不符：要 ${chunk.size} 筆、收到 ${jsons.size} 筆")
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: HttpStatusException) {
+                // 額度用完或查詢參數錯誤，重試也不會成功
+                if (e.code in 400..499) return Result.failure(e)
+                last = e
             } catch (e: IOException) {
-                if (attempt == 0) delay(RETRY_MS)
+                last = e
             } catch (e: org.json.JSONException) {
-                if (attempt == 0) delay(RETRY_MS)
+                last = e
             }
+            if (attempt == 0) delay(RETRY_MS)
         }
-        return null
+        return Result.failure(last)
     }
 
     suspend fun fetchAirQualityJson(latitude: Double, longitude: Double): String? = try {
@@ -220,7 +229,10 @@ object WeatherApi {
             conn.readTimeout = 15_000
             conn.setRequestProperty("Accept", "application/json")
             val code = conn.responseCode
-            if (code !in 200..299) throw IOException("HTTP $code")
+            if (code !in 200..299) {
+                val body = runCatching { conn.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull()
+                throw HttpStatusException(code, errorReason(body))
+            }
             conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn.disconnect()
