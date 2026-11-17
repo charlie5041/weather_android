@@ -148,8 +148,8 @@ class CameraReportRepository(context: Context) {
 
         /** 把 Firebase 的錯誤轉成看得懂的原因 */
         fun describe(e: Exception): String = when (e) {
-            is TimeoutCancellationException -> "連線逾時，請檢查網路"
-            is FirebaseNetworkException -> "網路連線失敗"
+            is TimeoutCancellationException -> "連線逾時，連上網路後再按一次"
+            is FirebaseNetworkException -> "沒有網路，連上後再按一次"
             is FirebaseAuthException -> authReason(e.errorCode)
             is FirebaseFirestoreException -> firestoreReason(e.code.name)
             else -> e.message?.take(80) ?: e.javaClass.simpleName
@@ -157,17 +157,17 @@ class CameraReportRepository(context: Context) {
 
         /** Firebase Auth 錯誤碼（例如 ERROR_OPERATION_NOT_ALLOWED）的原因 */
         fun authReason(code: String): String = when (code) {
-            "ERROR_OPERATION_NOT_ALLOWED", "ERROR_ADMIN_RESTRICTED_OPERATION" -> "Firebase 尚未啟用匿名登入"
-            else -> "Firebase 登入失敗（$code）"
+            "ERROR_OPERATION_NOT_ALLOWED", "ERROR_ADMIN_RESTRICTED_OPERATION" -> "回報功能暫時不能用（伺服器未啟用匿名登入）"
+            else -> "回報功能暫時不能用（登入錯誤 $code）"
         }
 
         /** Firestore 錯誤碼（FirebaseFirestoreException.Code 的名稱）的原因 */
         fun firestoreReason(code: String): String = when (code) {
-            "PERMISSION_DENIED" -> "Firestore 規則不允許（請確認已發布 firestore.rules）"
-            "NOT_FOUND" -> "找不到 Firestore 資料庫"
-            "UNAVAILABLE" -> "連不上 Firestore，請檢查網路"
-            "UNAUTHENTICATED" -> "Firebase 尚未登入（請確認已啟用匿名登入）"
-            else -> "Firestore 錯誤（$code）"
+            "PERMISSION_DENIED" -> "回報功能暫時不能用（伺服器拒絕寫入）"
+            "NOT_FOUND" -> "回報功能暫時不能用（找不到資料庫）"
+            "UNAVAILABLE" -> "連不上回報伺服器，連上網路後再按一次"
+            "UNAUTHENTICATED" -> "回報功能暫時不能用（尚未登入）"
+            else -> "回報沒送出去（錯誤 $code）"
         }
 
         fun fromFields(lat: Double?, lon: Double?, heading: Double?, createdAt: Long?, expiresAt: Long?, now: Long): SpeedCamera? {

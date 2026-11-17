@@ -132,7 +132,7 @@ class RouteTest {
     fun dryRouteHasNoSuggestion() {
         val w = weather(0, 0, 0, 0, 0)
         val forecast = RoutePlanner.evaluate(data(listOf(w, w, w, w)), now, now)
-        assertEquals("沿途降雨機率低，適合出發", forecast.summary)
+        assertEquals("沿路降雨機率低，適合出發", forecast.summary)
         assertNull(forecast.betterDeparture)
     }
 
@@ -174,11 +174,11 @@ class RouteTest {
 
         val allDry = weather(0, 0, 0, 0, 0)
         val dryVerdict = RoutePlanner.evaluate(data(listOf(allDry, allDry, allDry, allDry)), now, now).verdict
-        assertEquals("沿途不太會下雨", dryVerdict.title)
+        assertEquals("沿路不太會下雨", dryVerdict.title)
 
         val allWet = weather(90, 90, 90, 90, 90)
         assertEquals("一出發就可能下雨", RoutePlanner.evaluate(data(listOf(allWet, dry, dry, dry)), now, now).verdict.title)
-        assertEquals("沿途都會下雨", RoutePlanner.evaluate(data(listOf(allWet, allWet, allWet, allWet)), now, now).verdict.title)
+        assertEquals("沿路都會下雨", RoutePlanner.evaluate(data(listOf(allWet, allWet, allWet, allWet)), now, now).verdict.title)
         assertEquals("暫無預報", RoutePlanner.evaluate(data(listOf(null, null, null, null)), now, now).verdict.title)
     }
 

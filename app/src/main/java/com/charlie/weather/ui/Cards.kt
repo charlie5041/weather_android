@@ -2,6 +2,7 @@ package com.charlie.weather.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,9 +52,11 @@ import java.time.temporal.ChronoUnit
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.glass
 
-private val Secondary = Color.White.copy(alpha = 0.6f)
-private val DividerColor = Color.White.copy(alpha = 0.18f)
+private val Secondary = Palette.Ink2
+private val DividerColor = Palette.Divider
 
 @Composable
 fun GlassCard(
@@ -66,8 +69,7 @@ fun GlassCard(
 ) {
     Column(
         modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.Black.copy(alpha = 0.16f))
+            .glass()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
@@ -99,8 +101,8 @@ fun InfoCard(
     visual: (@Composable () -> Unit)? = null,
 ) {
     GlassCard(title, modifier.heightIn(min = 160.dp), onClick = onClick, titleIcon = titleIcon) {
-        Text(value, fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Medium)
-        subtitle?.let { Text(it, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium) }
+        Text(value, fontSize = 30.sp, color = Palette.Ink, fontWeight = FontWeight.Medium)
+        subtitle?.let { Text(it, fontSize = 17.sp, color = Palette.Ink, fontWeight = FontWeight.Medium) }
         if (visual != null) {
             Spacer(Modifier.height(8.dp))
             visual()
@@ -108,7 +110,7 @@ fun InfoCard(
         Spacer(Modifier.weight(1f))
         footer?.let {
             Spacer(Modifier.height(8.dp))
-            Text(it, fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), lineHeight = 17.sp)
+            Text(it, fontSize = 13.sp, color = Palette.Ink2, lineHeight = 17.sp)
         }
     }
 }
@@ -120,7 +122,8 @@ private enum class SunEvent { Rise, Set }
 private data class HourEntry(
     val time: LocalDateTime,
     val label: String,
-    val icon: String,
+    val code: Int,
+    val isDay: Boolean,
     val pop: Int?,
     val value: String,
     val sun: SunEvent? = null,
@@ -133,17 +136,17 @@ private fun buildHourEntries(w: Weather): List<HourEntry> {
     val end = hours.last().time
     val entries = hours.mapIndexed { i, h ->
         if (i == 0) {
-            HourEntry(h.time, "現在", WeatherCodes.emoji(w.current.weatherCode, w.current.isDay), h.precipitationProbability, w.current.temperature.deg())
+            HourEntry(h.time, "現在", w.current.weatherCode, w.current.isDay, h.precipitationProbability, w.current.temperature.deg())
         } else {
-            HourEntry(h.time, hourLabel(h.time), WeatherCodes.emoji(h.weatherCode, h.isDay), h.precipitationProbability, h.temperature.deg())
+            HourEntry(h.time, hourLabel(h.time), h.weatherCode, h.isDay, h.precipitationProbability, h.temperature.deg())
         }
     }.toMutableList()
     w.daily.forEach { d ->
         d.sunrise?.takeIf { it.isAfter(w.current.time) && it.isBefore(end) }?.let {
-            entries += HourEntry(it, timeLabel(it), "", null, "日出", SunEvent.Rise)
+            entries += HourEntry(it, timeLabel(it), 0, true, null, "日出", SunEvent.Rise)
         }
         d.sunset?.takeIf { it.isAfter(w.current.time) && it.isBefore(end) }?.let {
-            entries += HourEntry(it, timeLabel(it), "", null, "日落", SunEvent.Set)
+            entries += HourEntry(it, timeLabel(it), 0, true, null, "日落", SunEvent.Set)
         }
     }
     return entries.sortedBy { it.time }
@@ -169,15 +172,14 @@ fun HourlyCard(w: Weather, modifier: Modifier = Modifier, onClick: () -> Unit = 
     val entries = buildHourEntries(w)
     Column(
         modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.Black.copy(alpha = 0.16f))
+            .glass()
             .clickable(onClick = onClick)
             .padding(vertical = 12.dp),
     ) {
         Text(
             hourlySummary(w),
             fontSize = 14.sp,
-            color = Color.White,
+            color = Palette.Ink,
             lineHeight = 19.sp,
             modifier = Modifier.padding(horizontal = 14.dp),
         )
@@ -188,20 +190,20 @@ fun HourlyCard(w: Weather, modifier: Modifier = Modifier, onClick: () -> Unit = 
         ) {
             items(entries) { e ->
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(e.label, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                    Text(e.label, fontSize = 13.sp, color = Palette.Ink, fontWeight = FontWeight.Medium)
                     Box(Modifier.height(48.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             if (e.sun != null) {
                                 SunEventIcon(rising = e.sun == SunEvent.Rise, Modifier.size(28.dp))
                             } else {
-                                Text(e.icon, fontSize = 22.sp)
+                                WeatherIcon(e.code, e.isDay, size = 26.dp)
                             }
                             if ((e.pop ?: 0) >= 20) {
-                                Text("${e.pop}%", fontSize = 11.sp, color = PrecipBlue, fontWeight = FontWeight.SemiBold)
+                                Text("${e.pop}%", fontSize = 12.sp, color = PrecipBlue, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
-                    Text(e.value, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                    Text(e.value, fontSize = 17.sp, color = Palette.Ink, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -210,7 +212,7 @@ fun HourlyCard(w: Weather, modifier: Modifier = Modifier, onClick: () -> Unit = 
 
 /** 線條風格的日出／日落圖示：地平線上的半個太陽、光芒，以及上／下箭頭。以 24×24 的格線繪製。 */
 @Composable
-private fun SunEventIcon(rising: Boolean, modifier: Modifier = Modifier, color: Color = Color.White) {
+private fun SunEventIcon(rising: Boolean, modifier: Modifier = Modifier, color: Color = Palette.Ink) {
     Canvas(modifier) {
         val u = size.minDimension / 24f
         val stroke = 1.7f * u
@@ -261,13 +263,13 @@ fun DailyCard(w: Weather, modifier: Modifier = Modifier, onDayClick: (LocalDate)
                     if (i == 0) "今天" else weekdayLabel(d.date.dayOfWeek),
                     modifier = Modifier.width(48.dp),
                     fontSize = 17.sp,
-                    color = Color.White,
+                    color = Palette.Ink,
                     fontWeight = FontWeight.Medium,
                 )
                 Column(Modifier.width(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(WeatherCodes.emoji(d.weatherCode, true), fontSize = 20.sp)
+                    WeatherIcon(d.weatherCode, true, size = 24.dp)
                     if ((d.precipitationProbability ?: 0) >= 20) {
-                        Text("${d.precipitationProbability}%", fontSize = 11.sp, color = PrecipBlue, fontWeight = FontWeight.SemiBold)
+                        Text("${d.precipitationProbability}%", fontSize = 12.sp, color = PrecipBlue, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Text(
@@ -291,7 +293,7 @@ fun DailyCard(w: Weather, modifier: Modifier = Modifier, onDayClick: (LocalDate)
                     modifier = Modifier.width(38.dp),
                     textAlign = TextAlign.End,
                     fontSize = 17.sp,
-                    color = Color.White,
+                    color = Palette.Ink,
                     fontWeight = FontWeight.Medium,
                 )
             }
@@ -312,7 +314,7 @@ fun TemperatureRangeBar(
         val span = (rangeMax - rangeMin).takeIf { it > 0 } ?: 1.0
         fun x(t: Double) = (((t - rangeMin) / span).toFloat().coerceIn(0f, 1f)) * size.width
         val radius = CornerRadius(size.height / 2, size.height / 2)
-        drawRoundRect(Color.Black.copy(alpha = 0.25f), cornerRadius = radius)
+        drawRoundRect(Palette.Track, cornerRadius = radius)
         val colors = List(8) { i -> temperatureColor(rangeMin + span * i / 7) }
         val brush = Brush.horizontalGradient(colors, startX = 0f, endX = size.width)
         val start = x(low)
@@ -320,7 +322,7 @@ fun TemperatureRangeBar(
         drawRoundRect(brush, topLeft = Offset(start, 0f), size = Size(end - start, size.height), cornerRadius = radius)
         if (current != null && !current.isNaN()) {
             val center = Offset(x(current), size.height / 2)
-            drawCircle(Color.Black.copy(alpha = 0.35f), radius = size.height * 0.9f + 1.5.dp.toPx(), center = center)
+            drawCircle(Palette.Ink.copy(alpha = 0.3f), radius = size.height * 0.9f + 1.5.dp.toPx(), center = center)
             drawCircle(Color.White, radius = size.height * 0.9f, center = center)
         }
     }
@@ -333,7 +335,7 @@ fun GradientIndicatorBar(colors: List<Color>, fraction: Float, modifier: Modifie
         val radius = CornerRadius(size.height / 2, size.height / 2)
         drawRoundRect(Brush.horizontalGradient(colors), cornerRadius = radius)
         val center = Offset(fraction.coerceIn(0f, 1f) * size.width, size.height / 2)
-        drawCircle(Color.Black.copy(alpha = 0.35f), radius = size.height + 1.5.dp.toPx(), center = center)
+        drawCircle(Palette.Ink.copy(alpha = 0.3f), radius = size.height + 1.5.dp.toPx(), center = center)
         drawCircle(Color.White, radius = size.height, center = center)
     }
 }
@@ -345,19 +347,20 @@ fun AlertsCard(alerts: List<CwaAlert>, modifier: Modifier = Modifier) {
     Column(
         modifier
             .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFFB3261E).copy(alpha = 0.55f))
+            .background(Palette.DangerSoft.copy(alpha = 0.9f))
+            .border(1.dp, Palette.Danger.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Text("中央氣象署天氣特報", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.Medium)
+        Text("中央氣象署天氣特報", fontSize = 12.sp, color = Palette.DangerInk, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(6.dp))
         alerts.forEach { alert ->
-            Text(alert.title, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(alert.title, fontSize = 17.sp, color = Palette.DangerInk, fontWeight = FontWeight.SemiBold)
             val range = listOfNotNull(
                 alert.start?.let { "${it.monthValue}/${it.dayOfMonth} ${timeLabel(it)}" },
                 alert.end?.let { "${it.monthValue}/${it.dayOfMonth} ${timeLabel(it)}" },
             ).joinToString(" 至 ")
             if (range.isNotEmpty()) {
-                Text(range, fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f))
+                Text(range, fontSize = 13.sp, color = Palette.DangerInk)
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -385,8 +388,8 @@ private fun aqiAdvice(aqi: Int) = when {
 @Composable
 fun AirQualityCard(aq: AirQuality, modifier: Modifier = Modifier) {
     GlassCard("空氣品質", modifier) {
-        Text("${aq.usAqi}", fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Medium)
-        Text(aq.status ?: aqiCategory(aq.usAqi), fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Medium)
+        Text("${aq.usAqi}", fontSize = 30.sp, color = Palette.Ink, fontWeight = FontWeight.Medium)
+        Text(aq.status ?: aqiCategory(aq.usAqi), fontSize = 17.sp, color = Palette.Ink, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(10.dp))
         GradientIndicatorBar(
             colors = listOf(Color(0xFF34C759), Color(0xFFFFCC00), Color(0xFFFF9500), Color(0xFFFF3B30), Color(0xFFAF52DE), Color(0xFF8E3A59)),
@@ -397,15 +400,15 @@ fun AirQualityCard(aq: AirQuality, modifier: Modifier = Modifier) {
             aq.pm25?.let { "PM2.5 ${it.roundToInt()} μg/m³" },
             aq.pm10?.let { "PM10 ${it.roundToInt()} μg/m³" },
         ).joinToString("・")
-        Text(aqiAdvice(aq.usAqi) + if (pm.isNotEmpty()) "\n$pm" else "", fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), lineHeight = 17.sp)
+        Text(aqiAdvice(aq.usAqi) + if (pm.isNotEmpty()) "\n$pm" else "", fontSize = 13.sp, color = Palette.Ink2, lineHeight = 17.sp)
         aq.pollutant?.let {
-            Text("主要污染物：$it", fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), lineHeight = 17.sp)
+            Text("主要污染物：$it", fontSize = 13.sp, color = Palette.Ink2, lineHeight = 17.sp)
         }
         Spacer(Modifier.height(6.dp))
         Text(
             aq.stationName?.let { "環境部 ${it}測站" } ?: "Open-Meteo（美國 AQI 標準）",
-            fontSize = 11.sp,
-            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 12.sp,
+            color = Palette.Ink2,
         )
     }
 }
@@ -491,14 +494,14 @@ private fun SunPathGraph(sunriseFraction: Float, sunsetFraction: Float, nowFract
                 lineTo(f * size.width, y(f))
             }
         }
-        drawPath(path, Color.White.copy(alpha = 0.3f), style = Stroke(width = 2.dp.toPx()))
+        drawPath(path, Palette.Ink.copy(alpha = 0.18f), style = Stroke(width = 2.dp.toPx()))
         clipRect(bottom = mid) {
-            drawPath(path, Color.White.copy(alpha = 0.85f), style = Stroke(width = 2.dp.toPx()))
+            drawPath(path, Palette.Ink2, style = Stroke(width = 2.dp.toPx()))
         }
-        drawLine(Color.White.copy(alpha = 0.35f), Offset(0f, mid), Offset(size.width, mid), strokeWidth = 1.dp.toPx())
+        drawLine(Palette.Ink.copy(alpha = 0.21f), Offset(0f, mid), Offset(size.width, mid), strokeWidth = 1.dp.toPx())
         val sun = Offset(nowFraction * size.width, y(nowFraction))
-        drawCircle(Color.White.copy(alpha = 0.35f), radius = 7.dp.toPx(), center = sun)
-        drawCircle(Color.White, radius = 4.dp.toPx(), center = sun)
+        drawCircle(Palette.Ink.copy(alpha = 0.21f), radius = 7.dp.toPx(), center = sun)
+        drawCircle(Palette.Ink, radius = 4.dp.toPx(), center = sun)
     }
 }
 
@@ -525,7 +528,7 @@ fun WindCard(w: Weather, modifier: Modifier = Modifier, onClick: (() -> Unit)? =
 @Composable
 private fun WindRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
-        Text(label, fontSize = 16.sp, color = Color.White, modifier = Modifier.weight(1f))
+        Text(label, fontSize = 16.sp, color = Palette.Ink, modifier = Modifier.weight(1f))
         Text(value, fontSize = 16.sp, color = Secondary)
     }
 }
@@ -541,14 +544,14 @@ private fun Compass(direction: Int, speed: Double, modifier: Modifier = Modifier
                 val major = i % 18 == 0
                 rotate(i * 5f, center) {
                     drawLine(
-                        Color.White.copy(alpha = if (major) 0.9f else 0.35f),
+                        Palette.Ink.copy(alpha = if (major) 0.7f else 0.25f),
                         Offset(center.x, center.y - r),
                         Offset(center.x, center.y - r + (if (major) 8.dp else 5.dp).toPx()),
                         strokeWidth = 1.dp.toPx(),
                     )
                 }
             }
-            val labelStyle = TextStyle(color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            val labelStyle = TextStyle(color = Palette.Ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             listOf("北" to 0.0, "東" to 90.0, "南" to 180.0, "西" to 270.0).forEach { (label, angle) ->
                 val layout = measurer.measure(label, labelStyle)
                 val rad = Math.toRadians(angle)
@@ -563,21 +566,21 @@ private fun Compass(direction: Int, speed: Double, modifier: Modifier = Modifier
             rotate(direction + 180f, center) {
                 val tail = Offset(center.x, center.y + r * 0.78f)
                 val head = Offset(center.x, center.y - r * 0.78f)
-                drawLine(Color.White, tail, head, strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(Palette.Ink, tail, head, strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
                 val arrow = Path().apply {
                     moveTo(head.x, head.y - 4.dp.toPx())
                     lineTo(head.x - 6.dp.toPx(), head.y + 8.dp.toPx())
                     lineTo(head.x + 6.dp.toPx(), head.y + 8.dp.toPx())
                     close()
                 }
-                drawPath(arrow, Color.White)
-                drawCircle(Color.White, radius = 4.dp.toPx(), center = tail)
+                drawPath(arrow, Palette.Ink)
+                drawCircle(Palette.Ink, radius = 4.dp.toPx(), center = tail)
             }
-            drawCircle(Color(0xFF2B3A4E).copy(alpha = 0.92f), radius = r * 0.36f, center = center)
+            drawCircle(Palette.Ink, radius = r * 0.36f, center = center)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(windValue(speed), fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.SemiBold, lineHeight = 18.sp)
-            Text(Units.wind.label, fontSize = 9.sp, color = Color.White, lineHeight = 10.sp)
+            Text(windValue(speed), fontSize = 18.sp, color = Palette.Ink, fontWeight = FontWeight.SemiBold, lineHeight = 18.sp)
+            Text(Units.wind.label, fontSize = 12.sp, color = Palette.Ink2, lineHeight = 12.sp)
         }
     }
 }
@@ -675,11 +678,11 @@ private fun PressureGauge(pressure: Double) {
         val diameter = minOf(size.width, size.height * 2) - stroke
         val topLeft = Offset((size.width - diameter) / 2, stroke / 2)
         drawArc(
-            Color.White.copy(alpha = 0.25f), 180f, 180f, false,
+            Palette.Ink.copy(alpha = 0.15f), 180f, 180f, false,
             topLeft = topLeft, size = Size(diameter, diameter), style = Stroke(stroke, cap = StrokeCap.Round),
         )
         drawArc(
-            Color.White, 180f, 180f * fraction, false,
+            Palette.Primary, 180f, 180f * fraction, false,
             topLeft = topLeft, size = Size(diameter, diameter), style = Stroke(stroke, cap = StrokeCap.Round),
         )
     }

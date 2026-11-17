@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -94,15 +97,15 @@ private class Series(
     val description: String,
 )
 
-private val WindColor = Color(0xFF64D2FF)
-private val HumidityColor = Color(0xFF5AC8FA)
+private val WindColor = Palette.Rain
+private val HumidityColor = Palette.Rain
 
 private fun uvColor(uv: Double) = when {
-    uv < 3 -> Color(0xFF34C759)
-    uv < 6 -> Color(0xFFFFCC00)
-    uv < 8 -> Color(0xFFFF9500)
-    uv < 11 -> Color(0xFFFF3B30)
-    else -> Color(0xFFAF52DE)
+    uv < 3 -> Palette.Dry
+    uv < 6 -> Palette.Warn
+    uv < 8 -> Palette.Camera
+    uv < 11 -> Palette.Danger
+    else -> Palette.RainHeavy
 }
 
 private fun uvLevelText(uv: Double) = when {
@@ -205,17 +208,17 @@ fun DetailScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF0E0E10))
+            .aurora()
             .statusBarsPadding()
             .verticalScroll(rememberScrollState()),
     ) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(metric.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text(city.displayName, fontSize = 13.sp, color = Color.Gray)
+                Text(metric.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                Text(city.displayName, fontSize = 13.sp, color = Palette.Ink2)
             }
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White)
+                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Palette.Ink)
             }
         }
 
@@ -233,16 +236,16 @@ fun DetailScreen(
                     Modifier.clip(RoundedCornerShape(12.dp)).clickable { date = d }.padding(horizontal = 6.dp, vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(if (d == today) "今天" else weekdayLabel(d.dayOfWeek), fontSize = 12.sp, color = Color.Gray)
+                    Text(if (d == today) "今天" else weekdayLabel(d.dayOfWeek), fontSize = 12.sp, color = Palette.Ink2)
                     Box(
-                        Modifier.size(34.dp).clip(CircleShape).background(if (active) Color.White else Color.Transparent),
+                        Modifier.size(34.dp).clip(CircleShape).background(if (active) Palette.Primary else Color.Transparent),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             d.dayOfMonth.toString(),
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (active) Color.Black else Color.White,
+                            color = if (active) Palette.OnPrimary else Palette.Ink,
                         )
                     }
                 }
@@ -253,11 +256,11 @@ fun DetailScreen(
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).height(64.dp)) {
             val point = selected?.let { series.points.getOrNull(it) }
             if (point != null) {
-                Text(series.format(point.second), fontSize = 32.sp, fontWeight = FontWeight.Medium, color = Color.White)
-                Text(hourLabel(point.first), fontSize = 14.sp, color = Color.Gray)
+                Text(series.format(point.second), fontSize = 32.sp, fontWeight = FontWeight.Medium, color = Palette.Ink)
+                Text(hourLabel(point.first), fontSize = 14.sp, color = Palette.Ink2)
             } else {
-                Text(series.headline, fontSize = 32.sp, fontWeight = FontWeight.Medium, color = Color.White)
-                Text(series.subline, fontSize = 14.sp, color = Color.Gray)
+                Text(series.headline, fontSize = 32.sp, fontWeight = FontWeight.Medium, color = Palette.Ink)
+                Text(series.subline, fontSize = 14.sp, color = Palette.Ink2)
             }
         }
 
@@ -266,11 +269,9 @@ fun DetailScreen(
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 52.dp)) {
                 (0 until 24 step 3).forEach { hour ->
                     val h = hours.firstOrNull { it.time.hour == hour }
-                    Text(
-                        h?.let { WeatherCodes.emoji(it.weatherCode, it.isDay) } ?: "",
-                        fontSize = 16.sp,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Box(Modifier.weight(1f)) {
+                        h?.let { WeatherIcon(it.weatherCode, it.isDay, size = 20.dp) }
+                    }
                 }
             }
         }
@@ -293,11 +294,11 @@ fun DetailScreen(
                 Text(
                     m.title,
                     fontSize = 14.sp,
-                    color = if (active) Color.Black else Color.White,
+                    color = if (active) Palette.OnPrimary else Palette.Ink,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
-                        .background(if (active) Color.White else Color(0xFF2C2C2E))
+                        .background(if (active) Palette.Primary else Palette.Well)
                         .clickable { metric = m }
                         .padding(horizontal = 14.dp, vertical = 7.dp),
                 )
@@ -308,13 +309,13 @@ fun DetailScreen(
             Text(
                 series.description,
                 fontSize = 15.sp,
-                color = Color.White,
+                color = Palette.Ink,
                 lineHeight = 21.sp,
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFF1C1C1E))
+                    .background(PanelColor)
                     .padding(16.dp),
             )
         }
@@ -334,7 +335,7 @@ private fun HourlyChart(
     modifier: Modifier = Modifier,
 ) {
     val measurer = rememberTextMeasurer()
-    val labelStyle = TextStyle(color = Color.Gray, fontSize = 11.sp)
+    val labelStyle = TextStyle(color = Palette.Ink2, fontSize = 12.sp)
     val points = series.points
     Canvas(
         modifier
@@ -371,7 +372,7 @@ private fun HourlyChart(
         fun y(v: Double) = (h - ((v - series.yMin) / span) * h).toFloat()
 
         // 格線與標籤
-        val gridColor = Color.White.copy(alpha = 0.12f)
+        val gridColor = Palette.Ink.copy(alpha = 0.07f)
         for (k in 0..4) {
             val value = series.yMin + span * k / 4
             val yy = y(value)
@@ -430,14 +431,14 @@ private fun HourlyChart(
         // 已經過去的時間調暗，並標示現在
         if (now != null) {
             val nx = x(now)
-            drawRect(Color.Black.copy(alpha = 0.35f), topLeft = Offset.Zero, size = Size(nx, h))
-            drawLine(Color.White.copy(alpha = 0.6f), Offset(nx, 0f), Offset(nx, h), strokeWidth = 1.5f)
+            drawRect(Palette.Ink.copy(alpha = 0.06f), topLeft = Offset.Zero, size = Size(nx, h))
+            drawLine(Palette.Ink.copy(alpha = 0.4f), Offset(nx, 0f), Offset(nx, h), strokeWidth = 1.5f)
         }
 
         selected?.let { points.getOrNull(it) }?.let { (t, v) ->
             val sx = if (series.style == ChartStyle.BAR) x(t) + w / 48f else x(t)
-            drawLine(Color.White, Offset(sx, 0f), Offset(sx, h), strokeWidth = 1.5f)
-            drawCircle(Color.Black, radius = 7.dp.toPx(), center = Offset(sx, y(v)))
+            drawLine(Palette.Ink2, Offset(sx, 0f), Offset(sx, h), strokeWidth = 1.5f)
+            drawCircle(Color.White, radius = 7.dp.toPx(), center = Offset(sx, y(v)))
             drawCircle(series.color(v), radius = 5.dp.toPx(), center = Offset(sx, y(v)))
         }
     }

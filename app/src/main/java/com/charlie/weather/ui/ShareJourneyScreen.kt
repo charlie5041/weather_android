@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.foundation.Image
@@ -90,12 +93,12 @@ fun ShareJourneyScreen(
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.fillMaxSize().aurora().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("分享足跡", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White) }
+                Text("分享足跡", color = Palette.Ink, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Palette.Ink) }
             }
             Box(
                 Modifier.fillMaxWidth().aspectRatio(ShareCard.WIDTH / ShareCard.HEIGHT.toFloat()).clip(RoundedCornerShape(12.dp)).background(PanelColor),
@@ -105,10 +108,10 @@ fun ShareJourneyScreen(
                 if (image != null) {
                     Image(image.asImageBitmap(), contentDescription = "分享卡預覽", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 } else {
-                    CircularProgressIndicator(color = Color.White)
+                    CircularProgressIndicator(color = Palette.Ink)
                 }
             }
-            Text(privacyNote(route, zones.size, radiusM), color = Color(0xFFA0A0A8), fontSize = 14.sp)
+            Text(privacyNote(route, zones.size, radiusM), color = Palette.Ink2, fontSize = 14.sp)
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it.take(40) },
@@ -118,7 +121,7 @@ fun ShareJourneyScreen(
             )
             ShareToggle("顯示出發時刻", "加上路線，出發時刻會透露作息", showClock) { showClock = it }
             if (journey.photos.isNotEmpty()) {
-                Text("放上分享卡的照片（最多 ${ShareCard.MAX_PHOTOS} 張）", color = Color.White, fontSize = 16.sp)
+                Text("放上分享卡的照片（最多 ${ShareCard.MAX_PHOTOS} 張）", color = Palette.Ink, fontSize = 16.sp)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(journey.photos, key = { it.id }) { ph ->
                         val selected = ph.id in photoIds
@@ -142,7 +145,7 @@ fun ShareJourneyScreen(
                             if (selected) {
                                 Text(
                                     "${photoIds.indexOf(ph.id) + 1}",
-                                    color = Color.White,
+                                    color = Palette.Ink,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).clip(RoundedCornerShape(50)).background(Accent).padding(horizontal = 7.dp, vertical = 1.dp),
@@ -165,13 +168,13 @@ fun ShareJourneyScreen(
                         val start = journey.startDateTime(zone)
                         ShareCard.share(context, image, files, "一路晴足跡_%04d%02d%02d".format(start.year, start.monthValue, start.dayOfMonth))
                     } catch (e: Exception) {
-                        Toast.makeText(context, "無法分享：${e.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "分享卡沒做出來，再按一次分享", Toast.LENGTH_LONG).show()
                     } finally {
                         sharing = false
                     }
                 }
             }
-            Text("分享卡在手機上產生，不會上傳；手機裡的足跡不受影響。", color = Color.Gray, fontSize = 13.sp)
+            Text("分享卡在手機上產生，不會上傳；手機裡的足跡不受影響。", color = Palette.Ink2, fontSize = 13.sp)
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -192,13 +195,13 @@ internal fun privacyNote(route: SharedRoute, zoneCount: Int, radiusM: Int): Stri
 private fun ShareToggle(title: String, description: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, color = Color.White, fontSize = 16.sp)
-            Text(description, color = Color.Gray, fontSize = 13.sp)
+            Text(title, color = Palette.Ink, fontSize = 16.sp)
+            Text(description, color = Palette.Ink2, fontSize = 13.sp)
         }
         Switch(
             checked = checked,
             onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF30D158), checkedThumbColor = Color.White),
+            colors = SwitchDefaults.colors(checkedTrackColor = Palette.Dry, checkedThumbColor = Color.White),
         )
     }
 }

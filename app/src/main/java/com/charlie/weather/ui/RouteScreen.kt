@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -120,15 +123,15 @@ import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
-internal val RouteDry = Color(0xFF30D158)
-internal val RouteMaybe = Color(0xFFFFD60A)
-internal val RouteWet = Color(0xFF0A84FF)
-internal val RouteHeavy = Color(0xFFBF5AF2)
-private val MapPlaceholder = Color(0xFFE8E6E1)
+internal val RouteDry = Palette.Dry
+internal val RouteMaybe = Palette.Warn
+internal val RouteWet = Palette.Primary
+internal val RouteHeavy = Palette.RainHeavy
+private val MapPlaceholder = Palette.MapPlaceholder
 
 /** 地圖上的測速照相標記（深色方塊，與雨況的圓點區分） */
-private val CameraMarker = Color(0xFF1C1C1E)
-private val MobileCameraMarker = Color(0xFFFF9F0A)
+private val CameraMarker = PanelColor
+private val MobileCameraMarker = Palette.Camera
 
 private enum class Endpoint { FROM, TO }
 
@@ -217,7 +220,7 @@ fun RouteScreen(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            error = "無法取得沿途天氣，請檢查網路連線"
+            error = "無法取得沿路天氣，請檢查網路連線"
         }
         loading = false
     }
@@ -250,7 +253,7 @@ fun RouteScreen(
             onClose = { editing = null },
         )
     } else {
-        Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().aurora().statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(96.dp)) {
                     TextButton(onClick = onClose) { Text("完成", color = Accent, fontSize = 17.sp) }
@@ -259,7 +262,7 @@ fun RouteScreen(
                 val b = to
                 Text(
                     if (a != null && b != null) "${a.displayName} → ${b.displayName}" else "沿路天氣",
-                    color = Color.White,
+                    color = Palette.Ink,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -284,12 +287,12 @@ fun RouteScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 EndpointRow(RouteDry, "起點", from) { editing = Endpoint.FROM }
-                                HorizontalDivider(Modifier.padding(start = 26.dp), color = Color.White.copy(alpha = 0.1f))
+                                HorizontalDivider(Modifier.padding(start = 26.dp), color = Palette.Divider)
                                 if (via.isNotEmpty()) {
                                     ViaRow(via, onClear = { via = emptyList() })
-                                    HorizontalDivider(Modifier.padding(start = 26.dp), color = Color.White.copy(alpha = 0.1f))
+                                    HorizontalDivider(Modifier.padding(start = 26.dp), color = Palette.Divider)
                                 }
-                                EndpointRow(Color(0xFFFF453A), "終點", to) { editing = Endpoint.TO }
+                                EndpointRow(Palette.Danger, "終點", to) { editing = Endpoint.TO }
                             }
                             Text(
                                 "⇅",
@@ -308,7 +311,7 @@ fun RouteScreen(
                         }
                     }
 
-                    ChipRow(TravelMode.entries.map { modeEmoji(it) + " " + it.label }, TravelMode.entries.indexOf(mode)) {
+                    ChipRow(TravelMode.entries.map { it.label }, TravelMode.entries.indexOf(mode)) {
                         mode = TravelMode.entries[it]
                     }
 
@@ -352,7 +355,7 @@ fun RouteScreen(
                         }
                     }
                     loading -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.White)
+                        CircularProgressIndicator(color = Palette.Ink)
                     }
                     error != null -> Column {
                         Hint(error!!)
@@ -488,7 +491,7 @@ internal fun rainLevelColor(level: RainLevel): Color = when (level) {
     RainLevel.WET -> RouteWet
     RainLevel.MAYBE -> RouteMaybe
     RainLevel.DRY -> RouteDry
-    RainLevel.UNKNOWN -> Color.Gray
+    RainLevel.UNKNOWN -> Palette.Ink2
 }
 
 @Composable
@@ -500,13 +503,13 @@ private fun EndpointRow(dot: Color, caption: String, city: City?, onClick: () ->
         Box(Modifier.size(12.dp).clip(CircleShape).background(dot))
         Spacer(Modifier.width(14.dp))
         if (city == null) {
-            Text("選擇$caption", color = Color.Gray, fontSize = 16.sp)
+            Text("選擇$caption", color = Palette.Ink2, fontSize = 16.sp)
         } else {
             Column {
-                Text(city.displayName, color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(city.displayName, color = Palette.Ink, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val sub = city.address ?: city.subtitle
                 if (sub.isNotBlank() && sub != city.displayName) {
-                    Text(sub, color = Color.Gray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(sub, color = Palette.Ink2, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -517,11 +520,11 @@ private fun EndpointRow(dot: Color, caption: String, city: City?, onClick: () ->
 @Composable
 private fun ViaRow(via: List<City>, onClear: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(12.dp).clip(CircleShape).background(Color.Gray))
+        Box(Modifier.size(12.dp).clip(CircleShape).background(Palette.Ink2))
         Spacer(Modifier.width(14.dp))
         Text(
             "途經 " + via.joinToString("、") { it.displayName },
-            color = Color.Gray,
+            color = Palette.Ink2,
             fontSize = 14.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -538,12 +541,12 @@ private fun ChipRow(options: List<String>, selected: Int, onSelect: (Int) -> Uni
             val active = i == selected
             Text(
                 option,
-                color = if (active) Color.Black else Color.White,
+                color = if (active) Palette.OnPrimary else Palette.Ink,
                 fontSize = 14.sp,
                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(if (active) Color.White else Color(0xFF2C2C2E))
+                    .background(if (active) Palette.Primary else Palette.Well)
                     .clickable { onSelect(i) }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
@@ -564,8 +567,8 @@ private fun InputSummary(mode: TravelMode, time: String, via: List<City>, onEdit
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            listOfNotNull("${modeEmoji(mode)} ${mode.label}", time, via.takeIf { it.isNotEmpty() }?.let { "途經 ${it.size} 處" }).joinToString("・"),
-            color = Color(0xFFD0D0D6),
+            listOfNotNull(mode.label, time, via.takeIf { it.isNotEmpty() }?.let { "途經 ${it.size} 處" }).joinToString("・"),
+            color = Palette.Ink2,
             fontSize = 14.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -577,7 +580,7 @@ private fun InputSummary(mode: TravelMode, time: String, via: List<City>, onEdit
 
 @Composable
 private fun Hint(text: String) {
-    Text(text, color = Color.Gray, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp))
+    Text(text, color = Palette.Ink2, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp))
 }
 
 @Composable
@@ -593,10 +596,10 @@ fun RouteResult(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Panel {
             val verdict = forecast.verdict
-            Text(verdict.title, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, lineHeight = 32.sp)
+            Text(verdict.title, color = Palette.Ink, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, lineHeight = 32.sp)
             Text(
                 verdict.detail,
-                color = Color.White.copy(alpha = 0.7f),
+                color = Palette.Ink2,
                 fontSize = 15.sp,
                 lineHeight = 20.sp,
                 modifier = Modifier.padding(top = 2.dp),
@@ -618,7 +621,7 @@ fun RouteResult(
                         RouteSource.OSM -> "（估計，未含即時路況）"
                     },
                 ),
-                color = Color.Gray,
+                color = Palette.Ink2,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 4.dp),
             )
@@ -637,15 +640,15 @@ fun RouteResult(
                 listOf(RouteDry to "不太會下", RouteMaybe to "可能", RouteWet to "會下雨", RouteHeavy to "大雨／正在下").forEach { (c, label) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(8.dp).clip(CircleShape).background(c))
-                        Text(" $label", color = Color.Gray, fontSize = 11.sp)
+                        Text(" $label", color = Palette.Ink2, fontSize = 12.sp)
                     }
                 }
             }
             visibleNowcast(forecast)?.let { radar ->
                 Text(
                     "藍色區塊：雷達預估未來 1 小時雨量（${clock(radar.issued)} 資料）",
-                    color = Color.Gray,
-                    fontSize = 11.sp,
+                    color = Palette.Ink2,
+                    fontSize = 12.sp,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
@@ -691,7 +694,7 @@ fun RouteResult(
         if (data.path.source == RouteSource.OSM || !googleMap) {
             Text(
                 "© OpenStreetMap 貢獻者",
-                color = Color.Gray,
+                color = Palette.Ink2,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
@@ -702,16 +705,16 @@ fun RouteResult(
 /** 還沒選起終點時列出常用路線，點了直接帶入 */
 @Composable
 private fun FavoriteList(favorites: List<FavoriteRoute>, onPick: (FavoriteRoute) -> Unit) {
-    Text("常用路線", color = Color.Gray, fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp))
+    Text("常用路線", color = Palette.Ink2, fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp))
     Panel {
         favorites.forEachIndexed { i, f ->
-            if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            if (i > 0) HorizontalDivider(color = Palette.Divider)
             Row(
                 Modifier.fillMaxWidth().clickable(role = Role.Button) { onPick(f) }.padding(vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("${modeEmoji(f.mode)} ${f.name}", color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                f.reminder?.let { Text(reminderLabel(it), color = Color.Gray, fontSize = 13.sp) }
+                Text(f.name, color = Palette.Ink, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                f.reminder?.let { Text(reminderLabel(it), color = Palette.Ink2, fontSize = 13.sp) }
             }
         }
     }
@@ -735,13 +738,13 @@ private fun FavoriteDialog(
     var pickTime by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = PanelColor,
-        title = { Text(if (existing == null) "加入常用路線" else "常用路線", color = Color.White) },
+        containerColor = Color.White,
+        title = { Text(if (existing == null) "加入常用路線" else "常用路線", color = Palette.Ink) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 DarkTextField(value = name, onValueChange = { name = it }, placeholder = defaultName)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("出發前提醒", color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                    Text("出發前提醒", color = Palette.Ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
                     Switch(
                         checked = remind,
                         onCheckedChange = { remind = it },
@@ -753,7 +756,7 @@ private fun FavoriteDialog(
                         Modifier.fillMaxWidth().clickable(role = Role.Button) { pickTime = true }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("出發時間", color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        Text("出發時間", color = Palette.Ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
                         Text("%02d:%02d ›".format(hour, minute), color = Accent, fontSize = 16.sp)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -761,24 +764,24 @@ private fun FavoriteDialog(
                             val on = day in days
                             Text(
                                 weekdayLabel(day).takeLast(1),
-                                color = if (on) Color.Black else Color.White,
+                                color = if (on) Palette.OnPrimary else Palette.Ink,
                                 fontSize = 14.sp,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .size(32.dp)
                                     .clip(CircleShape)
-                                    .background(if (on) Color.White else Color(0xFF2C2C2E))
+                                    .background(if (on) Palette.Primary else Palette.Well)
                                     .clickable(role = Role.Checkbox) { days = if (on) days - day else days + day }
                                     .padding(top = 6.dp),
                             )
                         }
                     }
-                    Text("出發前 1.5 小時內會通知沿路天氣", color = Color.Gray, fontSize = 13.sp)
+                    Text("出發前 1.5 小時內會通知沿路天氣", color = Palette.Ink2, fontSize = 13.sp)
                 }
                 if (onRemove != null) {
                     Text(
                         "移除常用路線",
-                        color = Color(0xFFFF453A),
+                        color = Palette.Danger,
                         fontSize = 16.sp,
                         modifier = Modifier.clickable(role = Role.Button, onClick = onRemove).padding(vertical = 4.dp),
                     )
@@ -791,7 +794,7 @@ private fun FavoriteDialog(
                 onClick = {
                     onSave(name.trim().ifEmpty { defaultName }, if (remind && days.isNotEmpty()) RouteReminder(days, hour, minute) else null)
                 },
-            ) { Text("儲存", color = if (!remind || days.isNotEmpty()) Accent else Color.Gray) }
+            ) { Text("儲存", color = if (!remind || days.isNotEmpty()) Accent else Palette.Ink2) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = Accent) } },
     )
@@ -817,7 +820,7 @@ internal fun wetLabel(option: DepartureOption, short: Boolean): String = when {
 internal fun wetColor(option: DepartureOption): Color = when {
     option.wetMinutes > 0 -> rainLevelColor(maxOf(option.level, RainLevel.WET))
     option.level == RainLevel.MAYBE -> RouteMaybe
-    else -> Color.Gray
+    else -> Palette.Ink2
 }
 
 /** 柱的顏色與雨況時間軸一致（乾燥是綠色） */
@@ -864,22 +867,22 @@ internal fun RouteChoices(
                 Modifier
                     .width(150.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (active) Color.White.copy(alpha = 0.18f) else PanelColor)
-                    .then(if (active) Modifier.border(1.5.dp, Color.White, RoundedCornerShape(12.dp)) else Modifier)
+                    .background(if (active) Palette.PrimarySoft else PanelColor)
+                    .then(if (active) Modifier.border(1.5.dp, Palette.Ink, RoundedCornerShape(12.dp)) else Modifier)
                     .clickable(role = Role.Button) { onSelect(i) }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
                 Text(
                     route.path.description ?: if (i == 0) "建議路線" else "替代路線 $i",
-                    color = Color.White,
+                    color = Palette.Ink,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 // 時間與距離分兩行，長途時才不會被截掉
-                Text(durationLabel(route.path.durationMinutes), color = Color.Gray, fontSize = 12.sp, maxLines = 1)
-                Text("%.1f 公里".format(Locale.US, route.path.distanceKm), color = Color.Gray, fontSize = 12.sp, maxLines = 1)
+                Text(durationLabel(route.path.durationMinutes), color = Palette.Ink2, fontSize = 12.sp, maxLines = 1)
+                Text("%.1f 公里".format(Locale.US, route.path.distanceKm), color = Palette.Ink2, fontSize = 12.sp, maxLines = 1)
                 Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
                     Box(Modifier.width(10.dp).height(14.dp), contentAlignment = Alignment.BottomCenter) {
                         if (option != null) {
@@ -892,14 +895,14 @@ internal fun RouteChoices(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         option?.let { wetLabel(it, short = false) } ?: "暫無預報",
-                        color = option?.let(::wetColor) ?: Color.Gray,
+                        color = option?.let(::wetColor) ?: Palette.Ink2,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                     )
                 }
                 val tags = listOfNotNull("最快".takeIf { i == fastest }, "較不會淋雨".takeIf { i == driest })
-                Text(tags.joinToString(" · ").ifEmpty { " " }, color = Accent, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+                Text(tags.joinToString(" · ").ifEmpty { " " }, color = Accent, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
             }
         }
     }
@@ -920,8 +923,8 @@ private fun DateTimeDialog(
     var date by remember { mutableStateOf(initial.toLocalDate().takeIf { it in dates } ?: today) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = PanelColor,
-        title = { Text(title, color = Color.White) },
+        containerColor = Color.White,
+        title = { Text(title, color = Palette.Ink) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -933,12 +936,12 @@ private fun DateTimeDialog(
                                 1 -> "明天"
                                 else -> "${weekdayLabel(d.dayOfWeek).takeLast(1)} ${d.monthValue}/${d.dayOfMonth}"
                             },
-                            color = if (on) Color.Black else Color.White,
+                            color = if (on) Palette.OnPrimary else Palette.Ink,
                             fontSize = 14.sp,
                             fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(50))
-                                .background(if (on) Color.White else Color(0xFF2C2C2E))
+                                .background(if (on) Palette.Primary else Palette.Well)
                                 .clickable(role = Role.Button) { date = d }
                                 .padding(horizontal = 12.dp, vertical = 7.dp),
                         )
@@ -968,13 +971,13 @@ internal fun hazardLine(hazard: RouteHazard): Pair<String, String> = when (hazar
         val text = listOfNotNull(e.location, e.description.takeIf { it != e.title }).joinToString(" ").ifEmpty { e.description }
         "${e.title}：" + if (text.length > 60) text.take(59) + "…" else text
     }
-    is RouteHazard.Cameras -> "📷" to "沿途 ${hazard.count} 處測速照相" + when {
+    is RouteHazard.Cameras -> "📷" to "沿路 ${hazard.count} 處測速照相" + when {
         hazard.minLimit == null -> ""
         hazard.minLimit == hazard.maxLimit -> "，速限 ${hazard.minLimit}"
         else -> "，速限 ${hazard.minLimit}–${hazard.maxLimit}"
     } + if (hazard.mobile > 0) "（${hazard.mobile} 處是 2 小時內回報的移動式）" else ""
     RouteHazard.CamerasUnavailable -> "📷" to "測速照相資料暫時無法下載，稍後再查一次"
-    RouteHazard.NoCameras -> "📷" to "沿途沒有固定式測速照相"
+    RouteHazard.NoCameras -> "📷" to "沿路沒有固定式測速照相"
     is RouteHazard.Wind -> "💨" to "${stopWhere(hazard.stop)}一帶陣風 ${windText(hazard.gustKmh)}，注意側風"
     is RouteHazard.Sunset -> "🌇" to "${clock(hazard.time)} 日落，${stopWhere(hazard.stop)}之後天黑"
     is RouteHazard.Cold -> "🥶" to if (hazard.riding) {
@@ -992,12 +995,16 @@ internal fun RouteHazards(hazards: List<RouteHazard>, modifier: Modifier = Modif
     if (hazards.isEmpty()) return
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         hazards.forEach { hazard ->
-            val (icon, text) = hazardLine(hazard)
+            val (_, text) = hazardLine(hazard)
             Row {
-                Text(icon, fontSize = 14.sp, modifier = Modifier.width(24.dp))
+                // App 內不用 emoji 當圖示：特報、測速用橘點，其他用灰點；通知與車機仍用 hazardLine 的符號
+                val dot = if (hazard is RouteHazard.Alert || hazard is RouteHazard.Cameras) Palette.Camera else Palette.Ink3
+                Box(Modifier.width(18.dp).height(19.dp), contentAlignment = Alignment.CenterStart) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(dot))
+                }
                 Text(
                     text,
-                    color = if (hazard is RouteHazard.Alert) Color(0xFFFF9F0A) else Color.White.copy(alpha = 0.85f),
+                    color = if (hazard is RouteHazard.Alert) Palette.CameraText else Palette.Ink2,
                     fontSize = 14.sp,
                     lineHeight = 19.sp,
                     fontWeight = if (hazard is RouteHazard.Alert) FontWeight.SemiBold else FontWeight.Normal,
@@ -1045,7 +1052,7 @@ internal fun DepartureStrip(
                 onClick = { onSelect(time) },
                 label = if (time == now) "現在" else stripLabel(time, now) + suffix,
                 bottom = option?.let { wetLabel(it, short = true) } ?: "–",
-                bottomColor = option?.let(::wetColor) ?: Color.Gray,
+                bottomColor = option?.let(::wetColor) ?: Palette.Ink2,
                 recommended = best != null && best.departure == options?.getOrNull(i)?.departure,
             ) {
                 if (option != null) {
@@ -1056,7 +1063,7 @@ internal fun DepartureStrip(
                 }
             }
         }
-        StripCell(active = false, onClick = onCustom, label = "自訂", bottom = "時間", bottomColor = Color.Gray, recommended = false) {
+        StripCell(active = false, onClick = onCustom, label = "自訂", bottom = "時間", bottomColor = Palette.Ink2, recommended = false) {
             Icon(Icons.Filled.Edit, contentDescription = null, tint = Accent, modifier = Modifier.size(18.dp).align(Alignment.Center))
         }
     }
@@ -1076,22 +1083,22 @@ private fun StripCell(
         Modifier
             .width(72.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(if (active) Color.White.copy(alpha = 0.18f) else PanelColor)
-            .then(if (active) Modifier.border(1.5.dp, Color.White, RoundedCornerShape(12.dp)) else Modifier)
+            .background(if (active) Palette.PrimarySoft else PanelColor)
+            .then(if (active) Modifier.border(1.5.dp, Palette.Ink, RoundedCornerShape(12.dp)) else Modifier)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             label,
-            color = Color.White,
+            color = Palette.Ink,
             fontSize = 13.sp,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
         )
         Box(Modifier.padding(vertical = 6.dp).height(22.dp).fillMaxWidth(), contentAlignment = Alignment.BottomCenter, content = graphic)
         Text(bottom, color = bottomColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Text("建議", color = if (recommended) Accent else Color.Transparent, fontSize = 10.sp)
+        Text("建議", color = if (recommended) Accent else Color.Transparent, fontSize = 12.sp)
     }
 }
 
@@ -1102,26 +1109,26 @@ internal fun RideButtons(control: RideControl, mode: TravelMode, modifier: Modif
         val riding = mode == TravelMode.SCOOTER || mode == TravelMode.BIKE
         Text(
             when {
-                control.active -> "■ 結束沿途提醒"
+                control.active -> "■ 結束沿路提醒"
                 riding -> "▶ 開始騎乘：前方下雨時通知"
                 else -> "▶ 開始出發：前方下雨時通知"
             },
-            color = if (control.active) Color.White else Color.Black,
+            color = if (control.active) Palette.Ink else Palette.OnAccent,
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .background(if (control.active) Color(0xFF3A3A3C) else Color.White)
+                .background(if (control.active) Palette.Well else Palette.Accent)
                 .clickable(role = Role.Button, onClick = if (control.active) control.onStop else control.onStart)
                 .padding(vertical = 13.dp),
         )
         // 交給 Google 地圖導航，一路晴在背景繼續提醒天氣與測速、記錄足跡
         control.onNavigate?.let { navigate ->
             Text(
-                if (control.active) "🧭 回到導航" else "🧭 導航（同時開始提醒）",
-                color = Color.White,
+                if (control.active) "回到導航" else "導航",
+                color = Palette.OnPrimary,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
@@ -1137,15 +1144,15 @@ internal fun RideButtons(control: RideControl, mode: TravelMode, modifier: Modif
         val report = control.onReport
         if (control.active && report != null && mode != TravelMode.WALK && mode != TravelMode.BIKE) {
             Text(
-                "📷 回報移動式測速",
-                color = Color.White,
+                "回報移動式測速",
+                color = Palette.Ink,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFFF9F0A).copy(alpha = 0.85f))
+                    .background(Palette.Camera)
                     .clickable(role = Role.Button, onClick = report)
                     .padding(vertical = 13.dp),
             )
@@ -1164,7 +1171,7 @@ class RideControl(
 )
 
 /** 導航按鈕（接近 Google 地圖導航的藍色） */
-internal val NavigateBlue = Color(0xFF0A84FF)
+internal val NavigateBlue = Palette.Primary
 
 /** 柱高：不靠顏色也看得出雨勢 */
 private fun RainLevel.barHeight() = when (this) {
@@ -1179,7 +1186,7 @@ private fun RainLevel.barHeight() = when (this) {
  * 下方標出發、抵達，以及第一次遇到雨（沒有的話是可能下雨）的時間。
  */
 @Composable
-internal fun RainTimeline(forecast: RouteForecast, modifier: Modifier = Modifier, labelColor: Color = Color.Gray) {
+internal fun RainTimeline(forecast: RouteForecast, modifier: Modifier = Modifier, labelColor: Color = Palette.Ink2) {
     val spans = remember(forecast) { RoutePlanner.timeline(forecast.stops) }
     val rain = spans.firstOrNull { it.level >= RainLevel.WET } ?: spans.firstOrNull { it.level == RainLevel.MAYBE }
     val seconds = Duration.between(forecast.departure, forecast.arrival).seconds
@@ -1188,7 +1195,7 @@ internal fun RainTimeline(forecast: RouteForecast, modifier: Modifier = Modifier
         val barHeight = 30.dp.toPx()
         val gap = 1.5.dp.toPx()
         val radius = CornerRadius(3.dp.toPx())
-        drawRoundRect(Color.White.copy(alpha = 0.08f), size = Size(size.width, barHeight), cornerRadius = radius)
+        drawRoundRect(Palette.Ink.copy(alpha = 0.05f), size = Size(size.width, barHeight), cornerRadius = radius)
         spans.forEach { span ->
             val x0 = (span.start * size.width).toFloat() + gap / 2
             val x1 = (span.end * size.width).toFloat() - gap / 2
@@ -1216,7 +1223,7 @@ internal fun RainTimeline(forecast: RouteForecast, modifier: Modifier = Modifier
             // 一出發就遇雨，或太靠近兩端時不標，免得和出發、抵達時間重疊
             val pad = 6.dp.toPx()
             if (left > start.size.width + pad && left + label.size.width < size.width - end.size.width - pad) {
-                drawLine(Color.White.copy(alpha = 0.7f), Offset(x, 0f), Offset(x, y), strokeWidth = 1.dp.toPx())
+                drawLine(Palette.Ink.copy(alpha = 0.4f), Offset(x, 0f), Offset(x, y), strokeWidth = 1.dp.toPx())
                 drawText(label, topLeft = Offset(left, y))
             }
         }
@@ -1414,18 +1421,18 @@ internal fun TileRouteMap(forecast: RouteForecast, modifier: Modifier = Modifier
             }
             forecast.data.cameras.forEach { c ->
                 val (x, y) = viewport.project(c.camera.position)
-                drawRect(Color.White, Offset(x - 5.dp.toPx(), y - 5.dp.toPx()), Size(10.dp.toPx(), 10.dp.toPx()))
+                drawRect(Palette.Ink, Offset(x - 5.dp.toPx(), y - 5.dp.toPx()), Size(10.dp.toPx(), 10.dp.toPx()))
                 drawRect(if (c.camera.mobile) MobileCameraMarker else CameraMarker, Offset(x - 3.5.dp.toPx(), y - 3.5.dp.toPx()), Size(7.dp.toPx(), 7.dp.toPx()))
             }
             drawCircle(Color.White, 9.dp.toPx(), pts.first())
             drawCircle(RouteDry, 6.5.dp.toPx(), pts.first())
             drawCircle(Color.White, 9.dp.toPx(), pts.last())
-            drawCircle(Color(0xFFFF453A), 6.5.dp.toPx(), pts.last())
+            drawCircle(Palette.Danger, 6.5.dp.toPx(), pts.last())
         }
         Text(
             "© OpenStreetMap 貢獻者",
-            color = Color(0xFF555555),
-            fontSize = 9.sp,
+            color = Palette.Ink3,
+            fontSize = 12.sp,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .background(Color.White.copy(alpha = 0.7f))
@@ -1439,17 +1446,17 @@ private fun StopRow(group: StopGroup, title: String, first: Boolean, last: Boole
     val stop = group.worst
     val color = rainColor(stop)
     Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(clock(group.first.eta), color = Color.White, fontSize = 15.sp, modifier = Modifier.width(50.dp))
+        Text(clock(group.first.eta), color = Palette.Ink, fontSize = 15.sp, modifier = Modifier.width(50.dp))
         Box(Modifier.width(20.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
             Column(Modifier.fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.width(3.dp).weight(1f).background(if (first) Color.Transparent else Color.White.copy(alpha = 0.2f)))
-                Box(Modifier.width(3.dp).weight(1f).background(if (last) Color.Transparent else Color.White.copy(alpha = 0.2f)))
+                Box(Modifier.width(3.dp).weight(1f).background(if (first) Color.Transparent else Palette.Ink.copy(alpha = 0.12f)))
+                Box(Modifier.width(3.dp).weight(1f).background(if (last) Color.Transparent else Palette.Ink.copy(alpha = 0.12f)))
             }
             Box(Modifier.size(12.dp).clip(CircleShape).background(color))
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = Palette.Ink, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val detail = when {
                 stop.rainingNow -> "附近雨量站：正在下雨"
                 stop.nowcastMm != null -> if (stop.nowcastMm >= 0.1) "雷達：1 小時 %.1f mm".format(Locale.US, stop.nowcastMm) else "雷達：無雨"
@@ -1465,18 +1472,18 @@ private fun StopRow(group: StopGroup, title: String, first: Boolean, last: Boole
             }
             Text(
                 "$where · $detail",
-                color = Color.Gray,
+                color = Palette.Ink2,
                 fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         stop.hour?.let { h ->
-            Text("${stop.probability}%", color = if (stop.probability >= 30) color else Color.Gray, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("${stop.probability}%", color = if (stop.probability >= 30) color else Palette.Ink2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(8.dp))
-            Text(WeatherCodes.emoji(h.weatherCode, h.isDay), fontSize = 20.sp)
+            WeatherIcon(h.weatherCode, h.isDay, size = 24.dp)
             Spacer(Modifier.width(8.dp))
-            Text(h.temperature.deg(), color = Color.White, fontSize = 16.sp, modifier = Modifier.width(36.dp), textAlign = TextAlign.End)
+            Text(h.temperature.deg(), color = Palette.Ink, fontSize = 16.sp, modifier = Modifier.width(36.dp), textAlign = TextAlign.End)
         }
     }
 }
@@ -1516,14 +1523,14 @@ private fun EndpointSearch(
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .aurora()
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding(),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onClose) { Text("取消", color = Accent, fontSize = 17.sp) }
-            Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+            Text(title, color = Palette.Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
             Spacer(Modifier.width(72.dp))
         }
         Column(
@@ -1535,7 +1542,7 @@ private fun EndpointSearch(
                     value = query,
                     onValueChange = { query = it },
                     placeholder = "搜尋地址或地標",
-                    trailing = { IconButton(onClick = ::search) { Icon(Icons.Filled.Search, contentDescription = "搜尋", tint = Color.Gray) } },
+                    trailing = { IconButton(onClick = ::search) { Icon(Icons.Filled.Search, contentDescription = "搜尋", tint = Palette.Ink2) } },
                     onSearch = ::search,
                 )
                 Row(
@@ -1559,11 +1566,11 @@ private fun EndpointSearch(
                 }
                 if (busy) {
                     Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(color = Palette.Ink, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                     }
                 }
                 results.forEachIndexed { i, r ->
-                    if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                    if (i > 0) HorizontalDivider(color = Palette.Divider)
                     Column(
                         Modifier.fillMaxWidth().clickable {
                             val city = r.toRouteCity()
@@ -1571,11 +1578,11 @@ private fun EndpointSearch(
                             onPick(city)
                         }.padding(vertical = 10.dp),
                     ) {
-                        Text(r.address, color = Color.White, fontSize = 15.sp)
-                        Text(if (r.approximate) "${r.area}（大概位置）" else r.area, color = Color.Gray, fontSize = 13.sp)
+                        Text(r.address, color = Palette.Ink, fontSize = 15.sp)
+                        Text(if (r.approximate) "${r.area}（大概位置）" else r.area, color = Palette.Ink2, fontSize = 13.sp)
                     }
                 }
-                message?.let { Text(it, color = Color(0xFFFF9F0A), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
+                message?.let { Text(it, color = Palette.CameraText, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
             }
             if (recent.isNotEmpty()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1589,17 +1596,17 @@ private fun EndpointSearch(
                 }
                 Panel {
                     recent.forEachIndexed { i, place ->
-                        if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                        if (i > 0) HorizontalDivider(color = Palette.Divider)
                         Column(
                             Modifier.fillMaxWidth().clickable {
                                 onRemember(place)
                                 onPick(place)
                             }.padding(vertical = 10.dp),
                         ) {
-                            Text(place.displayName, color = Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(place.displayName, color = Palette.Ink, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val sub = place.address ?: place.subtitle
                             if (sub.isNotBlank() && sub != place.displayName) {
-                                Text(sub, color = Color.Gray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(sub, color = Palette.Ink2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -1609,11 +1616,11 @@ private fun EndpointSearch(
                 SectionLabel("我的地點")
                 Panel {
                     places.forEachIndexed { i, place ->
-                        if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                        if (i > 0) HorizontalDivider(color = Palette.Divider)
                         Column(Modifier.fillMaxWidth().clickable { onPick(place) }.padding(vertical = 10.dp)) {
-                            Text(place.displayName, color = Color.White, fontSize = 15.sp)
+                            Text(place.displayName, color = Palette.Ink, fontSize = 15.sp)
                             val sub = place.address ?: place.subtitle
-                            if (sub.isNotBlank()) Text(sub, color = Color.Gray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (sub.isNotBlank()) Text(sub, color = Palette.Ink2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -1638,8 +1645,8 @@ private fun DepartureTimeDialog(initial: LocalDateTime, onDismiss: () -> Unit, o
     val state = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute, is24Hour = true)
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = PanelColor,
-        title = { Text("出發時間", color = Color.White) },
+        containerColor = Color.White,
+        title = { Text("出發時間", color = Palette.Ink) },
         text = {
             TimePicker(state = state)
         },

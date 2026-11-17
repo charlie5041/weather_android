@@ -75,9 +75,9 @@ class CameraAlertsTest {
     @Test
     fun explainsReportFailures() {
         // Firebase 的例外類別在 JVM 單元測試無法建立，所以測錯誤碼對應的文字
-        assertEquals("Firestore 規則不允許（請確認已發布 firestore.rules）", CameraReportRepository.firestoreReason("PERMISSION_DENIED"))
-        assertEquals("Firestore 錯誤（ABORTED）", CameraReportRepository.firestoreReason("ABORTED"))
-        assertEquals("Firebase 尚未啟用匿名登入", CameraReportRepository.authReason("ERROR_OPERATION_NOT_ALLOWED"))
+        assertEquals("回報功能暫時不能用（伺服器拒絕寫入）", CameraReportRepository.firestoreReason("PERMISSION_DENIED"))
+        assertEquals("回報沒送出去（錯誤 ABORTED）", CameraReportRepository.firestoreReason("ABORTED"))
+        assertEquals("回報功能暫時不能用（伺服器未啟用匿名登入）", CameraReportRepository.authReason("ERROR_OPERATION_NOT_ALLOWED"))
         assertEquals("boom", CameraReportRepository.describe(IllegalStateException("boom")))
     }
 

@@ -73,7 +73,7 @@ object WeatherApi {
         if (points.isEmpty()) return@coroutineScope emptyList()
         val chunks = points.chunked(CHUNK)
         val results = chunks.map { chunk -> async { fetchWithRetry(chunk, days) } }.map { it.await() }
-        if (results.all { it == null }) throw IOException("無法取得沿途預報")
+        if (results.all { it == null }) throw IOException("無法取得沿路預報")
         results.flatMapIndexed { i, jsons -> jsons ?: List(chunks[i].size) { null } }
     }
 

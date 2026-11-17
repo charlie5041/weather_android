@@ -58,12 +58,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.charlie.weather.data.City
+import com.charlie.weather.ui.theme.LocalOnSky
+import com.charlie.weather.ui.theme.Palette
+import androidx.compose.runtime.CompositionLocalProvider
 import com.charlie.weather.data.Weather
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
-private val TextShadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.25f), Offset(0f, 2f), 8f))
+/** 晚上深色背景上的白字加一點陰影；白天淺色背景上的深色字不加。 */
+@Composable
+private fun skyTextStyle(): TextStyle =
+    if (LocalOnSky.current == Color.White) TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.25f), Offset(0f, 2f), 8f)) else TextStyle.Default
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,6 +89,7 @@ fun CityWeatherPage(
     val w = ui.weather
     val code = w?.current?.weatherCode ?: 1
     val isDay = w?.current?.isDay ?: true
+    CompositionLocalProvider(LocalOnSky provides onSkyColor(isDay)) {
     Box(Modifier.fillMaxSize()) {
         WeatherBackground(code, isDay)
         if (w == null) {
@@ -93,10 +100,10 @@ fun CityWeatherPage(
                 TopBar(city, page, pageCount, firstIsLocation, onOpenList, onOpenSettings)
                 Spacer(Modifier.height(96.dp))
                 if (ui.error != null && !ui.loading) {
-                    Text(ui.error, color = Color.White, fontSize = 15.sp)
-                    TextButton(onClick = onRefresh) { Text("重試", color = Color.White) }
+                    Text(ui.error, color = LocalOnSky.current, fontSize = 15.sp)
+                    TextButton(onClick = onRefresh) { Text("重試", color = LocalOnSky.current) }
                 } else {
-                    CircularProgressIndicator(color = Color.White)
+                    CircularProgressIndicator(color = LocalOnSky.current)
                 }
             }
             return@Box
@@ -112,7 +119,7 @@ fun CityWeatherPage(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 80.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 104.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item {
@@ -175,15 +182,16 @@ fun CityWeatherPage(
                     .padding(top = 6.dp, bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(city.displayName, fontSize = 26.sp, color = Color.White, style = TextShadow)
+                Text(city.displayName, fontSize = 26.sp, color = LocalOnSky.current, style = skyTextStyle())
                 Text(
                     "${w.current.temperature.deg()} | ${w.current.conditionText()}",
                     fontSize = 16.sp,
-                    color = Color.White.copy(alpha = 0.85f),
-                    style = TextShadow,
+                    color = LocalOnSky.current.copy(alpha = 0.85f),
+                    style = skyTextStyle(),
                 )
             }
         }
+    }
     }
 }
 
@@ -221,25 +229,25 @@ private fun TopBar(
             Modifier
                 .weight(1f, fill = false)
                 .clip(RoundedCornerShape(50))
-                .background(Color.White.copy(alpha = 0.18f))
+                .background(Palette.Glass)
                 .clickable(role = Role.Button, onClickLabel = "切換地點", onClick = onOpenList)
                 .padding(start = 12.dp, end = 8.dp, top = 9.dp, bottom = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (city.isCurrentLocation) {
-                Icon(Icons.Filled.LocationOn, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(Icons.Filled.LocationOn, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
             }
             Text(
                 if (tag != null) "$tag・${city.name}" else city.name,
-                color = Color.White,
+                color = Palette.Ink,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
-            Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(20.dp))
         }
         Row(
             Modifier.weight(1f).padding(start = 12.dp),
@@ -248,7 +256,7 @@ private fun TopBar(
         ) {
             if (pageCount > 1) {
                 repeat(pageCount) { i ->
-                    val color = if (i == page) Color.White else Color.White.copy(alpha = 0.4f)
+                    val color = if (i == page) LocalOnSky.current else LocalOnSky.current.copy(alpha = 0.4f)
                     if (i == 0 && firstIsLocation) {
                         Icon(Icons.Filled.LocationOn, contentDescription = null, tint = color, modifier = Modifier.size(10.dp))
                     } else {
@@ -258,7 +266,7 @@ private fun TopBar(
             }
         }
         IconButton(onClick = onOpenSettings) {
-            Icon(Icons.Filled.Settings, contentDescription = "設定", tint = Color.White)
+            Icon(Icons.Filled.Settings, contentDescription = "設定", tint = LocalOnSky.current)
         }
     }
 }
@@ -274,27 +282,27 @@ private fun Header(w: Weather) {
             w.current.temperature.deg(),
             fontSize = 80.sp,
             fontWeight = FontWeight.Thin,
-            color = Color.White,
+            color = LocalOnSky.current,
             lineHeight = 84.sp,
-            style = TextShadow,
+            style = skyTextStyle(),
         )
         Spacer(Modifier.width(16.dp))
         Column {
-            Text(w.current.conditionText(), fontSize = 20.sp, color = Color.White, fontWeight = FontWeight.Medium, style = TextShadow)
+            Text(w.current.conditionText(), fontSize = 20.sp, color = LocalOnSky.current, fontWeight = FontWeight.Medium, style = skyTextStyle())
             w.today?.let { today ->
                 Text(
                     "最高 ${today.temperatureMax.deg()}　最低 ${today.temperatureMin.deg()}",
                     fontSize = 16.sp,
-                    color = Color.White.copy(alpha = 0.9f),
-                    style = TextShadow,
+                    color = LocalOnSky.current.copy(alpha = 0.85f),
+                    style = skyTextStyle(),
                 )
             }
             val pop = w.today?.precipitationProbability
             Text(
                 "體感 ${w.current.apparentTemperature.deg()}" + (pop?.let { "・降雨 $it%" } ?: ""),
                 fontSize = 16.sp,
-                color = Color.White.copy(alpha = 0.9f),
-                style = TextShadow,
+                color = LocalOnSky.current.copy(alpha = 0.85f),
+                style = skyTextStyle(),
             )
         }
     }
@@ -312,7 +320,7 @@ private fun Footer(w: Weather, error: String?) {
     }
     Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         lines.forEach {
-            Text(it, fontSize = 12.sp, color = Color.White.copy(alpha = 0.65f), textAlign = TextAlign.Center)
+            Text(it, fontSize = 12.sp, color = LocalOnSky.current.copy(alpha = 0.75f), textAlign = TextAlign.Center)
         }
     }
 }

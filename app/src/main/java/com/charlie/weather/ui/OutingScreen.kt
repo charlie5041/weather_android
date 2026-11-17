@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,10 +50,10 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-private val OutingSecondary = Color(0xFFA0A0A8)
-private val OutingDivider = Color(0xFF2C2C2E)
-private val OutingCamera = Color(0xFFFF9F0A)
-private val OutingAccent = Color(0xFF64D2FF)
+private val OutingSecondary = Palette.Ink2
+private val OutingDivider = Palette.Well
+private val OutingCamera = Palette.Camera
+private val OutingAccent = Palette.Rain
 
 /** 例：平日 08:00、週末 09:30、週一、週三 07:15 */
 internal fun reminderLabel(reminder: RouteReminder): String {
@@ -96,15 +99,15 @@ fun OutingScreen(
     today: LocalDate = LocalDate.now(),
 ) {
     LazyColumn(
-        Modifier.fillMaxSize().background(Color.Black).statusBarsPadding(),
+        Modifier.fillMaxSize().aurora().statusBarsPadding(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 160.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("出門", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+                Text("出門", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, modifier = Modifier.weight(1f))
                 IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "設定", tint = Color.White)
+                    Icon(Icons.Filled.Settings, contentDescription = "設定", tint = Palette.Ink)
                 }
             }
         }
@@ -186,7 +189,7 @@ private fun NextTripCard(
         Text(
             trip.route.name,
             fontSize = 15.sp,
-            color = Color.White,
+            color = Palette.Ink,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -196,7 +199,7 @@ private fun NextTripCard(
         when {
             forecast != null -> {
                 val verdict = forecast.verdict
-                Text(verdict.title, fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Bold, lineHeight = 30.sp, modifier = Modifier.padding(top = 4.dp))
+                Text(verdict.title, fontSize = 24.sp, color = Palette.Ink, fontWeight = FontWeight.Bold, lineHeight = 30.sp, modifier = Modifier.padding(top = 4.dp))
                 Text(verdict.detail, fontSize = 14.sp, color = OutingSecondary, lineHeight = 19.sp)
                 Spacer(Modifier.height(10.dp))
                 RainTimeline(forecast, labelColor = OutingSecondary)
@@ -207,13 +210,13 @@ private fun NextTripCard(
             else -> Text("無法取得沿路天氣，點「看路線」重新查詢", fontSize = 14.sp, color = OutingSecondary, modifier = Modifier.padding(top = 6.dp))
         }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PillButton("看路線", OutingDivider, Color.White, Modifier.weight(1f), onOpen)
+            PillButton("看路線", OutingDivider, Palette.Ink, Modifier.weight(1f), onOpen)
             if (forecast != null && onNavigate != null) {
                 PillButton("導航", NavigateBlue, Color.White, Modifier.weight(1f)) { onNavigate(forecast.data) }
             }
             if (forecast != null && !rideActive) {
                 val riding = trip.route.mode == TravelMode.SCOOTER || trip.route.mode == TravelMode.BIKE
-                PillButton(if (riding) "開始騎乘" else "開始出發", Color.White, Color.Black, Modifier.weight(1f)) { onStartRide(forecast.data) }
+                PillButton(if (riding) "開始騎乘" else "開始出發", Palette.Accent, Palette.OnAccent, Modifier.weight(1f)) { onStartRide(forecast.data) }
             }
         }
     }
@@ -261,7 +264,7 @@ private fun FavoritesCard(
                     "查詢路線後按 ☆ 存成常用路線並設定出發時間，這裡就會顯示下一趟路上的天氣，出發前也會通知。"
                 },
                 fontSize = 14.sp,
-                color = Color.White,
+                color = Palette.Ink,
                 lineHeight = 19.sp,
                 modifier = Modifier.padding(top = 6.dp),
             )
@@ -276,7 +279,7 @@ private fun FavoritesCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(route.name, fontSize = 16.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(route.name, fontSize = 16.sp, color = Palette.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         listOfNotNull(route.reminder?.let { reminderLabel(it) }, route.mode.label).joinToString("・"),
                         fontSize = 13.sp,
@@ -295,7 +298,7 @@ internal fun DriveCard(onStart: () -> Unit, recordJourneys: Boolean, speedCamera
     OutingPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("直接出發", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                Text("直接出發", fontSize = 16.sp, color = Palette.Ink, fontWeight = FontWeight.Medium)
                 Text(
                     when {
                         !speedCameras && recordJourneys -> "測速照相提醒已關閉（設定 → 騎乘時），只記錄足跡"
@@ -310,7 +313,7 @@ internal fun DriveCard(onStart: () -> Unit, recordJourneys: Boolean, speedCamera
             Spacer(Modifier.width(12.dp))
             Text(
                 "開始",
-                color = Color.Black,
+                color = Palette.Ink,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
