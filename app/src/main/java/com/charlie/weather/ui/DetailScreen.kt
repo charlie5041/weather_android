@@ -431,14 +431,14 @@ private fun HourlyChart(
         // 已經過去的時間調暗，並標示現在
         if (now != null) {
             val nx = x(now)
-            drawRect(Palette.Ink.copy(alpha = 0.35f), topLeft = Offset.Zero, size = Size(nx, h))
-            drawLine(Color.White.copy(alpha = 0.6f), Offset(nx, 0f), Offset(nx, h), strokeWidth = 1.5f)
+            drawRect(Palette.Ink.copy(alpha = 0.06f), topLeft = Offset.Zero, size = Size(nx, h))
+            drawLine(Palette.Ink.copy(alpha = 0.4f), Offset(nx, 0f), Offset(nx, h), strokeWidth = 1.5f)
         }
 
         selected?.let { points.getOrNull(it) }?.let { (t, v) ->
             val sx = if (series.style == ChartStyle.BAR) x(t) + w / 48f else x(t)
-            drawLine(Color.White, Offset(sx, 0f), Offset(sx, h), strokeWidth = 1.5f)
-            drawCircle(Color.Black, radius = 7.dp.toPx(), center = Offset(sx, y(v)))
+            drawLine(Palette.Ink2, Offset(sx, 0f), Offset(sx, h), strokeWidth = 1.5f)
+            drawCircle(Color.White, radius = 7.dp.toPx(), center = Offset(sx, y(v)))
             drawCircle(series.color(v), radius = 5.dp.toPx(), center = Offset(sx, y(v)))
         }
     }
