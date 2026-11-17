@@ -17,6 +17,13 @@ class HttpStatusException(val code: Int, val reason: String? = null) :
 internal fun errorReason(body: String?): String? =
     body?.let { runCatching { JSONObject(it).optString("reason").takeIf(String::isNotBlank) }.getOrNull() }
 
+/** 不是 Open-Meteo 格式的錯誤回應：主機、Server 標頭與去掉 HTML 標籤後的內容開頭。 */
+internal fun errorSummary(host: String?, server: String?, body: String?): String {
+    val text = body.orEmpty().replace(Regex("(?s)<(script|style).*?</\\1>"), " ")
+        .replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim().take(120)
+    return listOfNotNull(host, server?.let { "Server $it" }, text.takeIf { it.isNotEmpty() }).joinToString(" · ")
+}
+
 /**
  * 查詢失敗時給使用者看的原因：分清楚是手機連不上網、服務額度用完、服務故障還是 App 的錯，
  * 不要一律說「請檢查網路」。[what] 是失敗的東西，例如「沿路天氣」。
