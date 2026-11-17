@@ -1011,7 +1011,7 @@ private fun TileTrackMap(points: List<TrackPoint>, photos: List<JourneyPhoto>, t
             fontSize = 12.sp,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .background(Palette.Ink2)
+                .background(Color.White.copy(alpha = 0.7f))
                 .padding(horizontal = 4.dp, vertical = 1.dp),
         )
     }

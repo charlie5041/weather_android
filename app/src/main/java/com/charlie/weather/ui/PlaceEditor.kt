@@ -57,7 +57,7 @@ import kotlinx.coroutines.launch
 private val PresetLabels = listOf("住家", "公司", "學校")
 private const val OtherLabel = "其他"
 /** 面板（毛玻璃卡片的底） */
-internal val PanelColor = Palette.Ink2
+internal val PanelColor = Palette.Glass.copy(alpha = 0.72f)
 internal val Accent = com.charlie.weather.ui.theme.Palette.Primary
 
 /**
