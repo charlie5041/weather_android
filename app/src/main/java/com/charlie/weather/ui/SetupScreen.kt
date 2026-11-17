@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,8 +43,8 @@ import com.charlie.weather.data.City
 import com.charlie.weather.data.Commute
 import com.charlie.weather.data.TravelMode
 
-private val SetupSecondary = Color(0xFFA0A0A8)
-private val SetupChip = Color(0xFF3A3A3C)
+private val SetupSecondary = Palette.Ink2
+private val SetupChip = Palette.Well
 private const val STEPS = 3
 
 /**
@@ -69,7 +72,7 @@ fun SetupScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .aurora()
             .statusBarsPadding()
             .navigationBarsPadding()
             .padding(horizontal = 20.dp),
@@ -104,7 +107,7 @@ fun SetupScreen(
                     Body("查沿路天氣、建立上下班路線時預設用這個交通方式；機車與單車會提醒帶雨衣。之後每次查路線都可以改。")
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         TravelMode.entries.forEach { m ->
-                            Chip("${modeEmoji(m)} ${m.label}", m == mode) { mode = m }
+                            Chip(m.label, m == mode) { mode = m }
                         }
                     }
                 }
@@ -113,7 +116,7 @@ fun SetupScreen(
                     Body("用來建立上下班路線。分享足跡時，這兩個地方附近的路線也會自動藏起來。只存在這支手機。")
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(PanelColor).padding(horizontal = 16.dp)) {
                         PlaceRow("住家", home) { onEditPlace(Commute.HOME, home) }
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                        HorizontalDivider(color = Palette.Divider)
                         PlaceRow(work?.label ?: "公司", work) { onEditPlace(work?.label ?: "公司", work) }
                     }
                     Body("上學的話，在地點名稱選「學校」。沒有固定通勤可以直接按「下一步」。")
@@ -122,11 +125,11 @@ fun SetupScreen(
                     Title("平日幾點出門？")
                     if (commute != null) {
                         Body("出發前 1.5 小時內會通知沿路天氣，「出門」分頁也會顯示下一趟會不會淋雨。")
-                        Text("上班", color = Color.White, fontSize = 17.sp)
+                        Text("上班", color = Palette.Ink, fontSize = 17.sp)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(7, 8, 9, 10).forEach { h -> Chip("$h:00", h == morning) { morning = h } }
                         }
-                        Text("下班", color = Color.White, fontSize = 17.sp)
+                        Text("下班", color = Palette.Ink, fontSize = 17.sp)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(17, 18, 19, 20).forEach { h -> Chip("$h:00", h == evening) { evening = h } }
                         }
@@ -139,7 +142,7 @@ fun SetupScreen(
         }
         Text(
             if (step < STEPS - 1) "下一步" else "完成",
-            color = Color.Black,
+            color = Palette.OnAccent,
             fontSize = 17.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
@@ -148,7 +151,7 @@ fun SetupScreen(
                 .padding(vertical = 16.dp)
                 .heightIn(min = 52.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color.White)
+                .background(Palette.Accent)
                 .clickable(role = Role.Button) {
                     if (step < STEPS - 1) step++ else onFinish(mode, morning, evening)
                 }
@@ -159,7 +162,7 @@ fun SetupScreen(
 
 @Composable
 private fun Title(text: String) {
-    Text(text, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, lineHeight = 34.sp)
+    Text(text, color = Palette.Ink, fontSize = 28.sp, fontWeight = FontWeight.Bold, lineHeight = 34.sp)
 }
 
 @Composable
@@ -171,12 +174,12 @@ private fun Body(text: String) {
 private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
     Text(
         text,
-        color = if (selected) Color.Black else Color.White,
+        color = if (selected) Palette.OnPrimary else Palette.Ink,
         fontSize = 16.sp,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .background(if (selected) Color.White else SetupChip)
+            .background(if (selected) Palette.Primary else SetupChip)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 10.dp),
     )
@@ -192,7 +195,7 @@ private fun PlaceRow(label: String, place: City?, onClick: () -> Unit) {
             Text(label, color = SetupSecondary, fontSize = 13.sp)
             Text(
                 place?.let { it.address ?: it.name } ?: "設定地址",
-                color = if (place != null) Color.White else Accent,
+                color = if (place != null) Palette.Ink else Accent,
                 fontSize = 16.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

@@ -43,12 +43,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.charlie.weather.data.GpsSignal
 import com.charlie.weather.data.LiveRide
+import com.charlie.weather.ui.theme.Palette
 import java.util.Locale
 
 private val LiveGreen = Color(0xFF30D158)
-private val LiveBarColor = Color(0xFF0B3B2A)
 private val LiveCamera = Color(0xFFFF9F0A)
 private val LiveSecondary = Color(0xFFA0A0A8)
+/** 騎乘中畫面維持深色（晚上騎車不刺眼），用自己的深色面板，不用淺色主題的 PanelColor */
+private val RidePanel = Color(0xFF1C1C1E)
 
 private val LivePaused = Color(0xFFFFD60A)
 
@@ -92,13 +94,13 @@ fun LiveBar(live: LiveRide, onOpen: () -> Unit, onStop: () -> Unit, modifier: Mo
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(LiveBarColor)
-            .border(1.dp, LiveGreen.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+            .background(Palette.LiveSoft.copy(alpha = 0.92f))
+            .border(1.dp, Palette.Live.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
             .clickable(role = Role.Button, onClickLabel = "打開騎乘中畫面", onClick = onOpen)
             .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(if (live.paused) LivePaused else LiveGreen))
+        Box(Modifier.size(8.dp).clip(CircleShape).background(if (live.paused) Palette.Warn else Palette.Live))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -107,7 +109,7 @@ fun LiveBar(live: LiveRide, onOpen: () -> Unit, onStop: () -> Unit, modifier: Mo
                     live.routeName != null -> "騎乘中 · ${live.camera ?: live.title}"
                     else -> live.camera ?: live.title
                 },
-                color = Color.White,
+                color = Palette.LiveInk,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -115,7 +117,7 @@ fun LiveBar(live: LiveRide, onOpen: () -> Unit, onStop: () -> Unit, modifier: Mo
             )
             Text(
                 live.routeName ?: if (live.recordOnly && !live.paused) "關掉螢幕也會繼續記錄" else live.detail.lineSequence().first(),
-                color = Color.White.copy(alpha = 0.7f),
+                color = Palette.LiveInk.copy(alpha = 0.8f),
                 fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -124,12 +126,12 @@ fun LiveBar(live: LiveRide, onOpen: () -> Unit, onStop: () -> Unit, modifier: Mo
         Spacer(Modifier.width(8.dp))
         Text(
             "結束",
-            color = Color.White,
+            color = Palette.LiveInk,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color.White.copy(alpha = 0.14f))
+                .background(Color.White.copy(alpha = 0.7f))
                 .clickable(role = Role.Button, onClick = onStop)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         )
@@ -210,20 +212,20 @@ fun RideScreen(
             }
         }
         Column(Modifier.padding(top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            onNavigate?.let { BigButton("🧭 回到導航", NavigateBlue, Color.White, it) }
-            if (!live.paused) onReportCamera?.let { BigButton("📷 回報測速", LiveCamera, Color.Black, it) }
+            onNavigate?.let { BigButton("回到導航", NavigateBlue, Color.White, it) }
+            if (!live.paused) onReportCamera?.let { BigButton("回報測速", LiveCamera, Color.Black, it) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val toggle = if (live.paused) onResume else onPause
                 if (live.startedAt != null && toggle != null) {
                     BigButton(
                         if (live.paused) "▶ 繼續" else "Ⅱ 暫停",
-                        if (live.paused) LiveGreen else Color(0xFF2C2C2E),
+                        if (live.paused) LiveGreen else RidePanel,
                         if (live.paused) Color.Black else Color.White,
                         toggle,
                         Modifier.weight(1f),
                     )
                 }
-                BigButton("結束", Color(0xFF2C2C2E), Color.White, onStop, Modifier.weight(1f))
+                BigButton("結束", RidePanel, Color.White, onStop, Modifier.weight(1f))
             }
         }
     }
@@ -231,7 +233,7 @@ fun RideScreen(
 
 @Composable
 private fun Metric(label: String, value: String, unit: String, modifier: Modifier = Modifier) {
-    Column(modifier.clip(RoundedCornerShape(16.dp)).background(PanelColor).padding(horizontal = 14.dp, vertical = 10.dp)) {
+    Column(modifier.clip(RoundedCornerShape(16.dp)).background(RidePanel).padding(horizontal = 14.dp, vertical = 10.dp)) {
         Text(label, color = LiveSecondary, fontSize = 13.sp)
         Row(verticalAlignment = Alignment.Bottom) {
             Text(value, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)

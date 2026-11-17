@@ -4,8 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import com.charlie.weather.ui.theme.AppTheme
+import com.charlie.weather.ui.theme.aurora
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
@@ -51,7 +51,7 @@ class ScreenshotTest {
 
     private fun capture(name: String, content: @Composable () -> Unit) {
         compose.mainClock.autoAdvance = false
-        compose.setContent { MaterialTheme(colorScheme = darkColorScheme()) { content() } }
+        compose.setContent { AppTheme { content() } }
         compose.mainClock.advanceTimeBy(1500)
         compose.onRoot().captureRoboImage("build/screenshots/$name.png")
     }
@@ -92,7 +92,7 @@ class ScreenshotTest {
         }
         capture("11_route") {
             androidx.compose.foundation.layout.Column(
-                androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).padding(16.dp),
+                androidx.compose.ui.Modifier.fillMaxSize().aurora().padding(16.dp),
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
             ) {
                 val departures = listOf(0L, 30L, 60L, 90L, 120L, 180L).map { now.plusMinutes(it) }
@@ -332,7 +332,7 @@ class ScreenshotTest {
             now.plusMinutes(40), "后里區", null, rainingNow = false,
         )
         androidx.compose.foundation.layout.Box(
-            androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).padding(16.dp),
+            androidx.compose.ui.Modifier.fillMaxSize().aurora().padding(16.dp),
         ) {
             Panel {
                 RouteHazards(

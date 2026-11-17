@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.LruCache
@@ -124,11 +127,11 @@ import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.roundToInt
 
-private val FootSecondary = Color(0xFFA0A0A8)
-private val FootTrack = Color(0xFF0A84FF)
-private val FootEnd = Color(0xFFFF453A)
-private val FootMapPlaceholder = Color(0xFFE8E6E1)
-private val FootRain = Color(0xFF64D2FF)
+private val FootSecondary = Palette.Ink2
+private val FootTrack = Palette.Primary
+private val FootEnd = Palette.Danger
+private val FootMapPlaceholder = Palette.MapPlaceholder
+private val FootRain = Palette.Rain
 
 internal fun Journey.startDateTime(zone: ZoneId = ZoneId.systemDefault()): LocalDateTime =
     LocalDateTime.ofInstant(Instant.ofEpochMilli(startTime), zone)
@@ -200,24 +203,24 @@ fun FootprintsScreen(
     // GPX 在各家檔案管理員的類型不一（application/gpx+xml、octet-stream、text/xml…），不篩類型，讀不到再說明
     val gpxPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(onImportGpx) }
     LazyColumn(
-        Modifier.fillMaxSize().background(Color.Black).statusBarsPadding(),
+        Modifier.fillMaxSize().aurora().statusBarsPadding(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 160.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("足跡", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
-                if (importing) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                Text("足跡", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, modifier = Modifier.weight(1f))
+                if (importing) CircularProgressIndicator(Modifier.size(20.dp), color = Palette.Ink, strokeWidth = 2.dp)
                 IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "設定", tint = Color.White)
+                    Icon(Icons.Filled.Settings, contentDescription = "設定", tint = Palette.Ink)
                 }
                 Box {
                     IconButton(onClick = { menu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "更多", tint = Color.White)
+                        Icon(Icons.Filled.MoreVert, contentDescription = "更多", tint = Palette.Ink)
                     }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = PanelColor) {
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Color.White) {
                         DropdownMenuItem(
-                            text = { Text("匯入 GPX 檔", color = Color.White) },
+                            text = { Text("匯入 GPX 檔", color = Palette.Ink) },
                             enabled = !importing,
                             onClick = {
                                 menu = false
@@ -235,7 +238,7 @@ fun FootprintsScreen(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(PanelColor).padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("還沒有足跡", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text("還沒有足跡", color = Palette.Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Text(
                         "按「開始記錄」，或在「出門」開始騎乘、直接出發，結束後就會存一趟足跡。也可以從右上角匯入其他 App 的 GPX 檔。只存在這支手機，不會上傳。",
                         color = FootSecondary,
@@ -257,7 +260,7 @@ fun FootprintsScreen(
             item(key = "m$month") {
                 Text(
                     if (month.year == today.year) "${month.monthValue} 月" else "${month.year} 年 ${month.monthValue} 月",
-                    color = Color.White,
+                    color = Palette.Ink,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 8.dp),
@@ -280,7 +283,7 @@ private fun RecordCard(onStart: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("記錄這一趟", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("記錄這一趟", color = Palette.Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Text(
                 "不用設目的地，關掉螢幕也會繼續記錄；休息時可以暫停。",
                 color = FootSecondary,
@@ -291,12 +294,12 @@ private fun RecordCard(onStart: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Text(
             "● 開始記錄",
-            color = Color.Black,
+            color = Palette.OnAccent,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
-                .background(Color(0xFF30D158))
+                .background(Palette.Accent)
                 .clickable(role = Role.Button, onClick = onStart)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         )
@@ -321,12 +324,12 @@ private fun JourneyRow(journey: Journey, zone: ZoneId, photoFiles: PhotoFiles, o
         } else {
             TrackSilhouette(
                 journey.points,
-                Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF2C2C2E)).padding(8.dp),
+                Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Palette.Well).padding(8.dp),
             )
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(journey.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(journey.title, color = Palette.Ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(2.dp))
             Text(
                 "${start.monthValue}/${start.dayOfMonth} ${weekdayLabel(start.dayOfWeek)} ${clock(start)}",
@@ -413,7 +416,7 @@ fun FootprintDetailScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .aurora()
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
@@ -421,7 +424,7 @@ fun FootprintDetailScreen(
     ) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(journey.title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(journey.title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     "${start.year}/${start.monthValue}/${start.dayOfMonth} ${weekdayLabel(start.dayOfWeek)}",
                     color = FootSecondary,
@@ -429,23 +432,23 @@ fun FootprintDetailScreen(
                 )
             }
             IconButton(onClick = { sharing = true }) {
-                Icon(Icons.Filled.Share, contentDescription = "分享", tint = Color.White)
+                Icon(Icons.Filled.Share, contentDescription = "分享", tint = Palette.Ink)
             }
             // 改名稱、刪除不常用，收進選單；刪除不再跟常用動作一樣顯眼
             Box {
                 IconButton(onClick = { menu = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "更多", tint = Color.White)
+                    Icon(Icons.Filled.MoreVert, contentDescription = "更多", tint = Palette.Ink)
                 }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = PanelColor) {
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Color.White) {
                     DropdownMenuItem(
-                        text = { Text("改名稱", color = Color.White) },
+                        text = { Text("改名稱", color = Palette.Ink) },
                         onClick = {
                             menu = false
                             renaming = true
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("匯出 GPX", color = Color.White) },
+                        text = { Text("匯出 GPX", color = Palette.Ink) },
                         onClick = {
                             menu = false
                             exporting = true
@@ -461,7 +464,7 @@ fun FootprintDetailScreen(
                 }
             }
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White)
+                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Palette.Ink)
             }
         }
         TrackMap(
@@ -485,7 +488,7 @@ fun FootprintDetailScreen(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(PanelColor).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            weatherSummary(journey)?.let { Text(it, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+            weatherSummary(journey)?.let { Text(it, color = Palette.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             journey.timeline.forEach { ev ->
                 val time = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ev.time), zone))
                 when (ev) {
@@ -499,7 +502,7 @@ fun FootprintDetailScreen(
                     ) {
                         Box(Modifier.size(10.dp))
                         Spacer(Modifier.width(10.dp))
-                        Text(time, color = Color.White, fontSize = 16.sp, modifier = Modifier.width(56.dp))
+                        Text(time, color = Palette.Ink, fontSize = 16.sp, modifier = Modifier.width(56.dp))
                         thumbs[ev.photo.id]?.let {
                             Image(it, contentDescription = "照片", contentScale = ContentScale.Crop, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)))
                             Spacer(Modifier.width(8.dp))
@@ -512,7 +515,7 @@ fun FootprintDetailScreen(
         Text(
             "足跡與照片只存在這支手機，不會上傳。照片依拍攝時間放到路線上，沒有拍攝時間的可以手動放。" +
                 "按右上角分享時，會先藏起住家、公司等地點附近與起訖點的路線。",
-            color = Color.Gray,
+            color = Palette.Ink2,
             fontSize = 13.sp,
         )
         Spacer(Modifier.height(24.dp))
@@ -521,8 +524,8 @@ fun FootprintDetailScreen(
         var text by remember { mutableStateOf(journey.name.orEmpty()) }
         AlertDialog(
             onDismissRequest = { renaming = false },
-            containerColor = PanelColor,
-            title = { Text("改名稱", color = Color.White) },
+            containerColor = Color.White,
+            title = { Text("改名稱", color = Palette.Ink) },
             text = {
                 OutlinedTextField(
                     value = text,
@@ -571,8 +574,8 @@ fun FootprintDetailScreen(
     if (deleting) {
         AlertDialog(
             onDismissRequest = { deleting = false },
-            containerColor = PanelColor,
-            title = { Text("刪除這趟足跡？", color = Color.White) },
+            containerColor = Color.White,
+            title = { Text("刪除這趟足跡？", color = Palette.Ink) },
             text = { Text("刪除後無法復原。", color = FootSecondary) },
             confirmButton = {
                 TextButton(onClick = {
@@ -593,8 +596,8 @@ internal fun GpxExportDialog(zoneCount: Int, radiusM: Int, onExport: (hidePrivat
     var hide by remember { mutableStateOf(true) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = PanelColor,
-        title = { Text("匯出 GPX", color = Color.White) },
+        containerColor = Color.White,
+        title = { Text("匯出 GPX", color = Palette.Ink) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("GPX 檔可以匯入 Strava、Google 地球等 App。", color = FootSecondary, fontSize = 14.sp)
@@ -629,7 +632,7 @@ private fun GpxOption(selected: Boolean, title: String, detail: String, onClick:
     ) {
         RadioButton(selected = selected, onClick = onClick, colors = RadioButtonDefaults.colors(selectedColor = Accent, unselectedColor = FootSecondary))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Color.White, fontSize = 16.sp)
+            Text(title, color = Palette.Ink, fontSize = 16.sp)
             Text(detail, color = FootSecondary, fontSize = 13.sp)
         }
     }
@@ -645,9 +648,9 @@ private fun PhotoStrip(journey: Journey, thumbs: Map<String, ImageBitmap>, addin
                 if (ph.position == null) {
                     Text(
                         "未定位",
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.6f)).padding(vertical = 2.dp),
+                        color = Palette.Ink,
+                        fontSize = 12.sp,
+                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Palette.Ink.copy(alpha = 0.6f)).padding(vertical = 2.dp),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                 }
@@ -660,7 +663,7 @@ private fun PhotoStrip(journey: Journey, thumbs: Map<String, ImageBitmap>, addin
                 verticalArrangement = Arrangement.Center,
             ) {
                 if (adding) {
-                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+                    CircularProgressIndicator(color = Palette.Ink, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
                 } else {
                     Text("＋", color = Accent, fontSize = 24.sp)
                     Text("加照片", color = Accent, fontSize = 12.sp)
@@ -689,7 +692,7 @@ private fun PhotoViewer(
     var confirmDelete by remember(photo.id) { mutableStateOf(false) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.fillMaxSize().aurora().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -698,18 +701,18 @@ private fun PhotoViewer(
                         val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(it), zone)
                         "${t.monthValue}/${t.dayOfMonth} ${clock(t)} 拍攝"
                     } ?: "沒有拍攝時間",
-                    color = Color.White,
+                    color = Palette.Ink,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White) }
+                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Palette.Ink) }
             }
             Box(Modifier.fillMaxWidth().height(360.dp), contentAlignment = Alignment.Center) {
                 if (image != null) {
                     Image(image, contentDescription = "照片", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 } else {
-                    CircularProgressIndicator(color = Color.White)
+                    CircularProgressIndicator(color = Palette.Ink)
                 }
             }
             Text(
@@ -736,17 +739,17 @@ private fun PhotoViewer(
                     onMove(fraction.toDouble())
                 }
             } else {
-                ActionButton("調整位置", Color.White, Modifier.fillMaxWidth()) { adjusting = true }
+                ActionButton("調整位置", Palette.Ink, Modifier.fillMaxWidth()) { adjusting = true }
             }
             ActionButton("從足跡移除這張照片", FootEnd, Modifier.fillMaxWidth()) { confirmDelete = true }
-            Text("只會刪掉足跡裡的副本，相簿裡的照片不受影響。", color = Color.Gray, fontSize = 13.sp)
+            Text("只會刪掉足跡裡的副本，相簿裡的照片不受影響。", color = Palette.Ink2, fontSize = 13.sp)
         }
     }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            containerColor = PanelColor,
-            title = { Text("移除這張照片？", color = Color.White) },
+            containerColor = Color.White,
+            title = { Text("移除這張照片？", color = Palette.Ink) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
@@ -776,7 +779,7 @@ private fun TrackSilhouetteWithMarker(points: List<TrackPoint>, fraction: Double
             val offY = (size.height - spanY * scale) / 2
             val c = Offset((offX + (marker.longitude * kx - xs.min()) * scale).toFloat(), (offY + (-marker.latitude - ys.min()) * scale).toFloat())
             drawCircle(Color.White, 8.dp.toPx(), c)
-            drawCircle(Color(0xFFFF9F0A), 5.5.dp.toPx(), c)
+            drawCircle(Palette.Camera, 5.5.dp.toPx(), c)
         }
     }
 }
@@ -785,7 +788,7 @@ private fun TrackSilhouetteWithMarker(points: List<TrackPoint>, fraction: Double
 private fun Stat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, color = FootSecondary, fontSize = 13.sp)
-        Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text(value, color = Palette.Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -806,8 +809,8 @@ private fun TimeRow(color: Color, time: String, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(color))
         Spacer(Modifier.width(10.dp))
-        Text(time, color = Color.White, fontSize = 16.sp, modifier = Modifier.width(56.dp))
-        Text(text, color = Color.White, fontSize = 16.sp)
+        Text(time, color = Palette.Ink, fontSize = 16.sp, modifier = Modifier.width(56.dp))
+        Text(text, color = Palette.Ink, fontSize = 16.sp)
     }
 }
 
@@ -832,12 +835,12 @@ internal fun ActionButton(text: String, color: Color, modifier: Modifier = Modif
 fun JourneySavedDialog(journey: Journey, onAddPhotos: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = PanelColor,
-        title = { Text("足跡已儲存", color = Color.White) },
+        containerColor = Color.White,
+        title = { Text("足跡已儲存", color = Palette.Ink) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 TrackSilhouette(journey.points, Modifier.fillMaxWidth().height(120.dp))
-                Text(journey.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(journey.title, color = Palette.Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Text(
                     journeyStats(journey) + " · 平均 %.0f 公里/小時".format(Locale.US, journey.averageKmh),
                     color = FootSecondary,
@@ -904,10 +907,10 @@ private fun GoogleTrackMap(points: List<TrackPoint>, photos: List<JourneyPhoto>,
         onMapLoaded = { loaded = true },
     ) {
         if (path.size >= 2) {
-            Polyline(points = path, color = Color.White, width = 20f, jointType = JointType.ROUND, startCap = RoundCap(), endCap = RoundCap())
+            Polyline(points = path, color = Palette.Ink, width = 20f, jointType = JointType.ROUND, startCap = RoundCap(), endCap = RoundCap())
             Polyline(points = path, color = FootTrack, width = 12f, jointType = JointType.ROUND, startCap = RoundCap(), endCap = RoundCap())
             Circle(center = path.first(), radius = 25.0, fillColor = RouteDry, strokeColor = Color.White, strokeWidth = 4f)
-            Circle(center = path.last(), radius = 25.0, fillColor = FootEnd, strokeColor = Color.White, strokeWidth = 4f)
+            Circle(center = path.last(), radius = 25.0, fillColor = FootEnd, strokeColor = Palette.Ink, strokeWidth = 4f)
         }
         photos.forEach { ph ->
             val pos = ph.position ?: return@forEach
@@ -1004,11 +1007,11 @@ private fun TileTrackMap(points: List<TrackPoint>, photos: List<JourneyPhoto>, t
         }
         Text(
             "© OpenStreetMap 貢獻者",
-            color = Color(0xFF555555),
-            fontSize = 9.sp,
+            color = Palette.Ink3,
+            fontSize = 12.sp,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .background(Color.White.copy(alpha = 0.7f))
+                .background(Palette.Ink2)
                 .padding(horizontal = 4.dp, vertical = 1.dp),
         )
     }

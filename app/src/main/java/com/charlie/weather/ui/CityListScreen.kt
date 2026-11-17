@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.animateContentSize
@@ -91,28 +94,28 @@ fun CityListScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .aurora()
             .statusBarsPadding()
             .imePadding()
             .padding(horizontal = 16.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("天氣", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+            Text("天氣", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, modifier = Modifier.weight(1f))
             if (query.isBlank()) {
                 TextButton(onClick = { editing = !editing }) {
                     Text(
                         if (editing) "完成" else "編輯",
-                        color = Color.White,
+                        color = Palette.Ink,
                         fontSize = 17.sp,
                         fontWeight = if (editing) FontWeight.SemiBold else FontWeight.Normal,
                     )
                 }
             }
             IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "設定", tint = Color.White)
+                Icon(Icons.Filled.Settings, contentDescription = "設定", tint = Palette.Ink)
             }
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White)
+                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Palette.Ink)
             }
         }
         if (!editing) TextField(
@@ -129,19 +132,19 @@ fun CityListScreen(
             singleLine = true,
             shape = RoundedCornerShape(12.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFF1C1C1E),
-                unfocusedContainerColor = Color(0xFF1C1C1E),
+                focusedContainerColor = PanelColor,
+                unfocusedContainerColor = PanelColor,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                cursorColor = Color.White,
-                focusedPlaceholderColor = Color.Gray,
-                unfocusedPlaceholderColor = Color.Gray,
-                focusedLeadingIconColor = Color.Gray,
-                unfocusedLeadingIconColor = Color.Gray,
-                focusedTrailingIconColor = Color.Gray,
-                unfocusedTrailingIconColor = Color.Gray,
+                focusedTextColor = Palette.Ink,
+                unfocusedTextColor = Palette.Ink,
+                cursorColor = Palette.Ink,
+                focusedPlaceholderColor = Palette.Ink2,
+                unfocusedPlaceholderColor = Palette.Ink2,
+                focusedLeadingIconColor = Palette.Ink2,
+                unfocusedLeadingIconColor = Palette.Ink2,
+                focusedTrailingIconColor = Palette.Ink2,
+                unfocusedTrailingIconColor = Palette.Ink2,
             ),
         )
 
@@ -153,7 +156,7 @@ fun CityListScreen(
             } else {
                 Text(
                     "＋ 新增住家、公司等地點",
-                    color = Color(0xFF0A84FF),
+                    color = Palette.Primary,
                     fontSize = 16.sp,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -240,7 +243,7 @@ private fun ReorderableCityList(
                                 modifier = Modifier.size(40.dp),
                             ) {
                                 Box(
-                                    Modifier.size(22.dp).clip(CircleShape).background(Color(0xFFFF3B30)),
+                                    Modifier.size(22.dp).clip(CircleShape).background(Palette.Danger),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Box(Modifier.width(10.dp).height(2.dp).background(Color.White))
@@ -263,7 +266,7 @@ private fun ReorderableCityList(
                                 Modifier
                                     .padding(start = 8.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFFFF3B30))
+                                    .background(Palette.Danger)
                                     .clickable {
                                         confirmingDeleteId = null
                                         onRemove(city)
@@ -313,7 +316,7 @@ private fun ReorderableCityList(
                 Text(
                     if (editing) "按住右側 ≡ 拖曳可調整順序；點自訂地點可修改名稱與地址" else "向左滑可刪除；點右上角「編輯」可調整順序",
                     fontSize = 12.sp,
-                    color = Color.Gray,
+                    color = Palette.Ink2,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                 )
                 Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
@@ -328,7 +331,7 @@ private fun DragHandle(modifier: Modifier = Modifier) {
     Box(modifier.size(44.dp), contentAlignment = Alignment.Center) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             repeat(3) {
-                Box(Modifier.width(20.dp).height(2.dp).clip(RoundedCornerShape(1.dp)).background(Color.Gray))
+                Box(Modifier.width(20.dp).height(2.dp).clip(RoundedCornerShape(1.dp)).background(Palette.Ink2))
             }
         }
     }
@@ -357,7 +360,7 @@ private fun SwipeToDeleteRow(onDelete: () -> Unit, content: @Composable () -> Un
                 Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFFFF3B30))
+                    .background(Palette.Danger)
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.CenterEnd,
             ) {
@@ -376,12 +379,12 @@ private fun SwipeToDeleteRow(onDelete: () -> Unit, content: @Composable () -> Un
 private fun SearchResults(results: List<City>, searching: Boolean, onAdd: (City) -> Unit) {
     if (searching && results.isEmpty()) {
         Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = Color.White)
+            CircularProgressIndicator(color = Palette.Ink)
         }
         return
     }
     if (results.isEmpty()) {
-        Text("沒有結果", color = Color.Gray, modifier = Modifier.padding(vertical = 16.dp))
+        Text("沒有結果", color = Palette.Ink2, modifier = Modifier.padding(vertical = 16.dp))
         return
     }
     LazyColumn {
@@ -392,12 +395,12 @@ private fun SearchResults(results: List<City>, searching: Boolean, onAdd: (City)
                     .clickable { onAdd(city) }
                     .padding(vertical = 12.dp),
             ) {
-                Text(city.name, fontSize = 17.sp, color = Color.White)
+                Text(city.name, fontSize = 17.sp, color = Palette.Ink)
                 if (city.subtitle.isNotBlank()) {
-                    Text(city.subtitle, fontSize = 13.sp, color = Color.Gray)
+                    Text(city.subtitle, fontSize = 13.sp, color = Palette.Ink2)
                 }
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+            HorizontalDivider(color = Palette.Divider)
         }
     }
 }
@@ -410,6 +413,7 @@ private fun CityRow(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
+    val onSky = onSkyColor(weather?.current?.isDay ?: true)
     val colors = weather?.let { backgroundColors(it.current.weatherCode, it.current.isDay) } ?: backgroundColors(1, true)
     val title = city.label ?: if (city.isCurrentLocation) "我的位置" else city.name
     val subtitle = if (city.isCurrentLocation || city.label != null) city.name else weather?.let { timeLabel(it.localNow()) } ?: city.subtitle
@@ -427,17 +431,17 @@ private fun CityRow(
                 title,
                 fontSize = if (compact) 18.sp else 22.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = onSky,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(subtitle, fontSize = if (compact) 13.sp else 14.sp, color = Color.White, fontWeight = FontWeight.Medium, maxLines = 1)
+            Text(subtitle, fontSize = if (compact) 13.sp else 14.sp, color = onSky, fontWeight = FontWeight.Medium, maxLines = 1)
             if (!compact) {
                 Spacer(Modifier.height(18.dp))
                 Text(
                     weather?.current?.conditionText() ?: "",
                     fontSize = 14.sp,
-                    color = Color.White,
+                    color = onSky,
                     fontWeight = FontWeight.Medium,
                 )
             }
@@ -447,7 +451,7 @@ private fun CityRow(
                 weather?.current?.temperature?.deg() ?: "--",
                 fontSize = if (compact) 30.sp else 48.sp,
                 fontWeight = FontWeight.Light,
-                color = Color.White,
+                color = onSky,
                 lineHeight = if (compact) 34.sp else 52.sp,
             )
             if (!compact) {
@@ -455,7 +459,7 @@ private fun CityRow(
                     Text(
                         "最高 ${it.temperatureMax.deg()} 最低 ${it.temperatureMin.deg()}",
                         fontSize = 14.sp,
-                        color = Color.White,
+                        color = onSky,
                         fontWeight = FontWeight.Medium,
                     )
                 }

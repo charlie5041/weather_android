@@ -184,7 +184,7 @@ class RideService : Service() {
         WeatherNotifier.createChannels(this)
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
         val title = when {
-            route != null -> "沿途天氣提醒"
+            route != null -> "沿路天氣提醒"
             drive -> "行車提醒"
             else -> "足跡記錄中"
         }

@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -79,12 +82,12 @@ object LandShapes {
     }
 }
 
-private val Ocean = Color(0xFF14233A)
-private val Land = Color(0xFF3B4A45)
-private val TrackPast = Color.White
-private val TrackForecast = Color(0xFFFFD60A)
-private val Gale = Color(0xFFFF9F0A)
-private val Storm = Color(0xFFFF453A)
+private val Ocean = Color(0xFFD6EAF8)
+private val Land = Color(0xFFE9EFE4)
+private val TrackPast = Palette.Ink
+private val TrackForecast = Palette.Warn
+private val Gale = Palette.Camera
+private val Storm = Palette.Danger
 
 private fun distanceKm(city: City, t: Typhoon): Double =
     CwaParser.distanceKm(city.latitude, city.longitude, t.current.latitude, t.current.longitude)
@@ -108,20 +111,20 @@ fun TyphoonCard(typhoons: List<Typhoon>, city: City, modifier: Modifier = Modifi
             modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(12.dp)),
         )
         sorted.forEachIndexed { i, t ->
-            if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
+            if (i > 0) HorizontalDivider(color = Palette.Divider)
             Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = if (i == sorted.lastIndex) 0.dp else 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Text(t.displayName, fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(t.displayName, fontSize = 17.sp, color = Palette.Ink, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.padding(start = 6.dp))
-                        Text(t.nameEn, fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(bottom = 2.dp))
+                        Text(t.nameEn, fontSize = 12.sp, color = Palette.Ink2, modifier = Modifier.padding(bottom = 2.dp))
                     }
-                    Text(t.category, fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f))
+                    Text(t.category, fontSize = 13.sp, color = Palette.Ink2)
                 }
                 Text(
                     "距離約 ${"%,d".format(distanceKm(city, t).roundToInt())} 公里",
                     fontSize = 13.sp,
-                    color = Color.White.copy(alpha = 0.9f),
+                    color = Palette.Ink2,
                 )
             }
         }
@@ -167,7 +170,7 @@ fun TyphoonMap(
         fun km(radius: Double) = (radius / 111.32 * scale).toFloat()
 
         // 經緯線
-        val grid = Color.White.copy(alpha = 0.08f)
+        val grid = Palette.Ink.copy(alpha = 0.05f)
         var g = (Math.floor(west / 5) * 5)
         while (g <= east) {
             drawLine(grid, p(north, g), p(south, g), strokeWidth = 1f)
@@ -193,7 +196,7 @@ fun TyphoonMap(
         if (labels) {
             typhoons.forEach { t ->
                 val c = p(t.current.latitude, t.current.longitude)
-                val label = measurer.measure(t.displayName, TextStyle(color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold))
+                val label = measurer.measure(t.displayName, TextStyle(color = Palette.Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold))
                 drawText(label, topLeft = Offset(c.x + 9.dp.toPx(), c.y - label.size.height / 2f))
             }
         }
@@ -201,8 +204,8 @@ fun TyphoonMap(
         city?.let {
             val c = p(it.latitude, it.longitude)
             drawCircle(Color.White, radius = 6.dp.toPx(), center = c)
-            drawCircle(Color(0xFF0A84FF), radius = 4.5.dp.toPx(), center = c)
-            val label = measurer.measure(it.name, TextStyle(color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold))
+            drawCircle(Palette.Primary, radius = 4.5.dp.toPx(), center = c)
+            val label = measurer.measure(it.name, TextStyle(color = Palette.Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold))
             drawText(label, topLeft = Offset(c.x + 8.dp.toPx(), c.y - label.size.height / 2f))
         }
     }
@@ -248,18 +251,18 @@ fun TyphoonScreen(typhoons: List<Typhoon>, city: City, onClose: () -> Unit) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
-    Column(Modifier.fillMaxSize().background(Color(0xFF0E0E10)).statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().aurora().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("${typhoon.displayName}  ${typhoon.nameEn}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("${typhoon.displayName}  ${typhoon.nameEn}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                 Text(
                     "${typhoon.category} · 中央氣象署 ${timeLabelWithDate(typhoon.current)}",
                     fontSize = 13.sp,
-                    color = Color.Gray,
+                    color = Palette.Ink2,
                 )
             }
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White)
+                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Palette.Ink)
             }
         }
         if (typhoons.size > 1) {
@@ -268,11 +271,11 @@ fun TyphoonScreen(typhoons: List<Typhoon>, city: City, onClose: () -> Unit) {
                     val active = i == selected
                     Text(
                         t.displayName,
-                        color = if (active) Color.Black else Color.White,
+                        color = if (active) Palette.OnPrimary else Palette.Ink,
                         fontSize = 14.sp,
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
-                            .background(if (active) Color.White else Color(0xFF2C2C2E))
+                            .background(if (active) Palette.Primary else Palette.Well)
                             .clickable { selected = i }
                             .padding(horizontal = 14.dp, vertical = 6.dp),
                     )
@@ -312,8 +315,8 @@ fun TyphoonScreen(typhoons: List<Typhoon>, city: City, onClose: () -> Unit) {
         }
         Text(
             "白線：過去路徑　黃色虛線：預報路徑（圓圈為 70% 機率範圍）　橘／紅：七級／十級暴風圈",
-            fontSize = 11.sp,
-            color = Color.Gray,
+            fontSize = 12.sp,
+            color = Palette.Ink2,
             modifier = Modifier.padding(horizontal = 16.dp),
         )
 
@@ -336,10 +339,10 @@ fun TyphoonScreen(typhoons: List<Typhoon>, city: City, onClose: () -> Unit) {
                 typhoon.movement?.let { InfoRow("移動", it) }
             }
             if (typhoon.forecast.isNotEmpty()) {
-                Text("路徑預報", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("路徑預報", color = Palette.Ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 InfoSection {
                     typhoon.forecast.forEachIndexed { i, f ->
-                        if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                        if (i > 0) HorizontalDivider(color = Palette.Divider)
                         ForecastRow(f)
                     }
                 }
@@ -357,7 +360,7 @@ private fun InfoSection(content: @Composable () -> Unit) {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF1C1C1E))
+            .background(PanelColor)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) { content() }
 }
@@ -365,24 +368,24 @@ private fun InfoSection(content: @Composable () -> Unit) {
 @Composable
 private fun InfoRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text(label, color = Color.Gray, fontSize = 14.sp, modifier = Modifier.weight(0.4f))
-        Text(value, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(0.6f))
+        Text(label, color = Palette.Ink2, fontSize = 14.sp, modifier = Modifier.weight(0.4f))
+        Text(value, color = Palette.Ink, fontSize = 14.sp, modifier = Modifier.weight(0.6f))
     }
 }
 
 @Composable
 private fun ForecastRow(f: TyphoonFix) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(timeLabelWithDate(f), color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(0.42f))
+        Text(timeLabelWithDate(f), color = Palette.Ink, fontSize = 14.sp, modifier = Modifier.weight(0.42f))
         Column(Modifier.weight(0.58f)) {
-            Text("${f.latitude}°N, ${f.longitude}°E", color = Color.White, fontSize = 14.sp)
+            Text("${f.latitude}°N, ${f.longitude}°E", color = Palette.Ink, fontSize = 14.sp)
             Text(
                 listOfNotNull(
                     f.maxWind?.let { "風速 ${it.roundToInt()} m/s" },
                     f.pressure?.let { "$it hPa" },
                     f.probabilityRadius?.let { "70% 半徑 ${max(0, it.roundToInt())} 公里" },
                 ).joinToString(" · "),
-                color = Color.Gray,
+                color = Palette.Ink2,
                 fontSize = 12.sp,
             )
         }

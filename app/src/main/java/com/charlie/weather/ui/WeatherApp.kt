@@ -56,8 +56,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,6 +68,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.charlie.weather.ui.theme.AppTheme
+import com.charlie.weather.ui.theme.AuroraBackground
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.glass
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -266,11 +270,25 @@ fun WeatherApp(
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshAll() }
 
-    MaterialTheme(colorScheme = darkColorScheme()) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // 狀態列圖示：淺色畫面用深色圖示；晚上的天氣頁與騎乘中畫面是深色底，改用白色圖示
+    val view = androidx.compose.ui.platform.LocalView.current
+    val darkScreen = (showRide && live != null) ||
+        (tab == Tab.WEATHER && cities.getOrNull(pagerState.currentPage)?.let { weather[it.id]?.weather?.current?.isDay } == false)
+    androidx.compose.runtime.SideEffect {
+        (view.context as? android.app.Activity)?.window?.let { window ->
+            androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !darkScreen
+                isAppearanceLightNavigationBars = !darkScreen
+            }
+        }
+    }
+
+    AppTheme {
+        Box(Modifier.fillMaxSize().background(Palette.PageBottom)) {
+            AuroraBackground()
             if (cities.isEmpty()) {
                 WeatherBackground(1, true)
-                CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center))
+                CircularProgressIndicator(color = Palette.Primary, modifier = Modifier.align(Alignment.Center))
             } else {
                 val openSettings = { showSettings = true }
                 when (tab) {
@@ -557,14 +575,14 @@ fun WeatherApp(
                     text = {
                         Text(
                             "不到 ${(Track.MIN_KM * 1000).toInt()} 公尺或 ${Track.MIN_MS / 60_000} 分鐘的紀錄不會存成足跡。現在結束，這段會刪掉。",
-                            color = Color.Gray,
+                            color = Palette.Ink2,
                         )
                     },
                     confirmButton = {
                         TextButton(onClick = {
                             confirmShortStop = false
                             RideService.stop(context, discard = true)
-                        }) { Text("刪除並結束", color = Color(0xFFFF453A)) }
+                        }) { Text("刪除並結束", color = Palette.Danger) }
                     },
                     dismissButton = { TextButton(onClick = { confirmShortStop = false }) { Text("繼續記錄", color = Accent) } },
                 )
@@ -577,7 +595,7 @@ fun WeatherApp(
                         Text(
                             "這支手機對一路晴開著電池最佳化，關掉螢幕一段時間後，系統可能停掉定位，足跡和前方降雨提醒會斷掉。" +
                                 "建議到「應用程式資訊 → 電池」改成「不限制」。之後也可以在設定 → 足跡修改。",
-                            color = Color.Gray,
+                            color = Palette.Ink2,
                         )
                     },
                     confirmButton = {
@@ -586,7 +604,7 @@ fun WeatherApp(
                             BackgroundPower.openSettings(context)
                         }) { Text("去設定", color = Accent) }
                     },
-                    dismissButton = { TextButton(onClick = { showBatteryPrompt = false }) { Text("之後再說", color = Color.Gray) } },
+                    dismissButton = { TextButton(onClick = { showBatteryPrompt = false }) { Text("之後再說", color = Palette.Ink2) } },
                 )
             }
             savedJourney?.let { j ->
@@ -676,31 +694,41 @@ private enum class Tab(val label: String) { WEATHER("天氣"), OUTING("出門"),
 /** 底部分頁：天氣、出門、足跡。 */
 @Composable
 private fun TabBar(selected: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
+    // 浮在畫面上的玻璃分頁列；選中的分頁圖示加淺藍底，不只靠顏色區分
     Row(
         modifier
             .fillMaxWidth()
-            .background(Color(0xFF0A192D).copy(alpha = 0.78f))
             .navigationBarsPadding()
-            .height(56.dp),
+            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
+            .glass(RoundedCornerShape(24.dp), strong = true)
+            .height(64.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Tab.entries.forEach { t ->
-            val color = if (t == selected) Color.White else Color.White.copy(alpha = 0.55f)
+            val on = t == selected
+            val color = if (on) Palette.Primary else Palette.Ink2
             Column(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .selectable(selected = t == selected, role = Role.Tab, onClick = { onSelect(t) }),
+                    .selectable(selected = on, role = Role.Tab, onClick = { onSelect(t) }),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                when (t) {
-                    Tab.WEATHER -> WeatherTabIcon(color, Modifier.size(22.dp))
-                    Tab.OUTING -> RouteIcon(color, Modifier.size(22.dp))
-                    Tab.FOOTPRINTS -> FootprintsIcon(color, Modifier.size(22.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (on) Palette.PrimarySoft else Color.Transparent)
+                        .padding(horizontal = 18.dp, vertical = 3.dp),
+                ) {
+                    when (t) {
+                        Tab.WEATHER -> WeatherTabIcon(color, Modifier.size(22.dp))
+                        Tab.OUTING -> RouteIcon(color, Modifier.size(22.dp))
+                        Tab.FOOTPRINTS -> FootprintsIcon(color, Modifier.size(22.dp))
+                    }
                 }
                 Spacer(Modifier.height(2.dp))
-                Text(t.label, color = color, fontSize = 12.sp, fontWeight = if (t == selected) FontWeight.SemiBold else FontWeight.Normal)
+                Text(t.label, color = color, fontSize = 12.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
             }
         }
     }

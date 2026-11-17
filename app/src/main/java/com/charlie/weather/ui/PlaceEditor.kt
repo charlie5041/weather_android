@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,8 +56,9 @@ import kotlinx.coroutines.launch
 
 private val PresetLabels = listOf("住家", "公司", "學校")
 private const val OtherLabel = "其他"
-internal val PanelColor = Color(0xFF1C1C1E)
-internal val Accent = Color(0xFF0A84FF)
+/** 面板（毛玻璃卡片的底） */
+internal val PanelColor = Palette.Ink2
+internal val Accent = com.charlie.weather.ui.theme.Palette.Primary
 
 /**
  * 新增或編輯自訂地點：選擇名稱（住家、公司、學校或自訂），
@@ -101,7 +105,7 @@ fun PlaceEditorScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .aurora()
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding(),
@@ -110,14 +114,14 @@ fun PlaceEditorScreen(
             TextButton(onClick = onClose) { Text("取消", color = Accent, fontSize = 17.sp) }
             Text(
                 if (existing == null) "新增地點" else "編輯地點",
-                color = Color.White,
+                color = Palette.Ink,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             TextButton(onClick = { selected?.let { onSave(label, it) } }, enabled = canSave) {
-                Text("儲存", color = if (canSave) Accent else Color.Gray, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("儲存", color = if (canSave) Accent else Palette.Ink2, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -132,12 +136,12 @@ fun PlaceEditorScreen(
                         val active = option == labelChoice
                         Text(
                             option,
-                            color = if (active) Color.Black else Color.White,
+                            color = if (active) Palette.OnPrimary else Palette.Ink,
                             fontSize = 15.sp,
                             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(50))
-                                .background(if (active) Color.White else Color(0xFF3A3A3C))
+                                .background(if (active) Palette.Primary else Palette.Well)
                                 .clickable { labelChoice = option }
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                         )
@@ -156,7 +160,7 @@ fun PlaceEditorScreen(
                     onValueChange = { query = it },
                     placeholder = "輸入地址或地標",
                     trailing = {
-                        IconButton(onClick = ::search) { Icon(Icons.Filled.Search, contentDescription = "搜尋", tint = Color.Gray) }
+                        IconButton(onClick = ::search) { Icon(Icons.Filled.Search, contentDescription = "搜尋", tint = Palette.Ink2) }
                     },
                     onSearch = ::search,
                 )
@@ -187,11 +191,11 @@ fun PlaceEditorScreen(
                 }
                 if (busy) {
                     Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(color = Palette.Ink, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                     }
                 }
                 results.forEachIndexed { i, r ->
-                    if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                    if (i > 0) HorizontalDivider(color = Palette.Divider)
                     Column(
                         Modifier
                             .fillMaxWidth()
@@ -202,28 +206,28 @@ fun PlaceEditorScreen(
                             }
                             .padding(vertical = 10.dp),
                     ) {
-                        Text(r.address, color = Color.White, fontSize = 15.sp)
-                        Text(if (r.approximate) "${r.area}（大概位置）" else r.area, color = Color.Gray, fontSize = 13.sp)
+                        Text(r.address, color = Palette.Ink, fontSize = 15.sp)
+                        Text(if (r.approximate) "${r.area}（大概位置）" else r.area, color = Palette.Ink2, fontSize = 13.sp)
                     }
                 }
-                message?.let { Text(it, color = Color(0xFFFF9F0A), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
+                message?.let { Text(it, color = Palette.CameraText, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
             }
 
             selected?.let { place ->
                 SectionLabel("已選擇")
                 Panel {
-                    Text(label.ifEmpty { "（請輸入名稱）" }, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                    Text(place.address, color = Color.White, fontSize = 15.sp)
+                    Text(label.ifEmpty { "未命名" }, color = Palette.Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text(place.address, color = Palette.Ink, fontSize = 15.sp)
                     Text(
                         if (place.approximate) "${place.area} · 只找到大概位置，會使用該鄉鎮的天氣" else place.area,
-                        color = Color.Gray,
+                        color = Palette.Ink2,
                         fontSize = 13.sp,
                     )
                 }
             }
             Text(
                 "會使用離這個地址最近的氣象站與雨量站，比整個城市的天氣更貼近該地點。",
-                color = Color.Gray,
+                color = Palette.Ink2,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
             )
@@ -233,7 +237,7 @@ fun PlaceEditorScreen(
 
 @Composable
 internal fun SectionLabel(text: String) {
-    Text(text, color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+    Text(text, color = Palette.Ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
 }
 
 @Composable
@@ -263,15 +267,15 @@ internal fun DarkTextField(
         keyboardOptions = KeyboardOptions(imeAction = if (onSearch != null) ImeAction.Search else ImeAction.Done),
         keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
         colors = TextFieldDefaults.colors(
-            focusedContainerColor = Color(0xFF2C2C2E),
-            unfocusedContainerColor = Color(0xFF2C2C2E),
+            focusedContainerColor = Palette.Well,
+            unfocusedContainerColor = Palette.Well,
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
-            cursorColor = Color.White,
-            focusedPlaceholderColor = Color.Gray,
-            unfocusedPlaceholderColor = Color.Gray,
+            focusedTextColor = Palette.Ink,
+            unfocusedTextColor = Palette.Ink,
+            cursorColor = Palette.Ink,
+            focusedPlaceholderColor = Palette.Ink2,
+            unfocusedPlaceholderColor = Palette.Ink2,
         ),
     )
 }

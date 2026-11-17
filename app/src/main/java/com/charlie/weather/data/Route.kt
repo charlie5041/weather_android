@@ -595,7 +595,7 @@ object RoutePlanner {
         return when {
             raining != null -> RouteVerdict("${where(raining)}正在下雨", gear)
             wet.size == stops.size -> RouteVerdict(
-                if (heavy) "沿途都有雨，部分大雨" else "沿途都會下雨",
+                if (heavy) "沿路都有雨，部分大雨" else "沿路都會下雨",
                 "降雨機率最高 ${forecast.maxProbability}% · $gear",
             )
             wet.isNotEmpty() -> {
@@ -611,7 +611,7 @@ object RoutePlanner {
                 "可能會下雨",
                 "降雨機率最高 ${forecast.maxProbability}% · 可以備著${forecast.data.mode.rainGear ?: "雨具"}",
             )
-            else -> RouteVerdict("沿途不太會下雨", "降雨機率最高 ${forecast.maxProbability}%")
+            else -> RouteVerdict("沿路不太會下雨", "降雨機率最高 ${forecast.maxProbability}%")
         }
     }
 
@@ -623,15 +623,15 @@ object RoutePlanner {
         val wet = stops.filter { it.wet }
         val tip = when {
             stops.any { it.rainingNow } -> "${where(stops.first { it.rainingNow })}附近現在正在下雨$gear"
-            wet.size == stops.size -> "沿途都可能下雨$gear"
+            wet.size == stops.size -> "沿路都可能下雨$gear"
             wet.isNotEmpty() -> {
                 val first = wet.first()
                 val heavy = wet.any { it.rainLevel == RainLevel.HEAVY }
                 "約 ${"%02d:%02d".format(first.eta.hour, first.eta.minute)} 經過${where(first)}時可能${if (heavy) "有大雨" else "下雨"}" +
                     "（降雨機率 ${first.probability}%）$gear"
             }
-            forecast.maxProbability >= 30 -> "沿途降雨機率最高 ${forecast.maxProbability}%，可以備著${forecast.data.mode.rainGear ?: "雨具"}"
-            else -> "沿途降雨機率低，適合出發"
+            forecast.maxProbability >= 30 -> "沿路降雨機率最高 ${forecast.maxProbability}%，可以備著${forecast.data.mode.rainGear ?: "雨具"}"
+            else -> "沿路降雨機率低，適合出發"
         }
         val better = forecast.betterDeparture?.let { (time, p) ->
             "。若改在 ${"%02d:%02d".format(time.hour, time.minute)} 出發，降雨機率約 $p%"

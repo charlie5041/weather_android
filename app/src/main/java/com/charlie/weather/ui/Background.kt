@@ -33,16 +33,22 @@ import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.random.Random
 
-/** 依天氣與日夜決定的背景漸層（模仿 iOS 天氣的配色）。 */
+/**
+ * 依天氣與日夜決定的背景漸層。白天是淺色天空（上面放深色字），晚上維持深色（上面放白字），
+ * 卡片一律是白色毛玻璃。白天上方的顏色對深色字 [com.charlie.weather.ui.theme.Palette.Ink] 都在 7:1 以上。
+ */
 fun backgroundColors(code: Int, isDay: Boolean): List<Color> = when {
-    WeatherCodes.isThunder(code) -> listOf(Color(0xFF232634), Color(0xFF474D63))
-    WeatherCodes.isSnow(code) -> if (isDay) listOf(Color(0xFF7F98B3), Color(0xFFC3D2E2)) else listOf(Color(0xFF1E2838), Color(0xFF46566E))
-    WeatherCodes.isRain(code) -> if (isDay) listOf(Color(0xFF3F5268), Color(0xFF71879E)) else listOf(Color(0xFF121A26), Color(0xFF2E3B4C))
-    code == 45 || code == 48 -> if (isDay) listOf(Color(0xFF6F7B86), Color(0xFFA9B2BA)) else listOf(Color(0xFF1E2329), Color(0xFF444B53))
-    code == 3 -> if (isDay) listOf(Color(0xFF55708D), Color(0xFF93A9C0)) else listOf(Color(0xFF1A212C), Color(0xFF3B4757))
-    code == 2 -> if (isDay) listOf(Color(0xFF2F72BD), Color(0xFF7FAFD9)) else listOf(Color(0xFF0E1830), Color(0xFF34435F))
-    else -> if (isDay) listOf(Color(0xFF1F6FC9), Color(0xFF6BB6F0)) else listOf(Color(0xFF070F26), Color(0xFF26355C))
+    WeatherCodes.isThunder(code) -> if (isDay) listOf(Color(0xFF9AA9BC), Color(0xFFD3DAE3)) else listOf(Color(0xFF232634), Color(0xFF474D63))
+    WeatherCodes.isSnow(code) -> if (isDay) listOf(Color(0xFFC6D8EA), Color(0xFFEEF4FA)) else listOf(Color(0xFF1E2838), Color(0xFF46566E))
+    WeatherCodes.isRain(code) -> if (isDay) listOf(Color(0xFFA6BACE), Color(0xFFDCE5EE)) else listOf(Color(0xFF121A26), Color(0xFF2E3B4C))
+    code == 45 || code == 48 -> if (isDay) listOf(Color(0xFFC3CCD4), Color(0xFFEEF1F4)) else listOf(Color(0xFF1E2329), Color(0xFF444B53))
+    code == 3 -> if (isDay) listOf(Color(0xFFB0C4D8), Color(0xFFE4ECF3)) else listOf(Color(0xFF1A212C), Color(0xFF3B4757))
+    code == 2 -> if (isDay) listOf(Color(0xFF8CC4EE), Color(0xFFDCEFFC)) else listOf(Color(0xFF0E1830), Color(0xFF34435F))
+    else -> if (isDay) listOf(Color(0xFF7CC0F2), Color(0xFFE0F2FE)) else listOf(Color(0xFF070F26), Color(0xFF26355C))
 }
+
+/** 背景上（卡片外）的文字顏色：白天深色、晚上白色。 */
+fun onSkyColor(isDay: Boolean): Color = if (isDay) com.charlie.weather.ui.theme.Palette.Ink else Color.White
 
 @Composable
 fun WeatherBackground(code: Int, isDay: Boolean, modifier: Modifier = Modifier) {
@@ -59,15 +65,15 @@ fun WeatherBackground(code: Int, isDay: Boolean, modifier: Modifier = Modifier) 
         when {
             code == 2 -> CloudLayer(count = 3, color = Color.White, alpha = if (isDay) 0.22f else 0.12f, seed = 11)
             code == 3 || rain || snow || thunder -> {
-                val tint = if (rain || thunder) Color(0xFFB8C2CC) else Color.White
+                val tint = if (rain || thunder) (if (isDay) Color(0xFF8A9BAE) else Color(0xFFB8C2CC)) else Color.White
                 CloudLayer(count = 4, color = tint, alpha = if (isDay) 0.16f else 0.1f, seed = 21, scale = 1.3f, speed = 0.6f)
                 CloudLayer(count = 3, color = tint, alpha = if (isDay) 0.2f else 0.12f, seed = 22, scale = 1.7f, speed = 1f)
             }
         }
         if (fog) FogEffect()
         when {
-            rain -> RainEffect(heavy = code in listOf(65, 67, 82) || thunder)
-            snow -> SnowEffect()
+            rain -> RainEffect(heavy = code in listOf(65, 67, 82) || thunder, isDay = isDay)
+            snow -> SnowEffect(isDay)
         }
         if (thunder) LightningEffect()
     }
@@ -204,7 +210,8 @@ private fun particles(count: Int, seed: Int) = Random(seed).let { r ->
 }
 
 @Composable
-private fun RainEffect(heavy: Boolean) {
+private fun RainEffect(heavy: Boolean, isDay: Boolean) {
+    val dropColor = if (isDay) com.charlie.weather.ui.theme.Palette.Rain else Color.White
     val drops = remember(heavy) { particles(if (heavy) 120 else 70, 1) }
     val progress by rememberInfiniteTransition(label = "rain").animateFloat(
         initialValue = 0f,
@@ -219,7 +226,7 @@ private fun RainEffect(heavy: Boolean) {
             val y = t * (size.height + length) - length
             val x = d.x * size.width - t * size.width * 0.04f
             drawLine(
-                color = Color.White.copy(alpha = 0.18f + d.size * 0.17f),
+                color = dropColor.copy(alpha = 0.18f + d.size * 0.17f),
                 start = Offset(x, y),
                 end = Offset(x - length * 0.12f, y + length * (0.6f + d.size * 0.6f)),
                 strokeWidth = 1.2f + d.size * 1.2f,
@@ -230,7 +237,8 @@ private fun RainEffect(heavy: Boolean) {
 }
 
 @Composable
-private fun SnowEffect() {
+private fun SnowEffect(isDay: Boolean) {
+    val flakeColor = if (isDay) Color(0xFF94A3B8) else Color.White
     val flakes = remember { particles(70, 2) }
     val progress by rememberInfiniteTransition(label = "snow").animateFloat(
         initialValue = 0f,
@@ -243,7 +251,7 @@ private fun SnowEffect() {
             val t = (progress * f.speed + f.phase) % 1f
             val y = t * (size.height + 20f) - 10f
             val x = f.x * size.width + sin((t * 4 + f.phase) * 2 * PI).toFloat() * 18f
-            drawCircle(Color.White.copy(alpha = 0.55f + f.size * 0.35f), radius = 2f + f.size * 4f, center = Offset(x, y))
+            drawCircle(flakeColor.copy(alpha = 0.55f + f.size * 0.35f), radius = 2f + f.size * 4f, center = Offset(x, y))
         }
     }
 }

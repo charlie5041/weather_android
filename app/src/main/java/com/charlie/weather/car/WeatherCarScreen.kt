@@ -163,7 +163,7 @@ class RouteCarScreen(carContext: CarContext, private val route: FavoriteRoute) :
                 pane.addAction(Action.Builder().setTitle("重新整理").setOnClickListener { load(); invalidate() }.build())
             }
             failed -> {
-                pane.addRow(Row.Builder().setTitle("無法取得沿途天氣").addText("請檢查網路連線").build())
+                pane.addRow(Row.Builder().setTitle("無法取得沿路天氣").addText("請檢查網路連線").build())
                 pane.addAction(Action.Builder().setTitle("重試").setOnClickListener { load(); invalidate() }.build())
             }
             else -> pane.setLoading(true)

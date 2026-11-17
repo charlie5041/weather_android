@@ -1,5 +1,8 @@
 package com.charlie.weather.ui
 
+import com.charlie.weather.ui.theme.Palette
+import com.charlie.weather.ui.theme.aurora
+
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,7 +72,7 @@ import com.charlie.weather.sync.MovementDetector
 import com.charlie.weather.sync.WeatherNotifier
 import com.charlie.weather.sync.WeatherSyncWorker
 
-private val SectionColor = Color(0xFF1C1C1E)
+private val SectionColor = PanelColor
 
 @Composable
 fun SettingsScreen(
@@ -129,30 +132,30 @@ fun SettingsScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .aurora()
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("設定", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+            Text("設定", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, modifier = Modifier.weight(1f))
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Color.White)
+                Icon(Icons.Filled.Close, contentDescription = "關閉", tint = Palette.Ink)
             }
         }
 
         if (!canNotify) {
             Section {
-                Text("通知目前未開啟", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                Text("開啟後才能收到降雨提醒、天氣特報與每日天氣。", color = Color.Gray, fontSize = 14.sp)
+                Text("通知目前未開啟", color = Palette.Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("開啟後才能收到降雨提醒、天氣特報與每日天氣。", color = Palette.Ink2, fontSize = 14.sp)
                 TextButton(onClick = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } else {
                         openNotificationSettings(context)
                     }
-                }) { Text("開啟通知", color = Color(0xFF0A84FF), fontSize = 16.sp) }
+                }) { Text("開啟通知", color = Palette.Primary, fontSize = 16.sp) }
             }
         }
 
@@ -163,12 +166,12 @@ fun SettingsScreen(
                 settings.temperatureUnit = it.name
                 WeatherSyncWorker.runNow(context)
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ChoiceRow("風速", WindUnit.entries, Units.wind, { if (it == WindUnit.BEAUFORT) "蒲福風級" else it.label }) {
                 Units.wind = it
                 settings.windUnit = it.name
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow(
                 "使用中央氣象署資料",
                 "在台灣以最近測站實測、鄉鎮預報與天氣特報取代 Open-Meteo；關閉後全部使用 Open-Meteo",
@@ -196,31 +199,31 @@ fun SettingsScreen(
             ChoiceRow<NotificationPreset?>("通知量", NotificationPreset.entries, preset, { it?.label.orEmpty() }) { it?.let(::applyPreset) }
             Text(
                 preset?.description ?: "自訂：下面的開關和任何一組都不同。",
-                color = Color.Gray,
+                color = Palette.Ink2,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(bottom = 6.dp),
             )
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow("天氣特報", "中央氣象署對所在縣市發布豪雨、強風、颱風等特報時通知", warnings) {
                 warnings = it
                 settings.warningAlerts = it
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow("常用路線出發前", "設了出發時間的常用路線，出發前 1.5 小時內通知沿路天氣；各路線也可以個別關掉", routeReminders) {
                 routeReminders = it
                 settings.routeReminders = it
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow("降雨提醒", "未來 2 小時內降雨機率達 60% 時提醒（3 小時內不重複）；常用路線 2 小時內要出發時交給出發提醒", rain) {
                 rain = it
                 settings.rainAlerts = it
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow("自訂地點提醒", "住家、公司等自訂地點也會收到降雨提醒與天氣特報", placeAlerts) {
                 placeAlerts = it
                 settings.placeAlerts = it
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow("每日早晨天氣", "每天早上推送今日溫度、降雨機率與特報摘要", morning) {
                 morning = it
                 settings.morningSummary = it
@@ -231,12 +234,12 @@ fun SettingsScreen(
                     settings.morningHour = it
                 }
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow("騎乘中前方降雨", "騎乘中前方 20 分鐘內會遇到雨時通知並用語音提醒；進行中橫條一直都會顯示", rideRain) {
                 rideRain = it
                 settings.rideRainAlerts = it
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow("騎乘結束", "「足跡已儲存」「行車提醒已結束」的通知；App 開著時仍會顯示足跡已儲存", rideEnd) {
                 rideEnd = it
                 settings.rideEndNotices = it
@@ -244,27 +247,27 @@ fun SettingsScreen(
         }
         Text(
             "通知與小工具以「${primaryCityName ?: "城市列表第一個城市"}」為準（城市列表最上方的城市），背景約每 30 分鐘更新一次。",
-            color = Color.Gray,
+            color = Palette.Ink2,
             fontSize = 13.sp,
         )
 
         SectionTitle("騎乘時")
         Section {
-            ToggleRow("測速照相提醒", "沿路天氣列出沿途的測速照相；騎乘中與行車提醒接近前 500 公尺提醒（機車與汽車）", speedCameras) {
+            ToggleRow("測速照相提醒", "沿路天氣列出沿路的測速照相；騎乘中與行車提醒接近前 500 公尺提醒（機車與汽車）", speedCameras) {
                 speedCameras = it
                 settings.speedCameras = it
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow("語音播報", "騎乘中與行車提醒時，用語音念出測速照相與前方降雨", voiceAlerts) {
                 voiceAlerts = it
                 settings.voiceAlerts = it
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-            ToggleRow("騎乘時也記錄足跡", "騎乘中與行車提醒時記錄軌跡，結束後存到「足跡」分頁（「足跡」分頁的開始記錄不受影響）；只存在這支手機，記錄時定位較頻繁、較耗電", recordJourneys) {
+            HorizontalDivider(color = Palette.Divider)
+            ToggleRow("騎乘時也記錄足跡", "騎乘和行車提醒時自動記錄，結束後存到足跡。只存在這支手機；記錄時定位較頻繁，比較耗電", recordJourneys) {
                 recordJourneys = it
                 settings.recordJourneys = it
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow("騎乘中畫面保持螢幕開啟", "點進行中橫條打開的騎乘中畫面開著時，螢幕不會自動關閉；較耗電", keepScreenOn) {
                 keepScreenOn = it
                 settings.keepScreenOnRiding = it
@@ -272,7 +275,7 @@ fun SettingsScreen(
         }
         Text(
             "測速照相使用警政署公布的固定式測速執法地點（每週更新）與使用者回報的移動式測速，與現場可能不同，請依實際速限行駛。",
-            color = Color.Gray,
+            color = Palette.Ink2,
             fontSize = 13.sp,
         )
 
@@ -285,12 +288,12 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(place.displayName, color = Color.White, fontSize = 17.sp)
-                        Text(place.address ?: place.name, color = Color.Gray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(place.displayName, color = Palette.Ink, fontSize = 17.sp)
+                        Text(place.address ?: place.name, color = Palette.Ink2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Text("›", color = Color.Gray, fontSize = 20.sp)
+                    Text("›", color = Palette.Ink2, fontSize = 20.sp)
                 }
-                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                HorizontalDivider(color = Palette.Divider)
             }
             Text(
                 "＋ 新增住家、公司等地點",
@@ -301,7 +304,7 @@ fun SettingsScreen(
         }
         Text(
             "用在常用路線的起終點、地點的降雨提醒，以及分享足跡時要藏起來的範圍。",
-            color = Color.Gray,
+            color = Palette.Ink2,
             fontSize = 13.sp,
         )
         Text(
@@ -318,7 +321,7 @@ fun SettingsScreen(
                 settings.sharePrivacyRadiusM = it
             }
             places.filter { it.label != null && !it.isCurrentLocation }.forEach { place ->
-                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                HorizontalDivider(color = Palette.Divider)
                 ToggleRow(place.displayName, place.address ?: place.name, place.id !in privacyExcluded) { on ->
                     privacyExcluded = if (on) privacyExcluded - place.id else privacyExcluded + place.id
                     settings.sharePrivacyExcluded = privacyExcluded
@@ -328,7 +331,7 @@ fun SettingsScreen(
         Text(
             "分享足跡時，這些地點周圍的路線不會出現在圖上，起點與終點也會再多藏 ${SharePrivacy.MIN_TRIM_M}–${SharePrivacy.MAX_TRIM_M} 公尺（每趟不同）。" +
                 "手機裡的足跡不受影響。",
-            color = Color.Gray,
+            color = Palette.Ink2,
             fontSize = 13.sp,
         )
 
@@ -336,10 +339,10 @@ fun SettingsScreen(
         Section {
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("背景記錄", color = Color.White, fontSize = 17.sp)
+                    Text("背景記錄", color = Palette.Ink, fontSize = 17.sp)
                     Text(
                         if (backgroundOk) "電池不限制，關掉螢幕也會持續記錄" else "電池最佳化開著，關螢幕後系統可能停掉定位；建議改成「不限制」",
-                        color = Color.Gray,
+                        color = Palette.Ink2,
                         fontSize = 13.sp,
                     )
                 }
@@ -349,7 +352,7 @@ fun SettingsScreen(
                     }
                 }
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             ToggleRow(
                 "移動時自動繼續",
                 when {
@@ -366,18 +369,18 @@ fun SettingsScreen(
                     activityLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
                 }
             }
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            HorizontalDivider(color = Palette.Divider)
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("足跡佔用空間", color = Color.White, fontSize = 17.sp)
+                    Text("足跡佔用空間", color = Palette.Ink, fontSize = 17.sp)
                     Text(
                         journeyBytes?.let { "%.1f MB（含照片）".format(Locale.US, it / 1_048_576.0) } ?: "計算中…",
-                        color = Color.Gray,
+                        color = Palette.Ink2,
                         fontSize = 14.sp,
                     )
                 }
                 TextButton(onClick = { confirmClearJourneys = true }, enabled = (journeyBytes ?: 0L) > 0L) {
-                    Text("全部清除", color = Color(0xFFFF453A), fontSize = 16.sp)
+                    Text("全部清除", color = Palette.Danger, fontSize = 16.sp)
                 }
             }
         }
@@ -390,17 +393,17 @@ fun SettingsScreen(
             }
         }
         Text(
-            "沿路線每隔幾公里查一次天氣。間距越小越細，但沿途清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。",
-            color = Color.Gray,
+            "沿路線每隔幾公里查一次天氣。間距越小越細，但沿路清單越長；一條路線最多查 ${RoutePlanner.MAX_POINTS} 個點，路線很長時間距會自動放大。",
+            color = Palette.Ink2,
             fontSize = 13.sp,
         )
 
         SectionTitle("桌面小工具")
         Section {
-            Text("在桌面空白處長按 → 小工具 → 找到「一路晴」，拖曳到桌面即可。", color = Color.White, fontSize = 15.sp)
-            Text("可調整成小、中、大三種尺寸：中型顯示逐時預報，大型再加上每日預報。", color = Color.Gray, fontSize = 14.sp)
+            Text("在桌面空白處長按 → 小工具 → 找到「一路晴」，拖曳到桌面即可。", color = Palette.Ink, fontSize = 15.sp)
+            Text("可調整成小、中、大三種尺寸：中型顯示逐時預報，大型再加上每日預報。", color = Palette.Ink2, fontSize = 14.sp)
             TextButton(onClick = { WeatherSyncWorker.runNow(context) }) {
-                Text("立即更新小工具", color = Color(0xFF0A84FF), fontSize = 16.sp)
+                Text("立即更新小工具", color = Palette.Primary, fontSize = 16.sp)
             }
         }
 
@@ -410,7 +413,7 @@ fun SettingsScreen(
         Text(
             "版本 ${version ?: "-"}\n資料來源：中央氣象署、環境部、警政署（政府資料開放授權條款）、Open-Meteo（CC BY 4.0）、" +
                 "GeoNames（CC BY 4.0）、Natural Earth",
-            color = Color.Gray,
+            color = Palette.Ink2,
             fontSize = 12.sp,
             lineHeight = 17.sp,
         )
@@ -420,14 +423,14 @@ fun SettingsScreen(
     if (confirmClearJourneys) {
         AlertDialog(
             onDismissRequest = { confirmClearJourneys = false },
-            containerColor = PanelColor,
-            title = { Text("清除全部足跡？", color = Color.White) },
-            text = { Text("所有足跡與加入的照片副本都會刪除，無法復原。相簿裡的照片不受影響。", color = Color.Gray) },
+            containerColor = Color.White,
+            title = { Text("清除全部足跡？", color = Palette.Ink) },
+            text = { Text("所有足跡與加入的照片副本都會刪除，無法復原。相簿裡的照片不受影響。", color = Palette.Ink2) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmClearJourneys = false
                     scope.launch { journeyStore.clearAll() }
-                }) { Text("清除", color = Color(0xFFFF453A)) }
+                }) { Text("清除", color = Palette.Danger) }
             },
             dismissButton = { TextButton(onClick = { confirmClearJourneys = false }) { Text("取消", color = Accent) } },
         )
@@ -448,12 +451,12 @@ private fun HourChips(hours: List<Int>, selected: Int, onSelect: (Int) -> Unit) 
             val active = hour == selected
             Text(
                 "${hour}:00",
-                color = if (active) Color.Black else Color.White,
+                color = if (active) Palette.OnPrimary else Palette.Ink,
                 fontSize = 14.sp,
                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(if (active) Color.White else Color(0xFF3A3A3C))
+                    .background(if (active) Palette.Primary else Palette.Well)
                     .clickable { onSelect(hour) }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
@@ -463,7 +466,7 @@ private fun HourChips(hours: List<Int>, selected: Int, onSelect: (Int) -> Unit) 
 
 @Composable
 private fun SectionTitle(text: String) {
-    Text(text, color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+    Text(text, color = Palette.Ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
 }
 
 @Composable
@@ -481,21 +484,21 @@ private fun Section(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun <T> ChoiceRow(title: String, options: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = Color.White, fontSize = 17.sp, modifier = Modifier.weight(1f))
+        Text(title, color = Palette.Ink, fontSize = 17.sp, modifier = Modifier.weight(1f))
         Row(
-            Modifier.clip(RoundedCornerShape(9.dp)).background(Color(0xFF2C2C2E)).padding(2.dp),
+            Modifier.clip(RoundedCornerShape(9.dp)).background(Palette.Well).padding(2.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             options.forEach { option ->
                 val active = option == selected
                 Text(
                     label(option),
-                    color = if (active) Color.Black else Color.White,
+                    color = if (active) Palette.OnPrimary else Palette.Ink,
                     fontSize = 14.sp,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                     modifier = Modifier
                         .clip(RoundedCornerShape(7.dp))
-                        .background(if (active) Color.White else Color.Transparent)
+                        .background(if (active) Palette.Primary else Color.Transparent)
                         .clickable { onSelect(option) }
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                 )
@@ -508,13 +511,13 @@ private fun <T> ChoiceRow(title: String, options: List<T>, selected: T, label: (
 private fun ToggleRow(title: String, description: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, color = Color.White, fontSize = 17.sp)
-            Text(description, color = Color.Gray, fontSize = 13.sp)
+            Text(title, color = Palette.Ink, fontSize = 17.sp)
+            Text(description, color = Palette.Ink2, fontSize = 13.sp)
         }
         Switch(
             checked = checked,
             onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF30D158), checkedThumbColor = Color.White),
+            colors = SwitchDefaults.colors(checkedTrackColor = Palette.Dry, checkedThumbColor = Color.White),
         )
     }
 }

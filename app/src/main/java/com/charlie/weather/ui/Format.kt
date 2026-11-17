@@ -32,6 +32,7 @@ object WeatherCodes {
         else -> "—"
     }
 
+    /** 只給桌面小工具與通知用（Glance 不能畫 Canvas）；App 內用 [WeatherIcon]。 */
     fun emoji(code: Int, isDay: Boolean): String = when (code) {
         0 -> if (isDay) "☀️" else "🌙"
         1 -> if (isDay) "🌤️" else "🌙"
@@ -81,12 +82,12 @@ fun compassLabel(degrees: Int): String {
 }
 
 private val tempAnchors = listOf(
-    -10.0 to Color(0xFF7D8CFF),
-    0.0 to Color(0xFF5AC8FA),
-    10.0 to Color(0xFF63D3A8),
-    20.0 to Color(0xFFF7D046),
-    28.0 to Color(0xFFFF9F0A),
-    36.0 to Color(0xFFFF453A),
+    -10.0 to Color(0xFF6366F1),
+    0.0 to Color(0xFF0EA5E9),
+    10.0 to Color(0xFF14B8A6),
+    20.0 to Color(0xFFEAB308),
+    28.0 to Color(0xFFF59E0B),
+    36.0 to Color(0xFFEF4444),
 )
 
 fun temperatureColor(t: Double): Color {
@@ -98,6 +99,6 @@ fun temperatureColor(t: Double): Color {
     return lerp(c0, c1, ((t - t0) / (t1 - t0)).toFloat())
 }
 
-val PrecipBlue = Color(0xFF8ED1FC)
+val PrecipBlue = com.charlie.weather.ui.theme.Palette.RainText
 
 fun com.charlie.weather.data.CurrentConditions.conditionText(): String = description ?: WeatherCodes.description(weatherCode)

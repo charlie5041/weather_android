@@ -178,7 +178,7 @@ object RideTracker {
         val arrival = now.plusSeconds((data.path.durationMinutes * 60 * (1 - progress.fraction)).roundToLong())
         val remain = "還有 %.1f 公里，約 %02d:%02d 抵達".format(Locale.US, progress.remainingKm, arrival.hour, arrival.minute)
         if (progress.remainingKm <= ARRIVE_KM) {
-            return RideStatus("已抵達${data.to.displayName}", "沿途提醒已結束", null, null, arrived = true)
+            return RideStatus("已抵達${data.to.displayName}", "沿路提醒已結束", null, null, arrived = true)
         }
         val stops = ahead(data, progress.fraction, now).stops
         val rain = stops.firstOrNull { it.wet }
